@@ -44,47 +44,94 @@ def list_files(repo_root) -> list[str]:
 
 
 def _hash_file(repo_root, rel) -> str | None:
+    """sha1 of a regular file inside the repo; symlinks that leave the repo are not followed."""
     try:
-        return sha1((Path(repo_root) / rel).read_bytes())
-    except OSError:
+        root = Path(repo_root).resolve()
+        f = (root / rel).resolve()
+        f.relative_to(root)
+        return sha1(f.read_bytes())
+    except (OSError, ValueError):
         return None
 
 
 def _ensure_dirs(con, rel: str) -> None:
-    upsert_path(con, "", "dir")
+    upsert_path(con, "", "dir", commit=False)
     parts = rel.split("/")[:-1]
     for i in range(1, len(parts) + 1):
-        upsert_path(con, "/".join(parts[:i]), "dir")
+        upsert_path(con, "/".join(parts[:i]), "dir", commit=False)
 
 
 def _add_file(con, repo_root, rel) -> None:
+    """Register a file (no commit; callers batch)."""
     _ensure_dirs(con, rel)
     h = _hash_file(repo_root, rel)
     if h is None:
         return
-    upsert_path(con, rel, "file", content_hash=h)
-    # upsert's COALESCE keeps old hash when new is None; here h is never None.
+    try:
+        st = os.stat(Path(repo_root) / rel)
+        mt, sz = st.st_mtime_ns, st.st_size
+    except OSError:
+        mt = sz = None
+    upsert_path(con, rel, "file", content_hash=h, mtime_ns=mt, size=sz, commit=False)
+
+
+def _reanchor_by_hash(con) -> int:
+    """Memories whose anchor file vanished follow the file if exactly one current file has
+    the anchored content hash (plain `mv`, or a committed rename)."""
+    n = 0
+    rows = con.execute(
+        """SELECT m.id, m.anchor_hash FROM memories m WHERE m.anchor_path!='' AND m.anchor_hash IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM paths p WHERE p.path=m.anchor_path)""").fetchall()
+    for r in rows:
+        cands = con.execute("SELECT path FROM paths WHERE kind='file' AND content_hash=?",
+                            (r["anchor_hash"],)).fetchall()
+        if len(cands) == 1:
+            con.execute("UPDATE memories SET anchor_path=?, stale=0, updated_at=? WHERE id=?",
+                        (cands[0][0], time.time(), r["id"]))
+            n += 1
+    return n
 
 
 def scan_repo(con, repo_root) -> dict:
-    """Populate `paths` from the working tree; removes rows for vanished paths."""
+    """Populate `paths` from the working tree in ONE transaction; removes rows for vanished
+    paths. Files whose mtime and size are unchanged are neither re-hashed nor rewritten."""
     files = list_files(repo_root)
     now = time.time()
+    root = Path(repo_root)
     keep = {""}
     for f in files:
         parts = f.split("/")
         for i in range(1, len(parts)):
             keep.add("/".join(parts[:i]))
         keep.add(f)
-    upsert_path(con, "", "dir")
+    existing = {r["path"]: r for r in con.execute(
+        "SELECT path, kind, content_hash, mtime_ns, size FROM paths")}
+    fileset = set(files)
+    for d in sorted(p for p in keep if p not in fileset):
+        if d not in existing or existing[d]["kind"] != "dir":
+            upsert_path(con, d, "dir", commit=False)
+    hashed = 0
     for f in files:
-        _add_file(con, repo_root, f)
-    existing = [r[0] for r in con.execute("SELECT path FROM paths")]
+        old = existing.get(f)
+        try:
+            st = os.stat(root / f)
+        except OSError:
+            continue
+        if old is not None and old["kind"] == "file" and old["content_hash"] \
+                and old["mtime_ns"] == st.st_mtime_ns and old["size"] == st.st_size:
+            continue
+        h = _hash_file(repo_root, f)
+        if h is None:
+            continue
+        hashed += 1
+        upsert_path(con, f, "file", content_hash=h, mtime_ns=st.st_mtime_ns,
+                    size=st.st_size, commit=False)
     gone = [p for p in existing if p not in keep]
     con.executemany("DELETE FROM paths WHERE path=?", [(p,) for p in gone])
+    reanchored = _reanchor_by_hash(con)
     con.commit()
     return {"files": len(files), "dirs": len(keep) - len(files) - 1,
-            "removed": len(gone), "at": now}
+            "removed": len(gone), "hashed": hashed, "reanchored": reanchored, "at": now}
 
 
 def _prune_empty_dirs(con) -> None:
@@ -117,6 +164,7 @@ def refresh_from_git_diff(con, repo_root, since_rev: str | None = None) -> dict:
     stats = {"added": 0, "modified": 0, "deleted": 0, "renamed": 0}
     i = 0
     now = time.time()
+    dir_moves: set = set()
     while i < len(toks):
         status = toks[i]
         c = status[0]
@@ -128,8 +176,12 @@ def refresh_from_git_diff(con, repo_root, since_rev: str | None = None) -> dict:
             _add_file(con, repo_root, new)
             if c == "R":
                 con.execute("DELETE FROM paths WHERE path=?", (old,))
-                con.execute("UPDATE memories SET anchor_path=?, updated_at=? "
-                            "WHERE anchor_path=?", (new, now, old))
+                con.execute("UPDATE memories SET anchor_path=?, anchor_hash=COALESCE(?, anchor_hash),"
+                            " stale=0, updated_at=? WHERE anchor_path=?",
+                            (new, _hash_file(repo_root, new), now, old))
+                od, nd = os.path.dirname(old), os.path.dirname(new)
+                if od != nd and os.path.basename(old) == os.path.basename(new):
+                    dir_moves.add((od, nd))
                 stats["renamed"] += 1
             else:
                 stats["added"] += 1
@@ -150,27 +202,39 @@ def refresh_from_git_diff(con, repo_root, since_rev: str | None = None) -> dict:
         if not _skipped(f) and (Path(repo_root) / f).is_file():
             _add_file(con, repo_root, f)
             stats["added"] += 1
+    for od, nd in sorted(dir_moves):   # directory renames: rewrite anchors under the old dir
+        if od and not (Path(repo_root) / od).exists():
+            con.execute("UPDATE memories SET anchor_path=? || substr(anchor_path, ?), updated_at=? "
+                        "WHERE anchor_path=? OR substr(anchor_path,1,?)=?",
+                        (nd, len(od) + 1, now, od, len(od) + 1, od + "/"))
+    stats["reanchored"] = _reanchor_by_hash(con)  # plain `mv`: D + untracked, same hash
     con.commit()
     _prune_empty_dirs(con)
     return stats
 
 
 def mark_stale(con, repo_root) -> int:
-    """Set stale=1 where the anchor path is gone or its hash differs from anchor_hash.
+    """Reconcile `stale` with the working tree (reversible).
 
-    Memories without an anchor_hash (or repo-wide, anchor '') never go stale.
-    Returns the number of newly staled memories.
+    A memory is stale when its anchor is gone, or its anchor_hash is set and differs from
+    the file's current hash. Stale memories whose anchor matches again are revived.
+    Repo-wide memories (anchor '') never go stale. Returns the number newly staled.
     """
-    rows = con.execute("SELECT id, anchor_path, anchor_hash FROM memories "
-                       "WHERE stale=0 AND anchor_hash IS NOT NULL AND anchor_path!=''"
-                       ).fetchall()
+    rows = con.execute("SELECT id, anchor_path, anchor_hash, stale FROM memories "
+                       "WHERE anchor_path!=''").fetchall()
+    root = Path(repo_root)
     n = 0
+    now = time.time()
     for r in rows:
-        p = Path(repo_root) / r["anchor_path"]
-        cur = _hash_file(repo_root, r["anchor_path"]) if p.is_file() else None
-        if cur is None or cur != r["anchor_hash"]:
-            con.execute("UPDATE memories SET stale=1, updated_at=? WHERE id=?",
-                        (time.time(), r["id"]))
-            n += 1
+        p = root / r["anchor_path"]
+        if r["anchor_hash"] is not None:
+            cur = _hash_file(repo_root, r["anchor_path"]) if p.is_file() else None
+            bad = cur is None or cur != r["anchor_hash"]
+        else:
+            bad = not p.exists()
+        if bad != bool(r["stale"]):
+            con.execute("UPDATE memories SET stale=?, updated_at=? WHERE id=?",
+                        (int(bad), now, r["id"]))
+            n += bad
     con.commit()
     return n

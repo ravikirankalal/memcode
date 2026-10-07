@@ -95,7 +95,7 @@ class TestScan(Base):
         os.remove(self.root / "src/b.py")
         tree.mark_stale(self.con, self.root)
         st = {r["id"]: r["stale"] for r in self.con.execute("SELECT id, stale FROM memories")}
-        self.assertEqual((st[m2], st[m4]), (1, 0))
+        self.assertEqual((st[m2], st[m4]), (1, 1))  # missing anchor is stale even without hash
 
     def test_refresh_modify_delete_add(self):
         tree.scan_repo(self.con, self.root)

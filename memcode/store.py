@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import subprocess
 import time
 from pathlib import Path
 
@@ -19,7 +20,9 @@ CREATE TABLE IF NOT EXISTS paths (
   kind TEXT NOT NULL,             -- 'dir' | 'file'
   content_hash TEXT,              -- sha1 of file contents (files only)
   annotation TEXT,                -- short human/agent note shown in the pinned map
-  updated_at REAL NOT NULL
+  updated_at REAL NOT NULL,
+  mtime_ns INTEGER,               -- stat cache so unchanged files are not re-hashed
+  size INTEGER
 );
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,6 +48,7 @@ CREATE TABLE IF NOT EXISTS events (          -- raw (redacted) hook events for t
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, ts REAL NOT NULL
 );
+CREATE INDEX IF NOT EXISTS events_session ON events(session, id);
 CREATE TABLE IF NOT EXISTS retrievals (      -- for reinforce-on-success only
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL
@@ -62,39 +66,112 @@ def db_path(repo_root: str | os.PathLike) -> Path:
     return Path(repo_root) / ".memcode" / "memory.db"
 
 
+BUSY_TIMEOUT_MS = 5000
+EVENTS_PER_SESSION = 400        # only the last 200 are ever replayed
+EVENT_MAX_AGE_S = 30 * 86400
+
+
+def resolve_root(hint: str | os.PathLike | None = None) -> str:
+    """Repo root used by hooks and the MCP server alike: CLAUDE_PROJECT_DIR, else
+    `git rev-parse --show-toplevel` from `hint` (or cwd), else `hint`/cwd itself."""
+    env = os.environ.get("CLAUDE_PROJECT_DIR")
+    if env and os.path.isdir(env):
+        return os.path.abspath(env)
+    start = str(hint) if hint and os.path.isdir(str(hint)) else os.getcwd()
+    try:
+        r = subprocess.run(["git", "-C", start, "rev-parse", "--show-toplevel"],
+                           capture_output=True, check=False, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            return os.path.abspath(r.stdout.decode("utf-8", "surrogateescape").strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return os.path.abspath(start)
+
+
+def _ensure_ignored(repo_root: Path, memdir: Path) -> None:
+    """Keep .memcode/ out of the user's git history (best effort, once per DB)."""
+    try:
+        (memdir / ".gitignore").write_text("*\n")
+    except OSError:
+        pass
+    try:
+        r = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--git-path", "info/exclude"],
+                           capture_output=True, check=False, timeout=5)
+        if r.returncode != 0:
+            return
+        ex = Path(r.stdout.decode().strip())
+        if not ex.is_absolute():
+            ex = Path(repo_root) / ex
+        cur = ex.read_text() if ex.exists() else ""
+        if ".memcode/" not in cur.split():
+            ex.parent.mkdir(parents=True, exist_ok=True)
+            with open(ex, "a") as fh:
+                fh.write(("" if not cur or cur.endswith("\n") else "\n") + ".memcode/\n")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+
+
+def _migrate(con) -> None:
+    cols = {r[1] for r in con.execute("PRAGMA table_info(paths)")}
+    for col in ("mtime_ns", "size"):
+        if col not in cols:
+            try:
+                con.execute(f"ALTER TABLE paths ADD COLUMN {col} INTEGER")
+            except sqlite3.OperationalError:
+                pass  # another process migrated first
+    con.commit()
+
+
 def connect(repo_root: str | os.PathLike) -> sqlite3.Connection:
+    """Open the DB safe for concurrent hook processes: WAL + busy_timeout."""
     p = db_path(repo_root)
+    new = not p.exists()
     p.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(p)
+    con = sqlite3.connect(p, timeout=30)
     con.row_factory = sqlite3.Row
+    con.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA synchronous=NORMAL")
     con.executescript(SCHEMA)
+    _migrate(con)
+    if new:
+        try:
+            os.chmod(p.parent, 0o700)
+            os.chmod(p, 0o600)
+        except OSError:
+            pass
+        _ensure_ignored(Path(repo_root), p.parent)
     return con
 
 
 def upsert_path(con, path: str, kind: str, content_hash: str | None = None,
-                annotation: str | None = None) -> None:
+                annotation: str | None = None, mtime_ns: int | None = None,
+                size: int | None = None, commit: bool = True) -> None:
     parent = None if path == "" else ("" if "/" not in path else path.rsplit("/", 1)[0])
     con.execute(
-        """INSERT INTO paths(path,parent,kind,content_hash,annotation,updated_at)
-           VALUES(?,?,?,?,?,?)
+        """INSERT INTO paths(path,parent,kind,content_hash,annotation,updated_at,mtime_ns,size)
+           VALUES(?,?,?,?,?,?,?,?)
            ON CONFLICT(path) DO UPDATE SET kind=excluded.kind,
              content_hash=COALESCE(excluded.content_hash,paths.content_hash),
              annotation=COALESCE(excluded.annotation,paths.annotation),
+             mtime_ns=excluded.mtime_ns, size=excluded.size,
              updated_at=excluded.updated_at""",
-        (path, parent, kind, content_hash, annotation, time.time()))
-    con.commit()
+        (path, parent, kind, content_hash, annotation, time.time(), mtime_ns, size))
+    if commit:
+        con.commit()
 
 
 def add_memory(con, trigger: str, text: str, anchor_path: str = "",
                anchor_hash: str | None = None, provenance: dict | None = None,
-               confidence: float = 0.5) -> int:
+               confidence: float = 0.5, commit: bool = True) -> int:
     now = time.time()
     cur = con.execute(
         """INSERT INTO memories(trigger,text,anchor_path,anchor_hash,provenance,
              confidence,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)""",
         (trigger, text, anchor_path, anchor_hash, json.dumps(provenance or {}),
          confidence, now, now))
-    con.commit()
+    if commit:
+        con.commit()
     return cur.lastrowid
 
 
@@ -103,8 +180,18 @@ def list_memories(con, include_stale: bool = False) -> list[sqlite3.Row]:
     return con.execute(q + " ORDER BY updated_at DESC").fetchall()
 
 
-def log_event(con, session: str, kind: str, payload: dict) -> int:
+def log_event(con, session: str, kind: str, payload: dict, commit: bool = True) -> int:
+    """Append an event and prune: keep the last EVENTS_PER_SESSION per session and
+    drop anything older than EVENT_MAX_AGE_S."""
+    now = time.time()
     cur = con.execute("INSERT INTO events(session,kind,payload,ts) VALUES(?,?,?,?)",
-                      (session, kind, json.dumps(payload), time.time()))
-    con.commit()
-    return cur.lastrowid
+                      (session, kind, json.dumps(payload), now))
+    new_id = cur.lastrowid
+    con.execute("""DELETE FROM events WHERE session=? AND id <
+                   COALESCE((SELECT id FROM events WHERE session=? ORDER BY id DESC
+                             LIMIT 1 OFFSET ?), 0)""",
+                (session, session, EVENTS_PER_SESSION - 1))
+    con.execute("DELETE FROM events WHERE ts < ?", (now - EVENT_MAX_AGE_S,))
+    if commit:
+        con.commit()
+    return new_id
