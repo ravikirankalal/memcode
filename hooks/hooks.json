@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "PYTHONPATH=${CLAUDE_PLUGIN_ROOT} python3 -m memcode.hook_cli SessionStart"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "PYTHONPATH=${CLAUDE_PLUGIN_ROOT} python3 -m memcode.hook_cli UserPromptSubmit"}]}],
+    "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "PYTHONPATH=${CLAUDE_PLUGIN_ROOT} python3 -m memcode.hook_cli PostToolUse"}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "PYTHONPATH=${CLAUDE_PLUGIN_ROOT} python3 -m memcode.hook_cli PreCompact"}]}]
+  }
+}
