@@ -44,6 +44,50 @@
       "rate_without_memory": 1.0,
       "exploratory_calls": 1,
       "context_tokens": 0
+    },
+    {
+      "scenario": "flaky_build_dir",
+      "config": "triggers",
+      "opportunities": 1,
+      "repeated_mistakes": 1,
+      "repeated_mistake_rate": 1.0,
+      "rate_with_memory": null,
+      "rate_without_memory": 1.0,
+      "exploratory_calls": 2,
+      "context_tokens": 0
+    },
+    {
+      "scenario": "no_print_use_logging",
+      "config": "triggers",
+      "opportunities": 2,
+      "repeated_mistakes": 0,
+      "repeated_mistake_rate": 0.0,
+      "rate_with_memory": 0.0,
+      "rate_without_memory": null,
+      "exploratory_calls": 0,
+      "context_tokens": 85
+    },
+    {
+      "scenario": "pytest_not_unittest",
+      "config": "triggers",
+      "opportunities": 1,
+      "repeated_mistakes": 1,
+      "repeated_mistake_rate": 1.0,
+      "rate_with_memory": null,
+      "rate_without_memory": 1.0,
+      "exploratory_calls": 2,
+      "context_tokens": 0
+    },
+    {
+      "scenario": "snake_case_modules",
+      "config": "triggers",
+      "opportunities": 1,
+      "repeated_mistakes": 1,
+      "repeated_mistake_rate": 1.0,
+      "rate_with_memory": null,
+      "rate_without_memory": 1.0,
+      "exploratory_calls": 1,
+      "context_tokens": 0
     }
   ],
   "summary": {
@@ -53,9 +97,14 @@
       "repeated_mistake_rate": 1.0,
       "exploratory_calls": 6,
       "context_tokens": 0
+    },
+    "triggers": {
+      "opportunities": 5,
+      "repeated_mistakes": 3,
+      "repeated_mistake_rate": 0.6,
+      "exploratory_calls": 5,
+      "context_tokens": 85
     }
   },
-  "errors": {
-    "triggers": "config 'triggers' needs memcode.triggers.TriggerEngine, which is not importable yet (No module named 'memcode.triggers'). Run with --configs none meanwhile."
-  }
+  "errors": {}
 }
