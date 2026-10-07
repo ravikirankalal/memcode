@@ -1,0 +1,111 @@
+{
+ "name": "no_print_use_logging",
+ "description": "Convention: use logging, not print; plus a second mistake on tabs.",
+ "mistakes": [
+  {
+   "id": "print",
+   "key_phrase": "logging",
+   "session": 3,
+   "event": {
+    "kind": "tool_use",
+    "session": 3,
+    "tool": "Edit",
+    "input": {
+     "file_path": "src/worker.py"
+    }
+   }
+  },
+  {
+   "id": "tabs",
+   "key_phrase": "4 spaces",
+   "session": 3,
+   "event": {
+    "kind": "tool_use",
+    "session": 3,
+    "tool": "Edit",
+    "input": {
+     "file_path": "src/worker.py"
+    }
+   }
+  }
+ ],
+ "events": [
+  {
+   "kind": "prompt",
+   "session": 1,
+   "text": "add debug output to worker"
+  },
+  {
+   "kind": "tool_use",
+   "session": 1,
+   "tool": "Edit",
+   "input": {
+    "file_path": "src/worker.py"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 1,
+   "exit_code": 0,
+   "output": "ok"
+  },
+  {
+   "kind": "prompt",
+   "session": 1,
+   "text": "Don't use print, use the logging module. Also indent with 4 spaces, not tabs."
+  },
+  {
+   "kind": "tool_use",
+   "session": 1,
+   "tool": "Edit",
+   "input": {
+    "file_path": "src/worker.py"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 1,
+   "exit_code": 0,
+   "output": "ok"
+  },
+  {
+   "kind": "prompt",
+   "session": 2,
+   "text": "unrelated docs change"
+  },
+  {
+   "kind": "tool_use",
+   "session": 2,
+   "tool": "Edit",
+   "input": {
+    "file_path": "docs/a.md"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 2,
+   "exit_code": 0,
+   "output": "ok"
+  },
+  {
+   "kind": "prompt",
+   "session": 3,
+   "text": "add progress output to the importer"
+  },
+  {
+   "kind": "tool_use",
+   "session": 3,
+   "tool": "Bash",
+   "input": {
+    "command": "grep -rn 'import logging' src"
+   },
+   "skip_if_memory": "logging"
+  },
+  {
+   "kind": "tool_result",
+   "session": 3,
+   "exit_code": 0,
+   "output": "src/worker.py:1"
+  }
+ ]
+}

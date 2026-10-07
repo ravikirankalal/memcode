@@ -1,0 +1,113 @@
+{
+ "name": "pytest_not_unittest",
+ "description": "Tests must run with pytest -q, not unittest; user corrects in session 1.",
+ "mistakes": [
+  {
+   "id": "unittest",
+   "key_phrase": "pytest",
+   "session": 3,
+   "event": {
+    "kind": "tool_use",
+    "session": 3,
+    "tool": "Bash",
+    "input": {
+     "command": "python -m unittest discover"
+    }
+   }
+  }
+ ],
+ "events": [
+  {
+   "kind": "prompt",
+   "session": 1,
+   "text": "add a test for parse_args"
+  },
+  {
+   "kind": "tool_use",
+   "session": 1,
+   "tool": "Bash",
+   "input": {
+    "command": "python -m unittest discover"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 1,
+   "exit_code": 1,
+   "output": "ModuleNotFoundError: No module named 'conftest_fixtures'"
+  },
+  {
+   "kind": "prompt",
+   "session": 1,
+   "text": "No, use pytest -q here, the fixtures need pytest."
+  },
+  {
+   "kind": "tool_use",
+   "session": 1,
+   "tool": "Bash",
+   "input": {
+    "command": "pytest -q"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 1,
+   "exit_code": 0,
+   "output": "3 passed"
+  },
+  {
+   "kind": "prompt",
+   "session": 2,
+   "text": "rename a flag"
+  },
+  {
+   "kind": "tool_use",
+   "session": 2,
+   "tool": "Bash",
+   "input": {
+    "command": "pytest -q"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 2,
+   "exit_code": 0,
+   "output": "3 passed"
+  },
+  {
+   "kind": "prompt",
+   "session": 3,
+   "text": "add a test for load_config"
+  },
+  {
+   "kind": "tool_use",
+   "session": 3,
+   "tool": "Bash",
+   "input": {
+    "command": "ls tests"
+   },
+   "skip_if_memory": "pytest"
+  },
+  {
+   "kind": "tool_result",
+   "session": 3,
+   "exit_code": 0,
+   "output": "test_cli.py"
+  },
+  {
+   "kind": "tool_use",
+   "session": 3,
+   "tool": "Bash",
+   "input": {
+    "command": "grep -rn pytest ."
+   },
+   "skip_if_memory": "pytest"
+  },
+  {
+   "kind": "tool_result",
+   "session": 3,
+   "exit_code": 0,
+   "output": "README.md: run pytest -q"
+  }
+ ]
+}
