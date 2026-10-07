@@ -1,0 +1,98 @@
+{
+ "name": "snake_case_modules",
+ "description": "Convention: module files are snake_case; correction in session 1.",
+ "mistakes": [
+  {
+   "id": "camel",
+   "key_phrase": "snake_case",
+   "session": 3,
+   "event": {
+    "kind": "tool_use",
+    "session": 3,
+    "tool": "Bash",
+    "input": {
+     "command": "touch src/UserCache.py"
+    }
+   }
+  }
+ ],
+ "events": [
+  {
+   "kind": "prompt",
+   "session": 1,
+   "text": "create a cache module for users"
+  },
+  {
+   "kind": "tool_use",
+   "session": 1,
+   "tool": "Write",
+   "input": {
+    "file_path": "src/UserCache.py"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 1,
+   "exit_code": 0,
+   "output": "ok"
+  },
+  {
+   "kind": "prompt",
+   "session": 1,
+   "text": "Wrong, module files in this repo are snake_case: user_cache.py"
+  },
+  {
+   "kind": "tool_use",
+   "session": 1,
+   "tool": "Write",
+   "input": {
+    "file_path": "src/user_cache.py"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 1,
+   "exit_code": 0,
+   "output": "ok"
+  },
+  {
+   "kind": "prompt",
+   "session": 2,
+   "text": "fix a typo in README"
+  },
+  {
+   "kind": "tool_use",
+   "session": 2,
+   "tool": "Edit",
+   "input": {
+    "file_path": "README.md"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 2,
+   "exit_code": 0,
+   "output": "ok"
+  },
+  {
+   "kind": "prompt",
+   "session": 3,
+   "text": "add a session store module"
+  },
+  {
+   "kind": "tool_use",
+   "session": 3,
+   "tool": "Bash",
+   "input": {
+    "command": "find src -name '*.py'"
+   },
+   "skip_if_memory": "snake_case"
+  },
+  {
+   "kind": "tool_result",
+   "session": 3,
+   "exit_code": 0,
+   "output": "src/user_cache.py"
+  }
+ ]
+}

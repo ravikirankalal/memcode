@@ -1,0 +1,122 @@
+{
+ "name": "flaky_build_dir",
+ "description": "Bug: build fails unless dist/ is removed first; fixed in session 1.",
+ "mistakes": [
+  {
+   "id": "stale_dist",
+   "key_phrase": "rm -rf dist",
+   "session": 3,
+   "event": {
+    "kind": "tool_use",
+    "session": 3,
+    "tool": "Bash",
+    "input": {
+     "command": "make build"
+    }
+   }
+  }
+ ],
+ "events": [
+  {
+   "kind": "prompt",
+   "session": 1,
+   "text": "make build pass"
+  },
+  {
+   "kind": "tool_use",
+   "session": 1,
+   "tool": "Bash",
+   "input": {
+    "command": "make build"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 1,
+   "exit_code": 2,
+   "output": "error: dist/ exists with stale artifacts"
+  },
+  {
+   "kind": "tool_use",
+   "session": 1,
+   "tool": "Bash",
+   "input": {
+    "command": "make build"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 1,
+   "exit_code": 2,
+   "output": "error: dist/ exists with stale artifacts"
+  },
+  {
+   "kind": "tool_use",
+   "session": 1,
+   "tool": "Bash",
+   "input": {
+    "command": "rm -rf dist && make build"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 1,
+   "exit_code": 0,
+   "output": "build ok"
+  },
+  {
+   "kind": "prompt",
+   "session": 2,
+   "text": "bump version"
+  },
+  {
+   "kind": "tool_use",
+   "session": 2,
+   "tool": "Edit",
+   "input": {
+    "file_path": "VERSION"
+   }
+  },
+  {
+   "kind": "tool_result",
+   "session": 2,
+   "exit_code": 0,
+   "output": "ok"
+  },
+  {
+   "kind": "prompt",
+   "session": 3,
+   "text": "rebuild the package"
+  },
+  {
+   "kind": "tool_use",
+   "session": 3,
+   "tool": "Bash",
+   "input": {
+    "command": "ls"
+   },
+   "skip_if_memory": "rm -rf dist"
+  },
+  {
+   "kind": "tool_result",
+   "session": 3,
+   "exit_code": 0,
+   "output": "Makefile dist src"
+  },
+  {
+   "kind": "tool_use",
+   "session": 3,
+   "tool": "Bash",
+   "input": {
+    "command": "grep -n build Makefile"
+   },
+   "skip_if_memory": "rm -rf dist"
+  },
+  {
+   "kind": "tool_result",
+   "session": 3,
+   "exit_code": 0,
+   "output": "build: ..."
+  }
+ ]
+}
