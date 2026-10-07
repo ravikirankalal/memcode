@@ -71,3 +71,30 @@ Per scenario, trap hits in later sessions (of 6):
 1. Diagnose retrieval: for `commit_prefix`/`logging_not_print`, dump the stored memory text and the SessionStart context the later session actually saw; improve how a correction is summarized (state the rule as an imperative, e.g. "Always start commit messages with 'PROJ-101: '") rather than quoting the user's turn.
 2. Fix the `builtin` baseline so it genuinely persists a CLAUDE.md.
 3. Replace floor-effect scenarios with traps the model falls into without memory (aim for nomem trap rate 0.3-0.7), then rerun with N >= 10 per cell.
+
+---
+
+# Run 3b (2026-10-07): diagnosis of run 3, and a re-run of the two affected scenarios
+
+## Diagnosis
+1. **Scoring bug, not a memcode failure (commit_prefix).** The trap regex `git commit(?!.*PROJ-\d+:)` could not see `PROJ-101:` on a later line of a heredoc commit (`git commit -F - <<'EOF' ...`), so correct commits were counted as mistakes. That produced the 3/6 in every config in run 3. Fixed with `re.S`; the metrics now also record the matched `evidence`, so every trap hit can be audited.
+2. **Memory wording.** Memories stored the user's whole turn plus boilerplate (`User corrected the agent's edit to app.py: "No - ... Redo the commit and remember that.". Avoid repeating...`), anchored to an unrelated file and cut off in the pinned block. They now read as the bare rule: `Rule from user correction: Commit messages here must always start with 'PROJ-101: '. (context: app.py)` (`_imperative` in `memcode/triggers.py`, tested).
+3. In a manual repro the old wording was already followed by the agent (it committed `PROJ-101: ...`), so the wording change is a cleanup, and the scoring fix is what moved the numbers.
+
+## Re-run (commit_prefix + logging_not_print, 3 repeats x 2 later sessions, Haiku, ~$0.04 per config)
+
+| config | runs | repeated-mistake rate | memory written in session 1 |
+|---|---|---|---|
+| nomem | 12 | 0.42 | n/a |
+| builtin | 12 | 0.33 | 1/6 |
+| memcode | 12 | 0.00 | 6/6 |
+
+Evidence of the hits was inspected: nomem/builtin hits are real violations (bare `print(...)` in new code; commits without the `PROJ-101:` prefix).
+
+## Caveats
+- These two scenarios drove this fix, so they are now marked `tuned_on: true`. The honest untuned set is `config_not_env` and `import_alias`, and both sit at the floor (nobody errs), so they say nothing.
+- Combined picture across all runs: memcode helps where the model otherwise errs (3 scenarios, 0 hits vs 33-100% without), and cannot be shown to help where the model never errs. Still one model, N=6-12 per cell, no significance.
+- `builtin` is still a weak baseline (it wrote a memory in only 1/6 headless runs here, 0/18 before). Gate 1 against built-in memory remains untested fairly.
+
+## Next
+Build new scenarios that fail without memory (aim for nomem rate 0.3-0.7) and freeze them as a held-out set before any further trigger changes; give `builtin` an explicit CLAUDE.md-writing step; then run N >= 10.
