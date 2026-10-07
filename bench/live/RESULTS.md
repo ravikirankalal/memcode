@@ -34,3 +34,40 @@ Two scenarios whose trap exists only in the user's correction (`tests_in_checks`
 
 ## Next
 Add a `builtin` config (agent writes its own CLAUDE.md/auto memory), more scenarios (at least 6, including ones needing the pinned map), N >= 10 per cell, and a held-out scenario set not used while tuning the triggers.
+
+---
+
+# Run 3 (2026-10-07): expanded benchmark. Gate 1 NOT demonstrated
+
+3 configs x 6 scenarios x 3 repeats x 2 later sessions = 36 later-session runs per config. Haiku, ~$0.14 per config, raw data in `bench/live/results/raw.json` (gitignored). Configs: `nomem` (auto-memory disabled), `builtin` (Claude Code default memory), `memcode` (plugin on top of default memory).
+
+| config | runs | repeated-mistake rate | explore calls | memory written in session 1 |
+|---|---|---|---|---|
+| nomem | 36 | 0.25 | 0.2 | n/a |
+| builtin | 36 | 0.31 | 0.5 | 0/18 |
+| memcode | 36 | 0.17 | 0.2 | 18/18 |
+
+Untuned scenarios only (4 of 6; not used while fixing triggers): nomem 0.12, builtin 0.21, memcode 0.25 (24 runs each).
+
+Per scenario, trap hits in later sessions (of 6):
+
+| scenario | tuned on | nomem | builtin | memcode |
+|---|---|---|---|---|
+| tests_in_checks | yes | 0 | 0 | 0 |
+| run_via_qa | yes | 6 | 6 | 0 |
+| logging_not_print | no | 0 | 2 | 2 |
+| commit_prefix | no | 3 | 3 | 3 |
+| config_not_env | no | 0 | 0 | 1 |
+| import_alias | no | 0 | 0 | 0 |
+
+## Reading
+- **The headline gain comes from one scenario.** `run_via_qa` is the only case where memcode clearly beats the baselines (0/6 vs 6/6), and it is a scenario the triggers were tuned on. On the untuned scenarios memcode is not better than no memory (0.25 vs 0.12; noise at this N).
+- **Floor effect remains.** In 3 of 6 scenarios nobody makes the mistake even with no memory (the model complies with the task wording or infers the convention), so those cells carry no signal.
+- **Capture works, retrieval/use is unproven.** memcode stored a memory in 18/18 runs, yet in `commit_prefix` (3/6 in every config) and `logging_not_print` the trap still recurred with the memory present. Either the memory text/pinned block did not carry the rule clearly enough, or the agent ignored it. Not yet diagnosed.
+- **The `builtin` baseline is weak.** It wrote nothing in 0/18 runs (headless `-p` runs apparently do not persist Claude Code auto-memory, or my detection misses it), so `builtin` behaves like `nomem`. Gate 1 ("beats built-in memory") is therefore NOT tested fairly yet; a proper baseline needs the agent to write CLAUDE.md (e.g. a prompt "remember this in CLAUDE.md") and be loaded next session.
+- N is tiny, one model, and the explore-call counts do not show the pinned map helping.
+
+## Next
+1. Diagnose retrieval: for `commit_prefix`/`logging_not_print`, dump the stored memory text and the SessionStart context the later session actually saw; improve how a correction is summarized (state the rule as an imperative, e.g. "Always start commit messages with 'PROJ-101: '") rather than quoting the user's turn.
+2. Fix the `builtin` baseline so it genuinely persists a CLAUDE.md.
+3. Replace floor-effect scenarios with traps the model falls into without memory (aim for nomem trap rate 0.3-0.7), then rerun with N >= 10 per cell.
