@@ -1,0 +1,12 @@
+{
+  "name": "memcode",
+  "version": "0.1.0",
+  "description": "Event-triggered, anchored, budgeted memory for coding agents: the agent stops repeating mistakes in a codebase it has seen before.",
+  "mcpServers": {
+    "memcode": {
+      "command": "python3",
+      "args": ["-m", "memcode.mcp_server"],
+      "env": {"PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}"}
+    }
+  }
+}
