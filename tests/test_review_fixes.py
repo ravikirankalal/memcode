@@ -444,3 +444,27 @@ class TestBench(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CorrectionPhrasing(unittest.TestCase):
+    def _run(self, events):
+        import tempfile
+        from memcode import store
+        from memcode.triggers import TriggerEngine
+        root = tempfile.mkdtemp()
+        con = store.connect(root)
+        ids = []
+        for e in events:
+            ids += TriggerEngine(con, root).handle(dict(e))
+        return ids
+
+    def test_dash_after_no_and_command_correction_without_edit(self):
+        ids = self._run([
+            {"kind": "prompt", "session": "s", "prompt": "Run the tests"},
+            {"kind": "tool_use", "session": "s", "tool": "Bash", "input": {"command": "pytest -q"}},
+            {"kind": "prompt", "session": "s", "prompt": "No - never call pytest directly; always run ./qa."}])
+        self.assertEqual(len(ids), 1)
+
+    def test_plain_prompts_without_prior_action_do_not_fire(self):
+        ids = self._run([{"kind": "prompt", "session": "s", "prompt": "No - wait, never mind"}])
+        self.assertEqual(ids, [])

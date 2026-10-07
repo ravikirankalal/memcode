@@ -27,9 +27,10 @@ _DEP_NAMES = re.compile(
     r"uv\.lock|Pipfile|Pipfile\.lock|requirements[^/]*\.txt|Cargo\.toml|Cargo\.lock|go\.mod|go\.sum|"
     r"Gemfile|Gemfile\.lock|composer\.json|composer\.lock|setup\.cfg|tox\.ini)$", re.I)
 _CORRECTION = re.compile(
-    r"(?i)^\s*(no[,.!:]|no\s+(?:don't|do not|that|use|not)\b|nope\b|don'?t\b|do not\b|stop\b)"
+    r"(?i)^\s*(no[,.!:]|no\s*[-\u2013\u2014]|no\s+(?:don't|do not|that|use|not)\b|nope\b|don'?t\b|do not\b|stop\b)"
     r"|\bthat'?s (?:wrong|not (?:right|correct|what))\b|\binstead,? use\b|\buse\b.{1,60}\binstead\b"
-    r"|\brevert (?:that|this|it)\b|\bundo (?:that|this|it)\b|\byou (?:should not|shouldn'?t)\b")
+    r"|\brevert (?:that|this|it)\b|\bundo (?:that|this|it)\b|\byou (?:should not|shouldn'?t)\b"
+    r"|\b(?:never|always)\s+(?:use|run|call|put|write|add|commit)\b|\bremember (?:that|this)\b|\bfrom now on\b")
 _GIT_REVERT = re.compile(r"\bgit\s+(?:checkout|restore|revert|reset\s+--hard)\b")
 _STAGED_ONLY = re.compile(r"\bgit\s+restore\b(?=.*(?:--staged|\s-S\b))(?!.*(?:--worktree|\s-W\b))")
 _TRIVIAL = {"ls", "cd", "cat", "echo", "pwd", "head", "tail", "which", "clear", "git status",
@@ -93,6 +94,7 @@ class _Session:
     def __init__(self):
         self.edits = []            # dicts: path, old, new, ev
         self.edited_since_prompt = False
+        self.acted_since_prompt = False   # any agent tool call since the last prompt
         self.failing = {}          # cmd -> {"ev": id, "n_edits": int, "output": str}
         self.variants = {}         # cmd_key -> list of distinct raw commands
         self.retry_fired = set()
@@ -191,6 +193,8 @@ class TriggerEngine:
         if kind == "prompt":
             out += self._prompt(event, sess, st, ev)
         elif kind == "tool_use":
+            if tool in EDIT_TOOLS or tool in BASH_TOOLS:
+                st.acted_since_prompt = True
             if tool in EDIT_TOOLS:
                 out += self._edit(inp, sess, st, ev)
             elif tool in BASH_TOOLS:
@@ -203,14 +207,17 @@ class TriggerEngine:
     # ---- (a) correction
     def _prompt(self, event, sess, st, ev):
         text = _s(event.get("text") or event.get("prompt"))
-        had_edit = st.edited_since_prompt
-        st.edited_since_prompt = False
-        if not (had_edit and st.edits and _CORRECTION.search(text)):
+        had_edit, acted = st.edited_since_prompt, st.acted_since_prompt
+        st.edited_since_prompt = st.acted_since_prompt = False
+        if not ((had_edit or acted) and _CORRECTION.search(text)):
             return []
-        last = st.edits[-1]
-        msg = (f"User corrected the agent's edit to {last['path']}: \"{_clip(text)}\". "
-               f"Avoid repeating the corrected approach.")
-        return [self._write("correction", msg, last["path"], sess, [last["ev"], ev], 0.7)]
+        if had_edit and st.edits:
+            last = st.edits[-1]
+            msg = (f"User corrected the agent's edit to {last['path']}: \"{_clip(text)}\". "
+                   f"Avoid repeating the corrected approach.")
+            return [self._write("correction", msg, last["path"], sess, [last["ev"], ev], 0.7)]
+        msg = f"User corrected the agent's approach: \"{_clip(text)}\". Avoid repeating it."
+        return [self._write("correction", msg, "", sess, [ev], 0.7)]
 
     # ---- (b)/(e) edits
     def _edit(self, inp, sess, st, ev):
