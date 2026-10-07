@@ -1,8 +1,8 @@
 {
   "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "command": "PYTHONPATH=${CLAUDE_PLUGIN_ROOT} python3 -m memcode.hook_cli SessionStart"}]}],
-    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "PYTHONPATH=${CLAUDE_PLUGIN_ROOT} python3 -m memcode.hook_cli UserPromptSubmit"}]}],
-    "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "PYTHONPATH=${CLAUDE_PLUGIN_ROOT} python3 -m memcode.hook_cli PostToolUse"}]}],
-    "PreCompact": [{"hooks": [{"type": "command", "command": "PYTHONPATH=${CLAUDE_PLUGIN_ROOT} python3 -m memcode.hook_cli PreCompact"}]}]
+    "SessionStart": [{"hooks": [{"type": "command", "timeout": 30, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli SessionStart"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli UserPromptSubmit"}]}],
+    "PostToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit", "hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli PostToolUse"}]}],
+    "PostToolUseFailure": [{"matcher": "Bash", "hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli PostToolUseFailure"}]}]
   }
 }
