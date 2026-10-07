@@ -41,6 +41,10 @@ def main(argv: list[str]) -> int:
         ev = _event(name, d)
         if ev:
             from .triggers import TriggerEngine
+            if ev["kind"] == "tool_result":
+                # PostToolUse is the only tool hook: replay it as use then result
+                use = dict(ev, kind="tool_use")
+                TriggerEngine(con, root).handle(use)
             TriggerEngine(con, root).handle(ev)
         if name in ("SessionStart", "PreCompact"):
             from . import tree, pinned
