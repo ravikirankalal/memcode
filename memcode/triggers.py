@@ -9,6 +9,7 @@ Commands are registered on tool_use; exit codes come from tool_result (Bash).
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -76,7 +77,7 @@ class TriggerEngine:
     def __init__(self, con, repo_root):
         self.con = con
         self.root = Path(repo_root).resolve()
-        self.sessions: dict[str, _Session] = {}
+        self._replay = False
 
     # ---- helpers
     def _rel(self, p: str):
@@ -104,20 +105,39 @@ class TriggerEngine:
     def _write(self, trig, text, rel, sess, events, conf=0.6):
         a, h = self._anchor(rel)
         prov = {"session": sess, "event_ids": [e for e in events if e], "ts": time.time()}
+        if self._replay:
+            return None
         return store.add_memory(self.con, trig, redact(text), a, h, prov, conf)
 
     # ---- entry point
-    def handle(self, event: dict) -> list[int]:
-        kind = event.get("kind")
+    def handle(self, event: dict, history: int = 200) -> list[int]:
+        """Stateless across instances: per-session state is rebuilt from the events table."""
         sess = _s(event.get("session")) or "default"
         clean = _scrub(event)
-        ev = store.log_event(self.con, sess, _s(kind), clean)
-        st = self.sessions.setdefault(sess, _Session())
+        rows = self.con.execute(
+            "SELECT id, payload FROM events WHERE session=? ORDER BY id DESC LIMIT ?",
+            (sess, history)).fetchall()
+        st = _Session()
+        self._replay = True
+        try:
+            for r in reversed(rows):
+                try:
+                    prev = json.loads(r["payload"])
+                except ValueError:
+                    continue
+                self._dispatch(prev, sess, st, r["id"])
+        finally:
+            self._replay = False
+        ev = store.log_event(self.con, sess, _s(clean.get("kind")), clean)
+        return [i for i in self._dispatch(clean, sess, st, ev) if i is not None]
+
+    def _dispatch(self, event, sess, st, ev):
+        kind = event.get("kind")
         tool = _s(event.get("tool")).lower()
         inp = event.get("input") or {}
         if not isinstance(inp, dict):
             inp = {"command": _s(inp)}
-        out: list[int] = []
+        out: list = []
         if kind == "prompt":
             out += self._prompt(event, sess, st, ev)
         elif kind == "tool_use":
@@ -176,19 +196,20 @@ class TriggerEngine:
             return []
         st.cmd_ev[cmd] = ev
         out = []
-        if _GIT_REVERT.search(cmd) and st.edits:
-            files = [r for r in (self._rel(t) for t in self._tokens(cmd))
-                     if r and any(e["path"] == r for e in st.edits)]
-            if files:
-                for rel in dict.fromkeys(files):
-                    e = [x for x in st.edits if x["path"] == rel][-1]
-                    out.append(self._write("revert", f"Agent edits to {rel} were reverted via `{_clip(cmd, 120)}`.",
-                                           rel, sess, [e["ev"], ev], 0.7))
-            elif not re.search(r"\b(checkout|restore)\b", cmd) or "." in self._tokens(cmd):
-                last = st.edits[-1]
-                out.append(self._write("revert", f"Agent edits were reverted via `{_clip(cmd, 120)}` "
-                                       f"(last edited {last['path']}).", last["path"], sess,
-                                       [last["ev"], ev], 0.6))
+        for seg in (x.strip() for x in re.split(r"&&|\|\||;|\|", cmd)):
+            if _GIT_REVERT.search(seg) and st.edits:
+                files = [r for r in (self._rel(t) for t in self._tokens(seg))
+                         if r and any(e["path"] == r for e in st.edits)]
+                if files:
+                    for rel in dict.fromkeys(files):
+                        e = [x for x in st.edits if x["path"] == rel][-1]
+                        out.append(self._write("revert", f"Agent edits to {rel} were reverted via `{_clip(seg, 120)}`.",
+                                               rel, sess, [e["ev"], ev], 0.7))
+                elif not re.search(r"\b(checkout|restore)\b", seg) or "." in self._tokens(seg):
+                    last = st.edits[-1]
+                    out.append(self._write("revert", f"Agent edits were reverted via `{_clip(seg, 120)}` "
+                                           f"(last edited {last['path']}).", last["path"], sess,
+                                           [last["ev"], ev], 0.6))
         if cmd in _TRIVIAL or any(cmd.startswith(t + " ") for t in _TRIVIAL):
             return out
         key = _cmd_key(cmd)

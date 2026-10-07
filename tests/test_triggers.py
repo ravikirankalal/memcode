@@ -118,6 +118,48 @@ class T(unittest.TestCase):
         payloads = " ".join(r["payload"] for r in self.con.execute("SELECT payload FROM events"))
         self.assertNotIn("sekret123", payloads)
 
+    # --- fresh engine per event (hooks run as separate processes)
+    def fresh(self, kind, **kw):
+        return TriggerEngine(store.connect(self.root), self.root).handle(
+            {"kind": kind, "session": "s2", **kw})
+
+    def fresh_cmd(self, cmd, code):
+        a = self.fresh("tool_use", tool="Bash", input={"command": cmd})
+        return a + self.fresh("tool_result", tool="Bash", input={"command": cmd},
+                              exit_code=code, output="boom" if code else "ok")
+
+    def fresh_edit(self, path="src/a.py", old="x=1", new="x=2"):
+        return self.fresh("tool_use", tool="Edit",
+                          input={"file_path": path, "old_string": old, "new_string": new})
+
+    def test_fresh_fail_to_fix(self):
+        self.fresh_cmd("pytest -q", 1)
+        self.fresh_edit()
+        self.assertEqual(len(self.fresh_cmd("pytest -q", 0)), 1)
+        self.assertEqual(len(self.mems("fail_to_fix")), 1)
+
+    def test_fresh_revert(self):
+        self.fresh_edit()
+        self.assertEqual(len(self.fresh("tool_use", tool="Bash",
+                                        input={"command": "cd . && git checkout -- src/a.py; ls"})), 1)
+        self.assertEqual(self.mems("revert")[0]["anchor_path"], "src/a.py")
+
+    def test_fresh_revert_edit(self):
+        self.fresh_edit()
+        self.fresh_edit(old="x=2", new="x=1")
+        self.assertEqual(len(self.mems("revert")), 1)
+
+    def test_fresh_correction(self):
+        self.fresh_edit()
+        self.assertEqual(len(self.fresh("prompt", text="that's wrong, revert that")), 1)
+        self.assertEqual(self.fresh("prompt", text="that's wrong again"), [])
+
+    def test_fresh_retry_once(self):
+        self.fresh_cmd("make build", 1)
+        self.fresh_cmd("make build -j1", 0)
+        self.fresh_cmd("make build -v", 0)
+        self.assertEqual(len(self.mems("retry")), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
