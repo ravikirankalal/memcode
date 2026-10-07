@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 bench/results.json
+bench/live/results/
