@@ -25,12 +25,13 @@ BASH_TOOLS = {"bash", "shell"}
 _DEP_NAMES = re.compile(
     r"^(package\.json|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|pyproject\.toml|poetry\.lock|"
     r"uv\.lock|Pipfile|Pipfile\.lock|requirements[^/]*\.txt|Cargo\.toml|Cargo\.lock|go\.mod|go\.sum|"
-    r"Gemfile|Gemfile\.lock|composer\.json|composer\.lock|setup\.cfg|tox\.ini|.*\.ya?ml)$", re.I)
+    r"Gemfile|Gemfile\.lock|composer\.json|composer\.lock|setup\.cfg|tox\.ini)$", re.I)
 _CORRECTION = re.compile(
     r"(?i)^\s*(no[,.!:]|no\s+(?:don't|do not|that|use|not)\b|nope\b|don'?t\b|do not\b|stop\b)"
     r"|\bthat'?s (?:wrong|not (?:right|correct|what))\b|\binstead,? use\b|\buse\b.{1,60}\binstead\b"
     r"|\brevert (?:that|this|it)\b|\bundo (?:that|this|it)\b|\byou (?:should not|shouldn'?t)\b")
 _GIT_REVERT = re.compile(r"\bgit\s+(?:checkout|restore|revert|reset\s+--hard)\b")
+_STAGED_ONLY = re.compile(r"\bgit\s+restore\b(?=.*(?:--staged|\s-S\b))(?!.*(?:--worktree|\s-W\b))")
 _TRIVIAL = {"ls", "cd", "cat", "echo", "pwd", "head", "tail", "which", "clear", "git status",
             "git diff", "git log", "git show"}
 
@@ -40,7 +41,7 @@ def _s(v) -> str:
 
 
 def _clip(t: str, n: int = 300) -> str:
-    t = " ".join(t.split())
+    t = redact(" ".join(t.split()))   # redact BEFORE clipping so no partial secret survives
     return t if len(t) <= n else t[:n] + "..."
 
 
@@ -54,13 +55,38 @@ def _scrub(o):
     return o
 
 
+_VALUE_FLAGS = {"-k", "-m", "-n", "-j", "-c", "-p", "-o", "-e", "-x", "--tb", "--maxfail"}
+_STORE_CAP = 500   # per-field cap for stored event payloads
+
+
 def _cmd_key(cmd: str) -> str:
-    """Command with flags stripped, used to group 'the same command with different flags'."""
+    """Command with flags (and values of common value-taking flags) stripped, used to group
+    'the same command with different flags'."""
     try:
         toks = shlex.split(cmd)
     except ValueError:
         toks = cmd.split()
-    return " ".join(t for t in toks if not t.startswith("-"))
+    out, skip = [], False
+    for t in toks:
+        if skip:
+            skip = False
+            continue
+        if t.startswith("-"):
+            skip = t in _VALUE_FLAGS
+            continue
+        out.append(t)
+    return " ".join(out)
+
+
+def _compact(o, n: int = _STORE_CAP):
+    """Bound what is persisted: short redacted summaries, not raw tool output/file content."""
+    if isinstance(o, str):
+        return o if len(o) <= n else o[:n] + "..."
+    if isinstance(o, dict):
+        return {k: _compact(v, n) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_compact(v, n) for v in o[:50]]
+    return o
 
 
 class _Session:
@@ -70,6 +96,7 @@ class _Session:
         self.failing = {}          # cmd -> {"ev": id, "n_edits": int, "output": str}
         self.variants = {}         # cmd_key -> list of distinct raw commands
         self.retry_fired = set()
+        self.failed_keys = set()   # _cmd_key of commands that failed
         self.cmd_ev = {}           # cmd -> last tool_use event id
 
 
@@ -98,38 +125,61 @@ class TriggerEngine:
         f = self.root / rel
         if f.is_file():
             h = store.sha1(f.read_bytes())
-            store.upsert_path(self.con, rel, "file", content_hash=h)
+            store.upsert_path(self.con, rel, "file", content_hash=h, commit=False)
             return rel, h
         return rel, None
 
     def _write(self, trig, text, rel, sess, events, conf=0.6):
+        if self._replay:      # replay only rebuilds state: no file reads, no DB writes
+            return None
+        text = redact(text)
+        dup = self.con.execute("SELECT id FROM memories WHERE trigger=? AND anchor_path=? AND text=?",
+                               (trig, rel or "", text)).fetchone()
+        if dup:
+            return None
         a, h = self._anchor(rel)
         prov = {"session": sess, "event_ids": [e for e in events if e], "ts": time.time()}
-        if self._replay:
-            return None
-        return store.add_memory(self.con, trig, redact(text), a, h, prov, conf)
+        return store.add_memory(self.con, trig, text, a, h, prov, conf, commit=False)
 
     # ---- entry point
     def handle(self, event: dict, history: int = 200) -> list[int]:
-        """Stateless across instances: per-session state is rebuilt from the events table."""
-        sess = _s(event.get("session")) or "default"
-        clean = _scrub(event)
-        rows = self.con.execute(
-            "SELECT id, payload FROM events WHERE session=? ORDER BY id DESC LIMIT ?",
-            (sess, history)).fetchall()
-        st = _Session()
-        self._replay = True
+        return self.handle_batch([event], history)
+
+    def handle_batch(self, events: list[dict], history: int = 200) -> list[int]:
+        """Stateless across instances: per-session state is rebuilt (once) from the events
+        table, then each event is logged and dispatched. One write transaction; the state
+        read happens inside it so concurrent hooks of a session serialise."""
+        if not events:
+            return []
+        sess = _s(events[0].get("session")) or "default"
+        con = self.con
+        if not con.in_transaction:
+            con.execute("BEGIN IMMEDIATE")
         try:
-            for r in reversed(rows):
-                try:
-                    prev = json.loads(r["payload"])
-                except ValueError:
-                    continue
-                self._dispatch(prev, sess, st, r["id"])
-        finally:
-            self._replay = False
-        ev = store.log_event(self.con, sess, _s(clean.get("kind")), clean)
-        return [i for i in self._dispatch(clean, sess, st, ev) if i is not None]
+            rows = con.execute(
+                "SELECT id, payload FROM events WHERE session=? ORDER BY id DESC LIMIT ?",
+                (sess, history)).fetchall()
+            st = _Session()
+            self._replay = True
+            try:
+                for r in reversed(rows):
+                    try:
+                        prev = json.loads(r["payload"])
+                    except ValueError:
+                        continue
+                    self._dispatch(prev, sess, st, r["id"])
+            finally:
+                self._replay = False
+            ids: list[int] = []
+            for event in events:
+                clean = _compact(_scrub(event))
+                ev = store.log_event(con, sess, _s(clean.get("kind")), clean, commit=False)
+                ids += [i for i in self._dispatch(clean, sess, st, ev) if i is not None]
+            con.commit()
+        except BaseException:
+            con.rollback()
+            raise
+        return ids
 
     def _dispatch(self, event, sess, st, ev):
         kind = event.get("kind")
@@ -141,7 +191,7 @@ class TriggerEngine:
         if kind == "prompt":
             out += self._prompt(event, sess, st, ev)
         elif kind == "tool_use":
-            if tool in EDIT_TOOLS or inp.get("file_path") and tool not in BASH_TOOLS:
+            if tool in EDIT_TOOLS:
                 out += self._edit(inp, sess, st, ev)
             elif tool in BASH_TOOLS:
                 out += self._bash_use(_s(inp.get("command")), sess, st, ev)
@@ -164,10 +214,22 @@ class TriggerEngine:
 
     # ---- (b)/(e) edits
     def _edit(self, inp, sess, st, ev):
-        rel = self._rel(_s(inp.get("file_path") or inp.get("path")))
+        rel = self._rel(_s(inp.get("file_path") or inp.get("notebook_path") or inp.get("path")))
         if rel is None:
             return []
-        old, new = _s(inp.get("old_string")), _s(inp.get("new_string") or inp.get("content"))
+        edits = inp.get("edits")
+        if isinstance(edits, list) and edits:      # MultiEdit: sequential old->new pairs
+            pairs = [(_s(e.get("old_string")), _s(e.get("new_string")))
+                     for e in edits if isinstance(e, dict)]
+        else:
+            pairs = [(_s(inp.get("old_string")),
+                      _s(inp.get("new_string") or inp.get("content") or inp.get("new_source")))]
+        out = []
+        for old, new in pairs:
+            out += self._edit_one(rel, old, new, sess, st, ev)
+        return out
+
+    def _edit_one(self, rel, old, new, sess, st, ev):
         out = []
         # revert: this edit exactly undoes an earlier agent edit to the same file
         if old and new:
@@ -184,8 +246,7 @@ class TriggerEngine:
         for f in st.failing.values():
             f["files"].append(rel)
         if _DEP_NAMES.match(os.path.basename(rel)):
-            detail = _clip(new, 200) if new else "file rewritten"
-            out.append(self._write("dep_change", f"Dependency/config file {rel} was changed: {detail}",
+            out.append(self._write("dep_change", f"Dependency/config file {rel} was changed by the agent.",
                                    rel, sess, [ev], 0.5))
         return out
 
@@ -197,7 +258,7 @@ class TriggerEngine:
         st.cmd_ev[cmd] = ev
         out = []
         for seg in (x.strip() for x in re.split(r"&&|\|\||;|\|", cmd)):
-            if _GIT_REVERT.search(seg) and st.edits:
+            if _GIT_REVERT.search(seg) and st.edits and not _STAGED_ONLY.search(seg):
                 files = [r for r in (self._rel(t) for t in self._tokens(seg))
                          if r and any(e["path"] == r for e in st.edits)]
                 if files:
@@ -218,7 +279,7 @@ class TriggerEngine:
         vs = st.variants.setdefault(key, [])
         if cmd not in vs:
             vs.append(cmd)
-        if len(vs) >= 2 and key not in st.retry_fired:
+        if len(vs) >= 2 and key in st.failed_keys and key not in st.retry_fired:
             st.retry_fired.add(key)
             out.append(self._write("retry", f"Command `{_clip(key, 100)}` needed multiple attempts with "
                                    f"different flags/fixes: " + "; ".join(f"`{_clip(v, 100)}`" for v in vs[:4]),
@@ -238,13 +299,15 @@ class TriggerEngine:
         if not cmd or code is None:
             return []
         if code != 0:
-            st.failing[cmd] = {"ev": ev, "files": [], "output": _s(event.get("output"))}
+            st.failing[cmd] = {"ev": ev, "files": []}
+            st.failed_keys.add(_cmd_key(cmd))
             return []
         f = st.failing.pop(cmd, None)
         if not f or not f["files"]:
             return []
         files = list(dict.fromkeys(f["files"]))
         anchor = files[-1]
-        msg = (f"`{_clip(cmd, 100)}` failed ({_clip(f['output'], 160)}) and passed after editing "
+        # No raw tool output: it is untrusted and would be re-injected into future sessions.
+        msg = (f"`{_clip(cmd, 100)}` failed and passed after editing "
                f"{', '.join(files[:5])}. Fix was in {anchor}.")
         return [self._write("fail_to_fix", msg, anchor, sess, [f["ev"], ev], 0.7)]
