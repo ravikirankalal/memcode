@@ -30,6 +30,17 @@ def bash_calls(events: list[dict]) -> list[str]:
     return cmds
 
 
+def edit_paths(events: list[dict]) -> list[str]:
+    paths = []
+    for e in events:
+        if e.get("type") != "assistant":
+            continue
+        for b in (e.get("message") or {}).get("content") or []:
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Write", "Edit", "MultiEdit"):
+                paths.append((b.get("input") or {}).get("file_path", ""))
+    return paths
+
+
 def tool_results(events: list[dict]) -> list[str]:
     res = []
     for e in events:
@@ -45,7 +56,7 @@ def tool_results(events: list[dict]) -> list[str]:
 
 
 def metrics(events: list[dict], trap_regex: str) -> dict:
-    cmds = bash_calls(events)
+    cmds = bash_calls(events) + edit_paths(events)   # trap may hit a command or a written path
     trap = re.compile(trap_regex)
     final = next((e for e in reversed(events) if e.get("type") == "result"), {})
     return {
