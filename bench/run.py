@@ -69,20 +69,26 @@ class StubConfig:
 CONFIGS = {"none": NoneConfig, "triggers": TriggersConfig, "stub": StubConfig}
 
 
+def _session_key(s):
+    """Natural sort so 's10' sorts after 's2' and ints stay numeric."""
+    return [(0, int(t), "") if t.isdigit() else (1, 0, t)
+            for t in re.findall(r"\d+|\D+", str(s))]
+
+
 def run_scenario(scn: dict, config_name: str) -> dict:
     with tempfile.TemporaryDirectory() as root:
         cfg = CONFIGS[config_name](root)
         events = scn["events"]
-        sessions = sorted({e["session"] for e in events})
+        sessions = sorted({e["session"] for e in events}, key=_session_key)
         opportunities = repeated = 0
         with_mem = [0, 0]      # [repeated, opportunities] when a relevant memory existed
         without_mem = [0, 0]
         explore = 0
         context_chars = 0
         for s in sessions:
-            mems = cfg.memories() if s > sessions[0] else []
+            mems = cfg.memories() if s != sessions[0] else []
             blob = "\n".join(mems).lower()
-            if s > sessions[0]:
+            if s != sessions[0]:
                 context_chars += len("\n".join(mems))
             for m in scn.get("mistakes", []):
                 if m["session"] != s:

@@ -1,3 +1,4 @@
 .memcode/
 __pycache__/
 *.pyc
+bench/results.json
