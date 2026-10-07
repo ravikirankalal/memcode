@@ -15,7 +15,7 @@ Phase 1 MVP of the plan ("Coding Agent Memory: Product Analysis"), as a Claude C
 | MCP tools `memory_search`, `memory_add`, `memory_pinned` | `memcode/mcp_server.py` |
 | Offline replay benchmark | `bench/` |
 
-Data lives in `<repo>/.memcode/memory.db` (git-ignored, local-first).
+Data lives in `<repo>/.memcode/memory.db` (local-first; memcode adds `.memcode/` to the repo's `.git/info/exclude` and writes `.memcode/.gitignore`).
 
 Test: `python3 -m unittest discover -s tests`. Benchmark: `python3 bench/run.py`
 (a simulated agent: a harness smoke test, not evidence; the real benchmark with live agent runs is Phase 2).

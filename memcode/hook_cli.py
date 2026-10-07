@@ -1,61 +1,109 @@
-"""Claude Code hook entrypoint: `python3 -m memcode.hook_cli <SessionStart|UserPromptSubmit|PostToolUse|PreCompact>`.
+"""Claude Code hook entrypoint:
+`python3 -m memcode.hook_cli <SessionStart|UserPromptSubmit|PostToolUse|PostToolUseFailure|PreCompact>`.
 
-Reads the hook JSON from stdin, feeds trigger events to the engine, and for
-SessionStart/PreCompact prints the pinned block as additionalContext.
-Never raises: a memory failure must not break the agent.
+Reads the hook JSON from stdin, feeds trigger events to the engine, and for SessionStart
+(which also fires with source "compact" after a compaction) prints the pinned block as
+additionalContext. PreCompact has no context-injection protocol, so it only does
+side-effect work (refreshing the tree). Never raises: a memory failure must not break
+the agent; failures are appended to .memcode/error.log.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+import time
 
 from . import store
 
+_EXIT_RE = re.compile(r"Exit code (-?\d+)")
 
-def _event(name: str, d: dict) -> dict | None:
+
+def _text(v) -> str:
+    return v if isinstance(v, str) else ("" if v is None else str(v))
+
+
+def _tool_event(d: dict, failed: bool) -> dict:
+    session = d.get("session_id", "unknown")
+    resp = d.get("tool_response")
+    if not isinstance(resp, dict):
+        resp = {"output": _text(resp)}
+    inp = d.get("tool_input") or {}
+    if not isinstance(inp, dict):
+        inp = {"command": _text(inp)}
+    code = resp.get("exit_code", resp.get("returnCode"))
+    out = _text(resp.get("stdout", resp.get("output", "")))
+    err = _text(resp.get("stderr"))
+    if failed:
+        # PostToolUseFailure: {"error": "Exit code 1\n<stderr>", "is_interrupt": bool}
+        msg = _text(d.get("error") or resp.get("error"))
+        m = _EXIT_RE.search(msg)
+        code = int(m.group(1)) if m else (130 if d.get("is_interrupt") else 1)
+        out, err = msg, ""
+    elif code is None:
+        code = 130 if resp.get("interrupted") else 0   # PostToolUse only fires on success
+    return {"kind": "tool_result", "session": session, "tool": d.get("tool_name", ""),
+            "input": inp, "command": inp.get("command"), "file_path": inp.get("file_path"),
+            "exit_code": code, "output": (out + ("\n" + err if err else "")).strip()}
+
+
+def _events(name: str, d: dict) -> list[dict]:
     session = d.get("session_id", "unknown")
     if name == "UserPromptSubmit":
-        return {"kind": "prompt", "session": session, "prompt": d.get("prompt", "")}
-    if name == "PostToolUse":
-        resp = d.get("tool_response") or {}
-        if not isinstance(resp, dict):
-            resp = {"output": str(resp)}
-        inp = d.get("tool_input") or {}
-        return {"kind": "tool_result", "session": session, "tool": d.get("tool_name", ""),
-                "input": inp, "command": inp.get("command"), "file_path": inp.get("file_path"),
-                "exit_code": resp.get("exit_code", resp.get("returnCode")),
-                "output": resp.get("stdout", resp.get("output", "")) or ""}
-    return None
+        return [{"kind": "prompt", "session": session, "prompt": d.get("prompt", "")}]
+    if name in ("PostToolUse", "PostToolUseFailure"):
+        ev = _tool_event(d, failed=(name == "PostToolUseFailure"))
+        # one hook delivers both halves: replay it as tool_use then tool_result
+        return [dict(ev, kind="tool_use"), ev]
+    return []
+
+
+def _log_error(root: str, e: BaseException) -> None:
+    try:
+        d = os.path.join(root, ".memcode")
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, "error.log")
+        if os.path.exists(p) and os.path.getsize(p) > 100_000:
+            os.remove(p)
+        with open(p, "a") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {type(e).__name__}: {e}\n")
+    except OSError:
+        pass
 
 
 def main(argv: list[str]) -> int:
     name = argv[1] if len(argv) > 1 else ""
     try:
         d = json.load(sys.stdin)
+        if not isinstance(d, dict):
+            d = {}
     except Exception:
         d = {}
-    root = d.get("cwd") or os.getcwd()
+    root = store.resolve_root(d.get("cwd"))
     try:
         con = store.connect(root)
-        ev = _event(name, d)
-        if ev:
-            from .triggers import TriggerEngine
-            if ev["kind"] == "tool_result":
-                # PostToolUse is the only tool hook: replay it as use then result
-                use = dict(ev, kind="tool_use")
-                TriggerEngine(con, root).handle(use)
-            TriggerEngine(con, root).handle(ev)
-        if name in ("SessionStart", "PreCompact"):
-            from . import tree, pinned
-            tree.scan_repo(con, root)
-            tree.mark_stale(con, root)
-            text = pinned.render_pinned(con, root)
-            print(json.dumps({"hookSpecificOutput": {
-                "hookEventName": name if name == "SessionStart" else "SessionStart",
-                "additionalContext": text}}))
+        try:
+            evs = _events(name, d)
+            if evs:
+                from .triggers import TriggerEngine
+                TriggerEngine(con, root).handle_batch(evs)   # one engine, one replay
+            if name in ("SessionStart", "PreCompact"):
+                from . import tree
+                tree.refresh_from_git_diff(con, root)      # renames / plain mv re-anchor
+                tree.scan_repo(con, root)
+                tree.mark_stale(con, root)
+                if name == "SessionStart":
+                    from . import pinned
+                    text = pinned.render_pinned(con, root)
+                    if text:
+                        print(json.dumps({"hookSpecificOutput": {
+                            "hookEventName": "SessionStart", "additionalContext": text}}))
+        finally:
+            con.close()
     except Exception as e:  # never break the agent
         print(f"memcode: {e}", file=sys.stderr)
+        _log_error(root, e)
     return 0
 
 
