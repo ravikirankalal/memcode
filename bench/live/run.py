@@ -7,6 +7,7 @@ confined to a fresh temp repo (cwd), with --max-turns and a timeout.
 Configs
   nomem    CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, no plugin     (floor)
   builtin  Claude Code's own memory (default), no plugin    (the incumbent; Gate 1 baseline)
+  claudemd like builtin, but the correction turn also says 'Save this rule to CLAUDE.md.' (a fair incumbent)
   memcode  plugin loaded on top of default built-in memory  (what a real user would run)
 
   python3 bench/live/run.py --dry-run
@@ -33,7 +34,7 @@ from bench.live import metrics  # noqa: E402
 ALLOWED = ("Read Edit Write Bash(pytest:*) Bash(python3:*) Bash(ls:*) Bash(find:*) Bash(grep:*) "
            "Bash(cat:*) Bash(./qa:*) Bash(mv:*) Bash(git mv:*) Bash(mkdir:*) "
            "Bash(git add:*) Bash(git commit:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*)")
-CONFIGS = ("nomem", "builtin", "memcode")
+CONFIGS = ("nomem", "builtin", "claudemd", "memcode")
 
 BASE = {"app.py": "def add(a, b):\n    return a + b\n",
         "conftest.py": "import pytest\n\n@pytest.fixture\ndef three():\n    return 3\n",
@@ -127,7 +128,8 @@ def run_unit(args: tuple) -> dict:
     repo = make_repo(sc)
     ev = claude(repo, sc["s1"][0], model, config)
     sid = metrics.metrics(ev, sc["trap_regex"], sc.get("trap_on", "cmd_path"))["session_id"]
-    claude(repo, sc["s1"][1], model, config, resume=sid)
+    fix = sc["s1"][1] + (" Save this rule to CLAUDE.md." if config == "claudemd" else "")
+    claude(repo, sc["s1"][1] if config != "claudemd" else fix, model, config, resume=sid)
     stored = memcode_memories(repo) if config == "memcode" else None
     builtin = builtin_memory_written(repo) if config != "nomem" else None
     later = [metrics.metrics(claude(repo, sc["later"], model, config), sc["trap_regex"], sc.get("trap_on", "cmd_path"))
@@ -147,7 +149,7 @@ def table(results: list[dict], title: str, pick) -> str:
         s = metrics.summarize(runs)
         if cfg == "memcode":
             wrote = f"{sum(1 for r in rs if (r['stored'] or 0) > 0)}/{len(rs)}"
-        elif cfg == "builtin":
+        elif cfg in ("builtin", "claudemd"):
             wrote = f"{sum(1 for r in rs if r['builtin_written'])}/{len(rs)}"
         else:
             wrote = "n/a"
@@ -161,13 +163,18 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--scenarios", default="", help="comma-separated scenario names (default: all)")
+    ap.add_argument("--set", default="dev", choices=("dev", "heldout"), help="scenario set")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results" / "raw.json"))
     a = ap.parse_args()
-    chosen = [s for s in SCENARIOS if not a.scenarios or s["name"] in a.scenarios.split(",")]
+    pool = SCENARIOS
+    if a.set == "heldout":
+        from bench.live.heldout import HELDOUT
+        pool = HELDOUT
+    chosen = [s for s in pool if not a.scenarios or s["name"] in a.scenarios.split(",")]
     units = [(sc, cfg, a.model) for sc in chosen for cfg in CONFIGS for _ in range(a.repeats)]
     if a.dry_run:
-        print(json.dumps({"scenarios": [s["name"] for s in SCENARIOS], "configs": CONFIGS, "repeats": a.repeats,
+        print(json.dumps({"scenarios": [s["name"] for s in chosen], "configs": CONFIGS, "repeats": a.repeats,
                           "units": len(units), "claude_calls": len(units) * 4}, indent=1))
         return
     with cf.ThreadPoolExecutor(a.workers) as ex:
