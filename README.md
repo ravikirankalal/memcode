@@ -22,3 +22,7 @@ Test: `python3 -m unittest discover -s tests`. Benchmark: `python3 bench/run.py`
 
 Known limits: only the last 200 events per session inform trigger state; memories without a content hash never go stale;
 pinned ordering uses retrieval counts, so regenerate only at session start/compaction to keep the prompt-cache prefix stable.
+
+Companion tools: [Serena](https://github.com/oraios/serena) (symbol-level navigation/editing) works well beside memcode
+with Serena's own memory feature disabled, so the agent has one memory store. We deliberately do not depend on it; see
+`docs/decisions/0001-serena-not-integrated.md`.
