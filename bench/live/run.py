@@ -160,10 +160,12 @@ def main() -> None:
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model", default="haiku")
+    ap.add_argument("--scenarios", default="", help="comma-separated scenario names (default: all)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results" / "raw.json"))
     a = ap.parse_args()
-    units = [(sc, cfg, a.model) for sc in SCENARIOS for cfg in CONFIGS for _ in range(a.repeats)]
+    chosen = [s for s in SCENARIOS if not a.scenarios or s["name"] in a.scenarios.split(",")]
+    units = [(sc, cfg, a.model) for sc in chosen for cfg in CONFIGS for _ in range(a.repeats)]
     if a.dry_run:
         print(json.dumps({"scenarios": [s["name"] for s in SCENARIOS], "configs": CONFIGS, "repeats": a.repeats,
                           "units": len(units), "claude_calls": len(units) * 4}, indent=1))
