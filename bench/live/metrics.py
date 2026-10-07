@@ -73,10 +73,11 @@ def metrics(events: list[dict], trap_regex: str, trap_on: str = "cmd_path") -> d
     """trap_on: cmd_path (commands + written paths) | content (written text)."""
     bash = bash_calls(events)
     cmds = edit_content(events) if trap_on == "content" else bash + edit_paths(events)
-    trap = re.compile(trap_regex)
+    trap = re.compile(trap_regex, re.S)   # commands may be multi-line (heredocs)
     final = next((e for e in reversed(events) if e.get("type") == "result"), {})
     return {
         "trap_hit": any(trap.search(c) for c in cmds),
+        "evidence": next((c[:160] for c in cmds if trap.search(c)), None),
         "explore_calls": sum(1 for c in bash if EXPLORE_RE.match(c)),
         "bash_calls": len(bash),
         "cost_usd": final.get("total_cost_usd", 0.0),

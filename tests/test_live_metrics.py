@@ -25,3 +25,13 @@ class T(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Heredoc(unittest.TestCase):
+    def test_multiline_commit_with_prefix_is_not_a_trap(self):
+        cmd = "git add x && git commit -F - <<'EOF'\nPROJ-101: msg\nEOF"
+        m = metrics.metrics(ev(cmd), r"git commit(?!.*PROJ-\d+:)")
+        self.assertFalse(m["trap_hit"])
+        bad = metrics.metrics(ev("git commit -m 'oops'"), r"git commit(?!.*PROJ-\d+:)")
+        self.assertTrue(bad["trap_hit"])
+        self.assertIn("git commit", bad["evidence"])

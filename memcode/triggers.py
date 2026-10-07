@@ -46,6 +46,26 @@ def _clip(t: str, n: int = 300) -> str:
     return t if len(t) <= n else t[:n] + "..."
 
 
+_LEAD_ACK = re.compile(r"(?i)^\s*(?:no|nope|wrong|actually|stop)\b[\s,.!:\-\u2013\u2014]*")
+_TRAIL_META = re.compile(
+    r"(?i)(?<=[.!?])\s+(?:please\s+)?(?:(?:redo|fix|move|undo|revert|change|rewrite|try|do)\b[^.!?]*"
+    r"|(?:and\s+)?remember\b[^.!?]*|keep that in mind\b[^.!?]*)[.!?]?\s*$")
+
+
+def _imperative(text: str) -> str:
+    """Turn a correction turn into the bare rule: drop the leading 'No -' and trailing
+    'Redo it / Remember that' meta-sentences so the memory reads as an instruction."""
+    t = " ".join(text.split())
+    t = _LEAD_ACK.sub("", t)
+    for _ in range(3):                       # strip stacked trailing meta-sentences
+        t2 = _TRAIL_META.sub("", t)
+        if t2 == t:
+            break
+        t = t2
+    t = t.strip(" ,;")
+    return (t[:1].upper() + t[1:]) if t else text.strip()
+
+
 def _scrub(o):
     if isinstance(o, str):
         return redact(o)
@@ -213,10 +233,9 @@ class TriggerEngine:
             return []
         if had_edit and st.edits:
             last = st.edits[-1]
-            msg = (f"User corrected the agent's edit to {last['path']}: \"{_clip(text)}\". "
-                   f"Avoid repeating the corrected approach.")
+            msg = f"Rule from user correction: {_clip(_imperative(text), 240)} (context: {last['path']})"
             return [self._write("correction", msg, last["path"], sess, [last["ev"], ev], 0.7)]
-        msg = f"User corrected the agent's approach: \"{_clip(text)}\". Avoid repeating it."
+        msg = f"Rule from user correction: {_clip(_imperative(text), 240)}"
         return [self._write("correction", msg, "", sess, [ev], 0.7)]
 
     # ---- (b)/(e) edits

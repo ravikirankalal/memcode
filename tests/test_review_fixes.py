@@ -468,3 +468,26 @@ class CorrectionPhrasing(unittest.TestCase):
     def test_plain_prompts_without_prior_action_do_not_fire(self):
         ids = self._run([{"kind": "prompt", "session": "s", "prompt": "No - wait, never mind"}])
         self.assertEqual(ids, [])
+
+
+class ImperativeRule(unittest.TestCase):
+    def test_strips_ack_and_meta(self):
+        from memcode.triggers import _imperative
+        self.assertEqual(_imperative("No - commit messages here must always start with 'PROJ-101: '. Redo the commit and remember that."),
+                         "Commit messages here must always start with 'PROJ-101: '.")
+        self.assertEqual(_imperative("No - never use print() in this repo; always use logger from log.py. Fix it and remember that."),
+                         "Never use print() in this repo; always use logger from log.py.")
+        self.assertEqual(_imperative("don't touch the vendored dir"), "Don't touch the vendored dir")
+
+    def test_memory_text_is_the_rule(self):
+        import tempfile
+        from memcode import store
+        from memcode.triggers import TriggerEngine
+        root = tempfile.mkdtemp(); con = store.connect(root)
+        for e in ({"kind": "prompt", "session": "s", "prompt": "commit it"},
+                  {"kind": "tool_use", "session": "s", "tool": "Bash", "input": {"command": "git commit -m x"}},
+                  {"kind": "prompt", "session": "s", "prompt": "No - always start commit messages with 'PROJ-101: '. Remember that."}):
+            TriggerEngine(con, root).handle(dict(e))
+        t = store.list_memories(con)[0]["text"]
+        self.assertTrue(t.startswith("Rule from user correction: Always start commit messages"), t)
+        self.assertNotIn("Avoid repeating", t)
