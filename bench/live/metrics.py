@@ -41,6 +41,20 @@ def edit_paths(events: list[dict]) -> list[str]:
     return paths
 
 
+def edit_content(events: list[dict]) -> list[str]:
+    """Text the agent wrote via Write/Edit/MultiEdit (for content-based traps)."""
+    out = []
+    for e in events:
+        if e.get("type") != "assistant":
+            continue
+        for b in (e.get("message") or {}).get("content") or []:
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Write", "Edit", "MultiEdit"):
+                i = b.get("input") or {}
+                out.append(str(i.get("content") or i.get("new_string") or "")
+                           + " ".join(str(x.get("new_string", "")) for x in i.get("edits", []) if isinstance(x, dict)))
+    return out
+
+
 def tool_results(events: list[dict]) -> list[str]:
     res = []
     for e in events:
@@ -55,14 +69,16 @@ def tool_results(events: list[dict]) -> list[str]:
     return res
 
 
-def metrics(events: list[dict], trap_regex: str) -> dict:
-    cmds = bash_calls(events) + edit_paths(events)   # trap may hit a command or a written path
+def metrics(events: list[dict], trap_regex: str, trap_on: str = "cmd_path") -> dict:
+    """trap_on: cmd_path (commands + written paths) | content (written text)."""
+    bash = bash_calls(events)
+    cmds = edit_content(events) if trap_on == "content" else bash + edit_paths(events)
     trap = re.compile(trap_regex)
     final = next((e for e in reversed(events) if e.get("type") == "result"), {})
     return {
         "trap_hit": any(trap.search(c) for c in cmds),
-        "explore_calls": sum(1 for c in cmds if EXPLORE_RE.match(c)),
-        "bash_calls": len(cmds),
+        "explore_calls": sum(1 for c in bash if EXPLORE_RE.match(c)),
+        "bash_calls": len(bash),
         "cost_usd": final.get("total_cost_usd", 0.0),
         "session_id": final.get("session_id"),
     }
