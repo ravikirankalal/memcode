@@ -143,6 +143,13 @@ def _migrate(con) -> None:
                 con.execute(f"ALTER TABLE paths ADD COLUMN {col} INTEGER")
             except sqlite3.OperationalError:
                 pass  # another process migrated first
+    for table, col, decl in (("injections", "source", "TEXT NOT NULL DEFAULT 'pinned'"),
+                             ("session_stats", "prompt_injected", "INTEGER NOT NULL DEFAULT 0")):
+        if col not in {r[1] for r in con.execute(f"PRAGMA table_info({table})")}:
+            try:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            except sqlite3.OperationalError:
+                pass
     mcols = {r[1] for r in con.execute("PRAGMA table_info(memories)")}
     for col in ("anchor_symbol", "symbol_hash"):
         if col not in mcols:
@@ -229,7 +236,7 @@ def log_event(con, session: str, kind: str, payload: dict, commit: bool = True) 
     return new_id
 
 
-STAT_FIELDS = ("rules_injected", "notes_injected", "captured", "repeated_corrections")
+STAT_FIELDS = ("rules_injected", "notes_injected", "captured", "repeated_corrections", "prompt_injected")
 
 
 def bump(con, session: str, field: str, n: int = 1, commit: bool = True) -> None:

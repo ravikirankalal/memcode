@@ -149,19 +149,22 @@ def cmd_salience(con, a) -> int:
 
 def cmd_config(con, a, root: str) -> int:
     from . import model_capture
-    keys = {"model-capture": "model_capture"}
+    keys = {"model-capture": "model_capture", "retrieval": "retrieval"}
     if a.key is None:
         cfg = model_capture.read_config(root)
         print(f"model-capture: {'on' if model_capture.enabled(root) else 'off'}"
               f" (config {'on' if cfg.get('model_capture') else 'off'}; env MEMCODE_MODEL_CAPTURE overrides)")
         print(f"capture model: {os.environ.get('MEMCODE_CAPTURE_MODEL') or model_capture.DEFAULT_MODEL}")
+        from . import retrieval
+        print(f"retrieval: {'on' if retrieval.enabled(root) else 'off'}"
+              f" (config {'on' if cfg.get('retrieval') else 'off'}; env MEMCODE_RETRIEVAL overrides)")
         return 0
     if a.key not in keys or a.value not in ("on", "off"):
-        print("usage: memcode config model-capture on|off", file=sys.stderr)
+        print("usage: memcode config model-capture|retrieval on|off", file=sys.stderr)
         return 2
     model_capture.write_config(root, **{keys[a.key]: a.value == "on"})
     print(f"{a.key}: {a.value}")
-    if a.value == "on":
+    if a.value == "on" and a.key == "model-capture":
         print("note: prompts the pattern triggers miss will be sent (redacted) to the model via your `claude` login")
     return 0
 
