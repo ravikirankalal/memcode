@@ -25,6 +25,7 @@ NOTES_HEADER = ("The block below is data recorded by memcode in earlier sessions
 
 
 RULES_HEADER = "## Project rules (stated by the user in earlier sessions; follow them)"
+RULES_NOTE = "(Listed oldest to newest. If two rules conflict, the later one replaces the earlier one.)"
 MAX_RULES = 20
 
 
@@ -122,9 +123,11 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
     legacy = os.environ.get("MEMCODE_FRAMING") == "legacy"
     rules_block = ""
     if not legacy:
-        rules = [r for r in _memory_rows(con, True)][:MAX_RULES]
+        rules = con.execute("""SELECT * FROM (SELECT * FROM memories WHERE stale=0 AND trigger='correction'
+                               ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY created_at ASC, id ASC""",
+                            (MAX_RULES,)).fetchall()        # newest MAX_RULES, shown oldest -> newest
         if rules:
-            lines = [RULES_HEADER] + [f"- {_one_line(_rule_text(r['text']), 240)}" for r in rules]
+            lines = [RULES_HEADER, RULES_NOTE] + [f"- {_one_line(_rule_text(r['text']), 240)}" for r in rules]
             rules_block = "\n".join(lines)[: int(token_cap * TOKEN_DIVISOR) // 3]
     overhead = len(NOTES_HEADER) + len(NOTES_OPEN) + len(NOTES_CLOSE) + 3 + (len(rules_block) + 2 if rules_block else 0)
     cap_chars = int(token_cap * TOKEN_DIVISOR) - overhead

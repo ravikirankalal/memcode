@@ -31,6 +31,13 @@ _CORRECTION = re.compile(
     r"|\bthat'?s (?:wrong|not (?:right|correct|what))\b|\binstead,? use\b|\buse\b.{1,60}\binstead\b"
     r"|\brevert (?:that|this|it)\b|\bundo (?:that|this|it)\b|\byou (?:should not|shouldn'?t)\b"
     r"|\b(?:never|always)\s+(?:use|run|call|put|write|add|commit)\b|\bremember (?:that|this)\b|\bfrom now on\b")
+# A rule stated as information rather than as a correction ("Heads up: this team prefers X").
+# Needs a normative word so that plain FYIs ("FYI the build is red") do not become rules.
+_STATEMENT = re.compile(
+    r"(?i)\b(?:heads[- ]up|fyi|note that|please note|keep in mind|for the record)\b.{0,160}?"
+    r"\b(?:prefer\w*|should|must|convention|rule|standard|style|always|never|only|every|all)\b"
+    r"|\b(?:we|our team|this team|the team)\s+(?:prefer|always|never|only use)\b"
+    r"|\bour (?:convention|rule|standard|style)\b")
 _GIT_REVERT = re.compile(r"\bgit\s+(?:checkout|restore|revert|reset\s+--hard)\b")
 _STAGED_ONLY = re.compile(r"\bgit\s+restore\b(?=.*(?:--staged|\s-S\b))(?!.*(?:--worktree|\s-W\b))")
 _TRIVIAL = {"ls", "cd", "cat", "echo", "pwd", "head", "tail", "which", "clear", "git status",
@@ -46,7 +53,7 @@ def _clip(t: str, n: int = 300) -> str:
     return t if len(t) <= n else t[:n] + "..."
 
 
-_LEAD_ACK = re.compile(r"(?i)^\s*(?:no|nope|wrong|actually|stop)\b[\s,.!:\-\u2013\u2014]*")
+_LEAD_ACK = re.compile(r"(?i)^\s*(?:no|nope|wrong|actually|stop|heads[- ]up|fyi|note that|please note|keep in mind|for the record)\b[\s,.!:\-\u2013\u2014]*")
 _TRAIL_META = re.compile(
     r"(?i)(?<=[.!?])\s+(?:please\s+)?(?:(?:redo|fix|move|undo|revert|change|rewrite|try|do)\b[^.!?]*"
     r"|(?:and\s+)?remember\b[^.!?]*|keep that in mind\b[^.!?]*)[.!?]?\s*$")
@@ -244,7 +251,7 @@ class TriggerEngine:
         text = _s(event.get("text") or event.get("prompt"))
         had_edit, acted = st.edited_since_prompt, st.acted_since_prompt
         st.edited_since_prompt = st.acted_since_prompt = False
-        if not ((had_edit or acted) and _CORRECTION.search(text)):
+        if not ((had_edit or acted) and (_CORRECTION.search(text) or _STATEMENT.search(text))):
             return []
         if had_edit and st.edits:
             last = st.edits[-1]
