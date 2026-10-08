@@ -58,6 +58,17 @@ start once they have been quiet for 30 minutes:
 
 Confidence is not used for ranking yet; `python3 -m memcode salience` shows ok/bad counts and `show ID` lists outcomes.
 
+### Opt-in per-prompt retrieval
+
+The pinned block is built at session start, before the task is known, and is capped. With
+`python3 -m memcode config retrieval on` (or `MEMCODE_RETRIEVAL=1`) every prompt also gets up to 5 stored memories relevant
+to *that* prompt (under ~600 tokens), as additional context. Relevance is deterministic: a file or function named in the
+prompt, a file the agent edited earlier in the session, and IDF-weighted word overlap (at least two shared terms;
+identifiers are split, so `parse_items` and "parse items" match). Unrelated prompts get nothing; a memory is never shown
+twice in a session; stale memories are skipped. Rules are framed as rules, other notes as untrusted data. Ranking is by
+relevance only; `MEMCODE_RANK=salience` multiplies by salience for experiments and is off by default (Phase 2 gate).
+`python3 -m memcode sessions` counts what was injected.
+
 ### Opt-in model capture
 
 Pattern triggers miss rules stated in plain descriptive language ("we indent with tabs"). With

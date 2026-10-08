@@ -90,6 +90,13 @@ def main(argv: list[str]) -> int:
             if evs:
                 from .triggers import TriggerEngine
                 ids = TriggerEngine(con, root).handle_batch(evs)   # one engine, one replay
+                if name == "UserPromptSubmit":
+                    from . import retrieval            # opt-in: memories relevant to THIS prompt
+                    if retrieval.enabled(root):
+                        ctx = retrieval.for_prompt(con, root, evs[0]["session"], evs[0]["prompt"])
+                        if ctx:
+                            print(json.dumps({"hookSpecificOutput": {
+                                "hookEventName": "UserPromptSubmit", "additionalContext": ctx}}))
                 if name == "UserPromptSubmit" and not any(ids):
                     from . import model_capture        # opt-in: let a model judge what the patterns missed
                     if model_capture.enabled(root) and model_capture.should_queue(con, evs[0]["session"], evs[0]["prompt"]):
