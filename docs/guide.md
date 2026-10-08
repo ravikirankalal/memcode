@@ -58,6 +58,16 @@ start once they have been quiet for 30 minutes:
 
 Confidence is not used for ranking yet; `python3 -m memcode salience` shows ok/bad counts and `show ID` lists outcomes.
 
+### Opt-in model capture
+
+Pattern triggers miss rules stated in plain descriptive language ("we indent with tabs"). With
+`python3 -m memcode config model-capture on` (or `MEMCODE_MODEL_CAPTURE=1`), a prompt the patterns did not capture, sent
+after the agent has acted, that is not a question and is 12-1500 characters long, is queued; a detached background worker
+asks a model (via your `claude` login; `MEMCODE_CAPTURE_MODEL`, default `claude-opus-5-5`) whether it states a standing
+convention, and stores it as a rule if so. The prompt is never delayed. **Off by default**: it sends the (redacted) prompt
+text to the model and costs one call per classified prompt (about $0.02 on Opus 5.5; less on Haiku). The worker's model
+call runs with no tools, no settings or plugins (so memcode cannot recurse), and no saved session.
+
 ## What is stored, and privacy
 
 - **Memories**: short redacted summaries, never raw tool output.
