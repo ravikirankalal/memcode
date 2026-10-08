@@ -164,3 +164,38 @@ Trap hits per scenario (of 10 later-session runs):
 
 ## Next
 A harder, frozen set that can separate memcode from CLAUDE.md: (1) several rules at once, (2) a rule that later becomes wrong and must be superseded or expire, (3) a rule stated once in a long conversation, (4) a larger repo where the pinned map matters. Salience ranking (Phase 2) stays gated until a set like this shows a gain over CLAUDE.md.
+
+---
+
+# Run 6 (2026-10-08): THIRD FROZEN SET (heldout3, harder), run on pinned snapshot cf3afa9 = code BEFORE the supersession-note and statement-capture changes
+
+5 scenarios x 3 configs x 5 repeats x 2 later sessions = 50 later-session runs per config (Haiku, ~$0.20 per config). Run by two parallel subagents (batches A and B) in a read-only worktree of `cf3afa9` so main-thread development could not contaminate it. Pilots beforehand: no memory 6/6 failures per scenario; rules stated in the prompt ("oracle") 0/4 failures per scenario.
+
+| config | later-session runs | repeated-mistake rate |
+|---|---|---|
+| nomem | 50 | **1.00** (50/50) |
+| claudemd ("save this rule to CLAUDE.md") | 50 | **0.00** (0/50) |
+| memcode (pre-fix code) | 50 | **0.24** (12/50) |
+
+Trap hits per scenario (of 10 later-session runs):
+
+| scenario | nomem | claudemd | memcode | memcode stored a memory in session 1 |
+|---|---|---|---|---|
+| m_four_rules | 10 | 0 | **2** | 5/5 units |
+| m_three_across_sessions | 10 | 0 | 0 | 5/5 |
+| m_supersede | 10 | 0 | 0 | 5/5 |
+| m_stated_as_info | 10 | 0 | **10** | **0/5** |
+| m_rules_and_distractors | 10 | 0 | 0 | 5/5 |
+
+## Reading
+- **`CLAUDE.md` still wins on this harder set (0/50 vs 12/50 for memcode).** Gate 1 is therefore not met against a hand-maintained CLAUDE.md, and memcode's only measured advantage over it is automatic capture (the `claudemd` arm was told to save every rule).
+- **Both memcode failure clusters are capture gaps, not retrieval gaps:**
+  - `m_stated_as_info`: 0 memories stored, 10/10 failures. The old correction trigger did not recognise a rule stated as information ("Heads up: this team prefers single quotes"). The statement-capture change (merged after this snapshot) targets exactly this; it is NOT yet validated live.
+  - `m_four_rules`: one unit (2 of its runs) stored 3 memories for 4 rules and then violated the missing one (`import os`). All four teaching prompts match the capture patterns offline, so the likely cause is the requirement that the agent *acted* since the previous prompt (a text-only reply to an "Also: ..." turn drops the rule). Unconfirmed; the replay is not reproducible.
+- **Prediction that did not hold:** I expected `m_supersede` to favour CLAUDE.md because memcode had no supersession logic. memcode scored 0/10 on it even before the oldest-to-newest ordering and override note were added. On this evidence the override note was not needed; it stays as cheap insurance but its benefit is unmeasured.
+- When memcode captured the rules it matched CLAUDE.md in 4 of 5 scenarios, including 4 rules at once, rules taught across two sessions, and rules interleaved with distractor tasks.
+- One model (Haiku), 5 units per cell, no significance testing. The printed "runs" column counts later-session runs (2 per unit); the JSON has one result per unit.
+
+## Next
+1. Relax the capture condition (accept a correction when the agent has acted earlier in the session, not only since the last prompt), with a false-positive check.
+2. Validate both capture changes on a NEW frozen set (heldout4) that includes stated-as-information rules and text-only intermediate turns. heldout3 is now spent for this purpose.
