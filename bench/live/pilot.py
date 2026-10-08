@@ -16,12 +16,17 @@ sys.path.insert(0, str(ROOT))
 from bench.live import metrics, run  # noqa: E402
 from bench.live.candidates import CANDIDATES  # noqa: E402
 from bench.live.candidates2 import CANDIDATES2  # noqa: E402
+from bench.live.candidates3 import CANDIDATES3  # noqa: E402
+
+
+ORACLE = False
 
 
 def one(args):
     sc, model = args
     repo = run.make_repo(sc)
-    m = metrics.metrics(run.claude(repo, sc["later"], model, "nomem"), sc["trap_regex"], sc.get("trap_on", "cmd_path"))
+    prompt = sc["later"] + (" " + sc["oracle"] if ORACLE else "")
+    m = metrics.metrics(run.claude(repo, prompt, model, "nomem"), sc["trap_regex"], sc.get("trap_on", "cmd_path"))
     return sc["name"], m
 
 
@@ -30,9 +35,12 @@ def main():
     ap.add_argument("--repeats", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--pool", default="1", choices=("1", "2"))
+    ap.add_argument("--pool", default="1", choices=("1", "2", "3"))
+    ap.add_argument("--oracle", action="store_true", help="append the scenario's rules to the prompt (traps must then be ~0)")
     a = ap.parse_args()
-    pool = CANDIDATES2 if a.pool == "2" else CANDIDATES
+    pool = {"1": CANDIDATES, "2": CANDIDATES2, "3": CANDIDATES3}[a.pool]
+    global ORACLE
+    ORACLE = a.oracle
     units = [(sc, a.model) for sc in pool for _ in range(a.repeats)]
     with cf.ThreadPoolExecutor(a.workers) as ex:
         res = list(ex.map(one, units))
@@ -46,7 +54,7 @@ def main():
     for name, d in out.items():
         print(f"{name:18s} nomem trap rate {d['hits']}/{d['n']}")
     Path(HERE := ROOT / "bench" / "live" / "results").mkdir(parents=True, exist_ok=True)
-    (HERE / ("pilot2.json" if a.pool == "2" else "pilot.json")).write_text(json.dumps(out, indent=1))
+    (HERE / (f"pilot{a.pool}{'_oracle' if a.oracle else ''}.json")).write_text(json.dumps(out, indent=1))
 
 
 if __name__ == "__main__":

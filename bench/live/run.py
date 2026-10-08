@@ -152,13 +152,23 @@ def fresh_with_memory(sc: dict, src: Path, config: str) -> Path:
     return dst
 
 
+def teach(repo: Path, sc: dict, model: str, config: str) -> None:
+    """Teaching phase. `teach` = list of sessions, each a list of turns (turn 0 = task, later turns =
+    user corrections/statements, sent via --resume). Default: sc["s1"] as one session. For the
+    `claudemd` arm every turn after the first also says to save the rule to CLAUDE.md."""
+    for turns in sc.get("teach") or [sc["s1"]]:
+        sid = None
+        for i, turn in enumerate(turns):
+            prompt = turn + (" Save this rule to CLAUDE.md." if config == "claudemd" and i > 0 else "")
+            ev = claude(repo, prompt, model, config, resume=sid)
+            if i == 0:
+                sid = metrics.metrics(ev, sc["trap_regex"], sc.get("trap_on", "cmd_path"))["session_id"]
+
+
 def run_unit(args: tuple) -> dict:
     sc, config, model = args
     repo = make_repo(sc)
-    ev = claude(repo, sc["s1"][0], model, config)
-    sid = metrics.metrics(ev, sc["trap_regex"], sc.get("trap_on", "cmd_path"))["session_id"]
-    fix = sc["s1"][1] + (" Save this rule to CLAUDE.md." if config == "claudemd" else "")
-    claude(repo, sc["s1"][1] if config != "claudemd" else fix, model, config, resume=sid)
+    teach(repo, sc, model, config)
     stored = memcode_memories(repo) if config in PLUGIN else None
     builtin = builtin_memory_written(repo) if config != "nomem" else None
     later = [metrics.metrics(claude(fresh_with_memory(sc, repo, config), sc["later"], model, config),
@@ -192,7 +202,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--scenarios", default="", help="comma-separated scenario names (default: all)")
-    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2"), help="scenario set")
+    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3"), help="scenario set")
     ap.add_argument("--configs", default="", help="comma-separated configs (default: all but memcode_legacy)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results" / "raw.json"))
@@ -201,6 +211,9 @@ def main() -> None:
     if a.set == "heldout":
         from bench.live.heldout import HELDOUT
         pool = HELDOUT
+    elif a.set == "heldout3":
+        from bench.live.heldout3 import HELDOUT3
+        pool = HELDOUT3
     elif a.set == "heldout2":
         from bench.live.heldout2 import HELDOUT2
         pool = HELDOUT2
@@ -209,7 +222,7 @@ def main() -> None:
     units = [(sc, cfg, a.model) for sc in chosen for cfg in cfgs for _ in range(a.repeats)]
     if a.dry_run:
         print(json.dumps({"scenarios": [s["name"] for s in chosen], "configs": cfgs, "repeats": a.repeats,
-                          "units": len(units), "claude_calls": len(units) * 4}, indent=1))
+                          "units": len(units), "claude_calls": sum(len(t) for sc, _, _ in units for t in (sc.get("teach") or [sc["s1"]])) + len(units) * 2}, indent=1))
         return
     with cf.ThreadPoolExecutor(a.workers) as ex:
         results = list(ex.map(run_unit, units))
