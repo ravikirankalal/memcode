@@ -6,6 +6,8 @@ UserPromptSubmit hook. Enable with `python3 -m memcode config retrieval on` or M
 
 Relevance (stdlib, deterministic), summed per memory:
   * anchor named in the prompt: the anchor path, its file name, its stem, or its symbol    (+PATH_W)
+  * scope: the memory text names a path or directory ("under billing/", "util/dates.py") and the
+    prompt mentions a path inside it ("billing/refunds.py")                                (+SCOPE_W)
   * anchor file edited by the agent earlier in this session                               (+ACTIVE_W)
   * term overlap: IDF-weighted overlap of prompt and memory terms (identifiers are split, so
     parse_items / ParseItems / "parse items" match), normalised by the prompt's term weight (0..TERM_W);
@@ -29,7 +31,7 @@ TOP_K = 5
 TOKEN_CAP = 600
 MIN_SCORE = 0.8
 MIN_SHARED_TERMS = 2      # one shared word is not enough to call a memory relevant
-PATH_W, ACTIVE_W, TERM_W = 3.0, 1.0, 2.0
+PATH_W, SCOPE_W, ACTIVE_W, TERM_W = 3.0, 2.0, 1.0, 2.0
 STOP = set("""a an and are as at be but by can do does for from has have how i if in into is it its just
 let me my no not of on or our please so that the their them then there these this those to up us use
 using was we what when where which who why will with you your yes ok okay now also add make get set
@@ -68,6 +70,27 @@ def _mentions(prompt_l: str, anchor: str, symbol: str | None) -> bool:
     return any(re.search(r"(?<![\w/.])" + re.escape(c) + r"(?![\w])", prompt_l) for c in cands if c)
 
 
+_PATHTOK = re.compile(r"(?<![\w./-])((?:[A-Za-z0-9_.-]+/)+(?:[A-Za-z0-9_.-]+)?)")
+
+
+def path_tokens(text: str) -> set[str]:
+    """Path-like tokens: 'billing/', 'util/dates.py', 'src/api/' (no URLs, no bare words)."""
+    out = set()
+    for m in _PATHTOK.findall(text or ""):
+        if "://" in m or m.startswith(("http", "www.")):
+            continue
+        out.add(m.strip(".").lower())
+    return {p for p in out if p and p != "/"}
+
+
+def _in_scope(prompt_paths: set[str], mem_paths: set[str]) -> bool:
+    for mp in mem_paths:
+        for pp in prompt_paths:
+            if pp == mp or (mp.endswith("/") and pp.startswith(mp)) or pp.startswith(mp.rstrip("/") + "/"):
+                return True
+    return False
+
+
 def _active_files(con, session: str) -> set[str]:
     out = set()
     for (p,) in con.execute("SELECT payload FROM events WHERE session=? AND kind='tool_use'", (session,)):
@@ -102,6 +125,7 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     active = _active_files(con, session)
     rootp = os.path.realpath(root).replace(os.sep, "/") + "/"
     prompt_l = (prompt or "").lower()
+    prompt_paths = path_tokens(prompt)
     salience_rank = os.environ.get("MEMCODE_RANK") == "salience"
     out = []
     for r in rows:
@@ -110,6 +134,8 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
         a = r["anchor_path"] or ""
         if _mentions(prompt_l, a, r.get("anchor_symbol")):
             s += PATH_W
+        elif prompt_paths and _in_scope(prompt_paths, path_tokens(body(r))):
+            s += SCOPE_W
         if a and any(f == a or f.endswith("/" + a) or f == rootp + a for f in active):
             s += ACTIVE_W
         if salience_rank and s > 0:                       # Phase 2 A/B only; off by default
