@@ -20,6 +20,8 @@ from bench.live.candidates3 import CANDIDATES3  # noqa: E402
 from bench.live.candidates4 import CANDIDATES4  # noqa: E402
 from bench.live.pressure import CANDIDATES as _PC, REPO as _PREPO  # noqa: E402
 PCANDS = [dict(c, files=dict(_PREPO)) for c in _PC]
+from bench.live.pressure2_candidates import CANDIDATES as _P2  # noqa: E402
+P2CANDS = [c for c in _P2 if c["name"].endswith("_s300")]   # pilots carry no memory, so one size suffices
 
 
 ORACLE = False
@@ -39,10 +41,10 @@ def main():
     ap.add_argument("--repeats", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--pool", default="1", choices=("1", "2", "3", "4", "P"))
+    ap.add_argument("--pool", default="1", choices=("1", "2", "3", "4", "P", "P2"))
     ap.add_argument("--oracle", action="store_true", help="append the scenario's rules to the prompt (traps must then be ~0)")
     a = ap.parse_args()
-    pool = {"1": CANDIDATES, "2": CANDIDATES2, "3": CANDIDATES3, "4": CANDIDATES4, "P": PCANDS}[a.pool]
+    pool = {"1": CANDIDATES, "2": CANDIDATES2, "3": CANDIDATES3, "4": CANDIDATES4, "P": PCANDS, "P2": P2CANDS}[a.pool]
     global ORACLE
     ORACLE = a.oracle
     units = [(sc, a.model) for sc in pool for _ in range(a.repeats)]
