@@ -5,8 +5,25 @@
   "mcpServers": {
     "memcode": {
       "command": "python3",
-      "args": ["-m", "memcode.mcp_server"],
-      "env": {"PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}"}
+      "args": [
+        "-m",
+        "memcode.mcp_server"
+      ],
+      "env": {
+        "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}"
+      }
     }
-  }
+  },
+  "author": {
+    "name": "Ravikiran Kalal"
+  },
+  "homepage": "https://github.com/ravikirankalal/memcode",
+  "repository": "https://github.com/ravikirankalal/memcode",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "coding-agent",
+    "hooks",
+    "mcp"
+  ]
 }
