@@ -56,6 +56,7 @@ The agent also gets three MCP tools: `memory_search`, `memory_add`, `memory_pinn
 
 - [`docs/guide.md`](docs/guide.md): how it works, what is stored, privacy, troubleshooting, uninstalling
 - [`bench/live/RESULTS.md`](bench/live/RESULTS.md): benchmark runs, including the negative ones
+- [Learnings](https://claude.ai/code/artifact/b7422ec1-b0ee-4e73-993f-aec9d242d87b): what works, what failed and why, method and engineering lessons, open questions (kept up to date)
 - [`docs/decisions/`](docs/decisions): design decisions (e.g. why not Serena)
 
 ## Development
