@@ -1,0 +1,16 @@
+{
+  "env": {
+    "MEMCODE_RETRIEVAL": "1"
+  },
+  "enabledPlugins": {
+    "memcode@memcode": true
+  },
+  "extraKnownMarketplaces": {
+    "memcode": {
+      "source": {
+        "source": "github",
+        "repo": "ravikirankalal/memcode"
+      }
+    }
+  }
+}
