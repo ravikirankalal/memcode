@@ -73,6 +73,8 @@ def _log_error(root: str, e: BaseException) -> None:
 
 
 def main(argv: list[str]) -> int:
+    if os.environ.get("MEMCODE_DISABLE"):          # set by memcode's own model calls: never recurse
+        return 0
     name = argv[1] if len(argv) > 1 else ""
     try:
         d = json.load(sys.stdin)
@@ -87,7 +89,12 @@ def main(argv: list[str]) -> int:
             evs = _events(name, d)
             if evs:
                 from .triggers import TriggerEngine
-                TriggerEngine(con, root).handle_batch(evs)   # one engine, one replay
+                ids = TriggerEngine(con, root).handle_batch(evs)   # one engine, one replay
+                if name == "UserPromptSubmit" and not any(ids):
+                    from . import model_capture        # opt-in: let a model judge what the patterns missed
+                    if model_capture.enabled(root) and model_capture.should_queue(con, evs[0]["session"], evs[0]["prompt"]):
+                        model_capture.enqueue(con, evs[0]["session"], evs[0]["prompt"])
+                        model_capture.spawn_worker(root)
             if name in ("SessionStart", "PreCompact"):
                 from . import tree
                 tree.refresh_from_git_diff(con, root)      # renames / plain mv re-anchor

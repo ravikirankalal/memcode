@@ -9,6 +9,8 @@ Configs
   builtin  Claude Code's own memory (default), no plugin    (the incumbent; Gate 1 baseline)
   claudemd like builtin, but the correction turn also says 'Save this rule to CLAUDE.md.' (a fair incumbent)
   memcode  plugin loaded on top of default built-in memory  (what a real user would run)
+  memcode_model   memcode with opt-in model capture (MEMCODE_MODEL_CAPTURE=1); the harness waits for the
+                  background capture queue to drain before copying memory to later sessions
   memcode_legacy  same, but MEMCODE_FRAMING=legacy (old all-untrusted framing): an A/B for the pinned-block fix
 
 Later sessions start from a CLEAN copy of the original repo plus only the memory store
@@ -39,8 +41,8 @@ from bench.live import metrics  # noqa: E402
 ALLOWED = ("Read Edit Write Bash(pytest:*) Bash(python3:*) Bash(ls:*) Bash(find:*) Bash(grep:*) "
            "Bash(cat:*) Bash(./qa:*) Bash(mv:*) Bash(git mv:*) Bash(mkdir:*) "
            "Bash(git add:*) Bash(git commit:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*)")
-CONFIGS = ("nomem", "builtin", "claudemd", "memcode", "memcode_legacy")
-PLUGIN = ("memcode", "memcode_legacy")
+CONFIGS = ("nomem", "builtin", "claudemd", "memcode", "memcode_legacy", "memcode_model")
+PLUGIN = ("memcode", "memcode_legacy", "memcode_model")
 
 BASE = {"app.py": "def add(a, b):\n    return a + b\n",
         "conftest.py": "import pytest\n\n@pytest.fixture\ndef three():\n    return 3\n",
@@ -98,6 +100,8 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
     if config == "memcode_legacy":
         env["MEMCODE_FRAMING"] = "legacy"
+    if config == "memcode_model":
+        env["MEMCODE_MODEL_CAPTURE"] = "1"
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300, env=env)
     except subprocess.TimeoutExpired:
@@ -170,10 +174,34 @@ def teach(repo: Path, sc: dict, model: str, config: str) -> None:
                 sid = metrics.metrics(ev, sc["trap_regex"], sc.get("trap_on", "cmd_path"))["session_id"]
 
 
+def wait_for_capture_queue(repo: Path, timeout_s: float = 240) -> int:
+    """Block until the background model-capture worker has drained the queue; returns items left."""
+    import time as _t
+    db = repo / ".memcode" / "memory.db"
+    deadline = _t.time() + timeout_s
+    left = 0
+    while _t.time() < deadline:
+        if not db.exists():
+            return 0
+        con = sqlite3.connect(db)
+        try:
+            left = con.execute("SELECT COUNT(*) FROM capture_queue WHERE status IN ('pending','working')").fetchone()[0]
+        except sqlite3.OperationalError:
+            left = 0
+        finally:
+            con.close()
+        if not left:
+            return 0
+        _t.sleep(2)
+    return left
+
+
 def run_unit(args: tuple) -> dict:
     sc, config, model = args
     repo = make_repo(sc)
     teach(repo, sc, model, config)
+    if config == "memcode_model":
+        wait_for_capture_queue(repo)
     stored = memcode_memories(repo) if config in PLUGIN else None
     builtin = builtin_memory_written(repo) if config != "nomem" else None
     later = [metrics.metrics(claude(fresh_with_memory(sc, repo, config), sc["later"], model, config),
@@ -226,7 +254,7 @@ def main() -> None:
         from bench.live.heldout2 import HELDOUT2
         pool = HELDOUT2
     chosen = [s for s in pool if not a.scenarios or s["name"] in a.scenarios.split(",")]
-    cfgs = a.configs.split(",") if a.configs else [c for c in CONFIGS if c != "memcode_legacy"]
+    cfgs = a.configs.split(",") if a.configs else [c for c in CONFIGS if c not in ("memcode_legacy", "memcode_model")]
     units = [(sc, cfg, a.model) for sc in chosen for cfg in cfgs for _ in range(a.repeats)]
     if a.dry_run:
         print(json.dumps({"scenarios": [s["name"] for s in chosen], "configs": cfgs, "repeats": a.repeats,

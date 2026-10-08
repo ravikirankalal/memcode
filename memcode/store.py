@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS outcomes (         -- reinforcement signal per (sessi
   PRIMARY KEY (session, memory_id)
 );
 CREATE TABLE IF NOT EXISTS scored_sessions (session TEXT PRIMARY KEY, ts REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS capture_queue (    -- opt-in model capture (model_capture.py)
+  id INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, text TEXT NOT NULL,
+  status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, result TEXT, memory_id INTEGER, ts REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS retrievals (      -- for reinforce-on-success only
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL

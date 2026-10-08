@@ -7,6 +7,7 @@
   stats               counts by trigger, stale, retrievals, events
   sessions [-n N]     per-session counters: rules/notes injected, captured, repeated corrections
   salience            shadow-mode scores per memory (logged each session start; not used for ranking)
+  config [KEY on|off] show or set options (model-capture: opt-in model-based rule capture)
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
 
@@ -101,6 +102,9 @@ def cmd_stats(con, a) -> int:
     for t, n, st in by:
         print(f"  {t:<10} {n:>4}  ({st or 0} stale)")
     one = lambda q: con.execute(q).fetchone()[0]
+    q = dict(con.execute("SELECT status, COUNT(*) FROM capture_queue GROUP BY status").fetchall())
+    if q:
+        print("model capture queue: " + ", ".join(f"{k} {v}" for k, v in sorted(q.items())))
     rep = one("SELECT COALESCE(SUM(repeated_corrections),0) FROM session_stats")
     print(f"repeated corrections: {rep}")
     print(f"retrievals: {one('SELECT COUNT(*) FROM retrievals')}  events: {one('SELECT COUNT(*) FROM events')}  "
@@ -143,6 +147,25 @@ def cmd_salience(con, a) -> int:
     return 0
 
 
+def cmd_config(con, a, root: str) -> int:
+    from . import model_capture
+    keys = {"model-capture": "model_capture"}
+    if a.key is None:
+        cfg = model_capture.read_config(root)
+        print(f"model-capture: {'on' if model_capture.enabled(root) else 'off'}"
+              f" (config {'on' if cfg.get('model_capture') else 'off'}; env MEMCODE_MODEL_CAPTURE overrides)")
+        print(f"capture model: {os.environ.get('MEMCODE_CAPTURE_MODEL') or model_capture.DEFAULT_MODEL}")
+        return 0
+    if a.key not in keys or a.value not in ("on", "off"):
+        print("usage: memcode config model-capture on|off", file=sys.stderr)
+        return 2
+    model_capture.write_config(root, **{keys[a.key]: a.value == "on"})
+    print(f"{a.key}: {a.value}")
+    if a.value == "on":
+        print("note: prompts the pattern triggers miss will be sent (redacted) to the model via your `claude` login")
+    return 0
+
+
 def cmd_export(con, a) -> int:
     rows = [dict(r) for r in store.list_memories(con, include_stale=True)]
     for r in rows:
@@ -168,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("stats")
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
     sub.add_parser("salience")
+    p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
     a = ap.parse_args(argv)
@@ -176,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if a.cmd == "add":
             return cmd_add(con, a, root)
+        if a.cmd == "config":
+            return cmd_config(con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
                 "export": cmd_export, "sessions": cmd_sessions, "salience": cmd_salience, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:
