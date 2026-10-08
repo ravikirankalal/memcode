@@ -106,3 +106,18 @@ class Terms(unittest.TestCase):
         store.add_memory(con, "fail_to_fix", "the cache layer timed out under load", "", None, {})
         self.assertEqual(retrieval.score(con, root, "s", "clear the browser cache please"), [])
         self.assertEqual(len(retrieval.score(con, root, "s", "the cache layer times out under load again")), 1)
+
+
+class Scope(unittest.TestCase):
+    def test_path_tokens(self):
+        self.assertEqual(retrieval.path_tokens("Every module under billing/ and util/dates.py, see https://x.io/a"),
+                         {"billing/", "util/dates.py"})
+
+    def test_directory_scoped_rule_matches_paths_inside_it_only(self):
+        root = tempfile.mkdtemp(); con = store.connect(root)
+        rid = store.add_memory(con, "correction", "Rule from user correction: Every new module under billing/ starts with '# PCI'.", "", None, {})
+        store.add_memory(con, "correction", "Rule from user correction: Components in frontend/ use named exports.", "", None, {})
+        got = [r["id"] for _, r in retrieval.score(con, root, "s", "Create billing/refunds.py with a refund function")]
+        self.assertEqual(got, [rid])
+        self.assertEqual(retrieval.score(con, root, "s", "Create payments/refunds.py with a refund function"), [])
+        self.assertEqual(retrieval.score(con, root, "s", "billingreport.py needs a fix"), [])

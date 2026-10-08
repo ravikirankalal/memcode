@@ -48,3 +48,12 @@ class Frozen4(unittest.TestCase):
         self.assertEqual(sorted(s["name"] for s in HELDOUT4),
                          ["n_info_header", "n_info_tabs", "n_mixed", "n_text_gap_main", "n_text_gap_two_rules"])
         self.assertTrue(all(s["tuned_on"] is False and s.get("oracle") for s in HELDOUT4))
+
+
+class FrozenPressure1(unittest.TestCase):
+    def test_hash_and_predictions(self):
+        from bench.live.pressure1 import FROZEN_SHA256 as HP, PREDICTIONS, PRESSURE1
+        self.assertEqual(hashlib.sha256(json.dumps(PRESSURE1, sort_keys=True).encode()).hexdigest(), HP,
+                         "pressure1 changed: add a NEW set instead of editing this one")
+        self.assertEqual(sorted(PREDICTIONS), sorted(s["name"] for s in PRESSURE1))
+        self.assertTrue(all(not p["target_pinned"] and p["retrieved_relevance"] for p in PREDICTIONS.values()))

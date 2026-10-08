@@ -41,8 +41,9 @@ from bench.live import metrics  # noqa: E402
 ALLOWED = ("Read Edit Write Bash(pytest:*) Bash(python3:*) Bash(ls:*) Bash(find:*) Bash(grep:*) "
            "Bash(cat:*) Bash(./qa:*) Bash(mv:*) Bash(git mv:*) Bash(mkdir:*) "
            "Bash(git add:*) Bash(git commit:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*)")
-CONFIGS = ("nomem", "builtin", "claudemd", "memcode", "memcode_legacy", "memcode_model")
-PLUGIN = ("memcode", "memcode_legacy", "memcode_model")
+CONFIGS = ("nomem", "builtin", "claudemd", "memcode", "memcode_legacy", "memcode_model",
+           "claudemd_full", "memcode_retrieval", "memcode_salience")
+PLUGIN = ("memcode", "memcode_legacy", "memcode_model", "memcode_retrieval", "memcode_salience")
 
 BASE = {"app.py": "def add(a, b):\n    return a + b\n",
         "conftest.py": "import pytest\n\n@pytest.fixture\ndef three():\n    return 3\n",
@@ -102,6 +103,10 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["MEMCODE_FRAMING"] = "legacy"
     if config == "memcode_model":
         env["MEMCODE_MODEL_CAPTURE"] = "1"
+    if config in ("memcode_retrieval", "memcode_salience"):
+        env["MEMCODE_RETRIEVAL"] = "1"
+    if config == "memcode_salience":
+        env["MEMCODE_RANK"] = "salience"
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300, env=env)
     except subprocess.TimeoutExpired:
@@ -114,7 +119,8 @@ def make_repo(sc: dict) -> Path:
     for n, c in sc["files"].items():
         (d / n).parent.mkdir(parents=True, exist_ok=True)
         (d / n).write_text(c)
-    (d / "qa").chmod(0o755)
+    if (d / "qa").exists():
+        (d / "qa").chmod(0o755)
     for c in (["init", "-q"], ["add", "."], ["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-qm", "i"]):
         subprocess.run(["git", *c], cwd=d, check=True)
     return d
@@ -150,7 +156,7 @@ def fresh_with_memory(sc: dict, src: Path, config: str) -> Path:
     dst = make_repo(sc)
     if config in PLUGIN and (src / ".memcode").exists():
         shutil.copytree(src / ".memcode", dst / ".memcode")
-    if config in ("builtin", "claudemd", "memcode", "memcode_legacy"):
+    if config in ("builtin", "claudemd", "claudemd_full") or config in PLUGIN:
         if (src / "CLAUDE.md").exists():
             shutil.copy(src / "CLAUDE.md", dst / "CLAUDE.md")
         a = automem_dir(src)
@@ -199,6 +205,17 @@ def wait_for_capture_queue(repo: Path, timeout_s: float = 240) -> int:
 def run_unit(args: tuple) -> dict:
     sc, config, model = args
     repo = make_repo(sc)
+    if "target" in sc:                       # budget-pressure scenario: memory is seeded, not taught
+        from bench.live import pressure
+        if config in PLUGIN:
+            pressure.seed_store(repo, sc)
+        elif config == "claudemd_full":
+            pressure.write_claudemd(repo, sc)
+        later = [metrics.metrics(claude(fresh_with_memory(sc, repo, config), sc["later"], model, config),
+                                 sc["trap_regex"], sc.get("trap_on", "cmd_path"), sc.get("trap_path"))
+                 for _ in (2, 3)]
+        return {"scenario": sc["name"], "tuned_on": sc.get("tuned_on", False), "config": config,
+                "stored": memcode_memories(repo) if config in PLUGIN else None, "builtin_written": None, "later": later}
     teach(repo, sc, model, config)
     if config == "memcode_model":
         wait_for_capture_queue(repo)
@@ -235,7 +252,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--scenarios", default="", help="comma-separated scenario names (default: all)")
-    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3", "heldout4"), help="scenario set")
+    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3", "heldout4", "pressure1"), help="scenario set")
     ap.add_argument("--configs", default="", help="comma-separated configs (default: all but memcode_legacy)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results" / "raw.json"))
@@ -244,6 +261,9 @@ def main() -> None:
     if a.set == "heldout":
         from bench.live.heldout import HELDOUT
         pool = HELDOUT
+    elif a.set == "pressure1":
+        from bench.live.pressure1 import PRESSURE1
+        pool = PRESSURE1
     elif a.set == "heldout4":
         from bench.live.heldout4 import HELDOUT4
         pool = HELDOUT4

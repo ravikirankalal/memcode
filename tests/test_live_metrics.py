@@ -53,3 +53,14 @@ class Fragments(unittest.TestCase):
     def test_non_anchored_clauses_still_judge_fragments(self):
         m = metrics.metrics(wr("Edit", new_string="import os\n"), self.RX, "content")
         self.assertTrue(m["trap_hit"]); self.assertIn("import os", m["evidence"])
+
+
+class TrapPath(unittest.TestCase):
+    def test_only_files_under_the_path_are_judged(self):
+        ev = [{"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Write", "input": {"file_path": "/r/tests/test_refunds.py", "content": "def t(): pass\n"}},
+            {"type": "tool_use", "name": "Write", "input": {"file_path": "/r/billing/refunds.py", "content": "# PCI-SCOPE\nx = 1\n"}}]}},
+            {"type": "result", "session_id": "s", "total_cost_usd": 0}]
+        rx = r"\A(?!# PCI-SCOPE)"
+        self.assertTrue(metrics.metrics(ev, rx, "content")["trap_hit"])                          # test file lacks header
+        self.assertFalse(metrics.metrics(ev, rx, "content", trap_path=r"(^|/)billing/")["trap_hit"])  # only billing/ judged
