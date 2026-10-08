@@ -158,10 +158,14 @@ class TriggerEngine:
         dup = self.con.execute("SELECT id FROM memories WHERE trigger=? AND anchor_path=? AND text=?",
                                (trig, rel or "", text)).fetchone()
         if dup:
+            if trig == "correction":     # the user had to say it again: the stored rule did not stick
+                store.bump(self.con, sess, "repeated_corrections", commit=False)
             return None
         a, h = self._anchor(rel)
         prov = {"session": sess, "event_ids": [e for e in events if e], "ts": time.time()}
-        return store.add_memory(self.con, trig, text, a, h, prov, conf, commit=False)
+        mid = store.add_memory(self.con, trig, text, a, h, prov, conf, commit=False)
+        store.bump(self.con, sess, "captured", commit=False)
+        return mid
 
     # ---- entry point
     def handle(self, event: dict, history: int = 200) -> list[int]:

@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS events (          -- raw (redacted) hook events for t
   session TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, ts REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_session ON events(session, id);
+CREATE TABLE IF NOT EXISTS session_stats (   -- per-session counters (see `python3 -m memcode sessions`)
+  session TEXT PRIMARY KEY,
+  started_at REAL NOT NULL,
+  rules_injected INTEGER NOT NULL DEFAULT 0,     -- user rules shown at session start
+  notes_injected INTEGER NOT NULL DEFAULT 0,     -- other memories shown at session start
+  captured INTEGER NOT NULL DEFAULT 0,           -- memories written this session
+  repeated_corrections INTEGER NOT NULL DEFAULT 0, -- user re-stated a rule already stored: memory failed
+  updated_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS retrievals (      -- for reinforce-on-success only
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL
@@ -195,3 +204,18 @@ def log_event(con, session: str, kind: str, payload: dict, commit: bool = True) 
     if commit:
         con.commit()
     return new_id
+
+
+STAT_FIELDS = ("rules_injected", "notes_injected", "captured", "repeated_corrections")
+
+
+def bump(con, session: str, field: str, n: int = 1, commit: bool = True) -> None:
+    """Add n to a per-session counter (creates the row on first use)."""
+    if field not in STAT_FIELDS:
+        raise ValueError(f"unknown counter {field}")
+    now = time.time()
+    con.execute(f"""INSERT INTO session_stats(session, started_at, {field}, updated_at) VALUES(?,?,?,?)
+                    ON CONFLICT(session) DO UPDATE SET {field}={field}+excluded.{field}, updated_at=excluded.updated_at""",
+                (session, now, n, now))
+    if commit:
+        con.commit()

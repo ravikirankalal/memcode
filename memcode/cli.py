@@ -5,6 +5,7 @@
   forget ID...        delete memories (and their retrievals / salience rows)
   add TEXT [--path P] record a manual memory (redacted, path confined to the repo)
   stats               counts by trigger, stale, retrievals, events
+  sessions [-n N]     per-session counters: rules/notes injected, captured, repeated corrections
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
 
@@ -92,8 +93,25 @@ def cmd_stats(con, a) -> int:
     for t, n, st in by:
         print(f"  {t:<10} {n:>4}  ({st or 0} stale)")
     one = lambda q: con.execute(q).fetchone()[0]
+    rep = one("SELECT COALESCE(SUM(repeated_corrections),0) FROM session_stats")
+    print(f"repeated corrections: {rep}")
     print(f"retrievals: {one('SELECT COUNT(*) FROM retrievals')}  events: {one('SELECT COUNT(*) FROM events')}  "
           f"paths: {one('SELECT COUNT(*) FROM paths')}")
+    return 0
+
+
+def cmd_sessions(con, a) -> int:
+    rows = con.execute("SELECT * FROM session_stats ORDER BY started_at DESC LIMIT ?", (a.n,)).fetchall()
+    if not rows:
+        print("no sessions recorded yet")
+        return 0
+    print(f"{'session':<10} {'started':<16} {'rules':>5} {'notes':>5} {'captured':>8} {'repeated':>8}")
+    for r in rows:
+        print(f"{r['session'][:8]:<10} {_fmt_ts(r['started_at']):<16} {r['rules_injected']:>5} "
+              f"{r['notes_injected']:>5} {r['captured']:>8} {r['repeated_corrections']:>8}")
+    t = con.execute("SELECT SUM(captured), SUM(repeated_corrections), COUNT(*) FROM session_stats").fetchone()
+    print(f"\n{t[2]} sessions: {t[0] or 0} memories captured, {t[1] or 0} corrections repeated "
+          f"(a repeated correction means a stored rule did not stick)")
     return 0
 
 
@@ -120,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("forget"); p.add_argument("ids", type=int, nargs="+")
     p = sub.add_parser("add"); p.add_argument("text"); p.add_argument("--path")
     sub.add_parser("stats")
+    p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
     a = ap.parse_args(argv)
@@ -129,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "add":
             return cmd_add(con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
-                "export": cmd_export, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
+                "export": cmd_export, "sessions": cmd_sessions, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
