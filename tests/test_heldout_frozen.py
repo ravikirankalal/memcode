@@ -38,3 +38,13 @@ class Frozen3(unittest.TestCase):
                          ["m_four_rules", "m_rules_and_distractors", "m_stated_as_info", "m_supersede",
                           "m_three_across_sessions"])
         self.assertTrue(all(s["tuned_on"] is False and s.get("oracle") for s in HELDOUT3))
+
+
+class Frozen4(unittest.TestCase):
+    def test_hash_unchanged_and_shape(self):
+        from bench.live.heldout4 import FROZEN_SHA256 as H4, HELDOUT4
+        self.assertEqual(hashlib.sha256(json.dumps(HELDOUT4, sort_keys=True).encode()).hexdigest(), H4,
+                         "heldout4 changed: add a NEW set instead of editing this one")
+        self.assertEqual(sorted(s["name"] for s in HELDOUT4),
+                         ["n_info_header", "n_info_tabs", "n_mixed", "n_text_gap_main", "n_text_gap_two_rules"])
+        self.assertTrue(all(s["tuned_on"] is False and s.get("oracle") for s in HELDOUT4))
