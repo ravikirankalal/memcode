@@ -1,0 +1,141 @@
+"""`python3 -m memcode <command>`: inspect and control the memory store.
+
+  list [--all]        memories (stale hidden unless --all)
+  show ID             one memory with provenance
+  forget ID...        delete memories (and their retrievals / salience rows)
+  add TEXT [--path P] record a manual memory (redacted, path confined to the repo)
+  stats               counts by trigger, stale, retrievals, events
+  export [FILE]       JSON dump (stdout if no FILE)
+  prune-stale         delete all stale memories
+
+Root resolution matches the hooks (CLAUDE_PROJECT_DIR, else git toplevel, else cwd).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+
+from . import store
+from .mcp_server import safe_rel
+from .redact import redact
+
+
+def _fmt_ts(t: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(t))
+
+
+def cmd_list(con, a) -> int:
+    rows = store.list_memories(con, include_stale=a.all)
+    if not rows:
+        print("no memories")
+    for r in rows:
+        flag = " [stale]" if r["stale"] else ""
+        print(f"#{r['id']:<4} {r['trigger']:<9} {r['anchor_path'] or '/':<20} {r['text']}{flag}")
+    return 0
+
+
+def cmd_show(con, a) -> int:
+    r = con.execute("SELECT * FROM memories WHERE id=?", (a.id,)).fetchone()
+    if not r:
+        print(f"no memory #{a.id}", file=sys.stderr)
+        return 1
+    n = con.execute("SELECT COUNT(*) FROM retrievals WHERE memory_id=?", (a.id,)).fetchone()[0]
+    print(f"#{r['id']} [{r['trigger']}] confidence={r['confidence']:.2f} stale={bool(r['stale'])} retrievals={n}")
+    print(f"anchor: {r['anchor_path'] or '(repo-wide)'}  hash: {r['anchor_hash'] or '-'}")
+    print(f"created {_fmt_ts(r['created_at'])}, updated {_fmt_ts(r['updated_at'])}")
+    print(f"provenance: {r['provenance']}")
+    print(f"\n{r['text']}")
+    return 0
+
+
+def _delete(con, ids: list[int]) -> int:
+    n = 0
+    for i in ids:
+        for t in ("retrievals", "salience_log"):
+            con.execute(f"DELETE FROM {t} WHERE memory_id=?", (i,))
+        n += con.execute("DELETE FROM memories WHERE id=?", (i,)).rowcount
+    con.commit()
+    return n
+
+
+def cmd_forget(con, a) -> int:
+    n = _delete(con, a.ids)
+    print(f"forgot {n} of {len(a.ids)}")
+    return 0 if n == len(a.ids) else 1
+
+
+def cmd_prune_stale(con, a) -> int:
+    ids = [r[0] for r in con.execute("SELECT id FROM memories WHERE stale=1")]
+    print(f"pruned {_delete(con, ids)} stale memories")
+    return 0
+
+
+def cmd_add(con, a, root: str) -> int:
+    rel = safe_rel(root, a.path or "")
+    h = None
+    f = os.path.join(os.path.realpath(root), rel) if rel else None
+    if f and os.path.isfile(f):
+        with open(f, "rb") as fh:
+            h = store.sha1(fh.read())
+    mid = store.add_memory(con, "manual", redact(a.text.strip())[:2000], redact(rel), h, {"source": "cli"}, confidence=0.6)
+    print(f"stored memory #{mid}")
+    return 0
+
+
+def cmd_stats(con, a) -> int:
+    by = con.execute("SELECT trigger, COUNT(*), SUM(stale) FROM memories GROUP BY trigger ORDER BY 2 DESC").fetchall()
+    total = sum(r[1] for r in by)
+    print(f"memories: {total} ({sum(r[2] or 0 for r in by)} stale)")
+    for t, n, st in by:
+        print(f"  {t:<10} {n:>4}  ({st or 0} stale)")
+    one = lambda q: con.execute(q).fetchone()[0]
+    print(f"retrievals: {one('SELECT COUNT(*) FROM retrievals')}  events: {one('SELECT COUNT(*) FROM events')}  "
+          f"paths: {one('SELECT COUNT(*) FROM paths')}")
+    return 0
+
+
+def cmd_export(con, a) -> int:
+    rows = [dict(r) for r in store.list_memories(con, include_stale=True)]
+    for r in rows:
+        r["provenance"] = json.loads(r["provenance"] or "{}")
+    out = json.dumps(rows, indent=2)
+    if a.file:
+        with open(a.file, "w") as fh:
+            fh.write(out + "\n")
+        print(f"exported {len(rows)} memories to {a.file}")
+    else:
+        print(out)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="memcode", description="Inspect and control the memcode store.")
+    ap.add_argument("--root", help="repo root (default: CLAUDE_PROJECT_DIR / git toplevel / cwd)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("list"); p.add_argument("--all", action="store_true")
+    p = sub.add_parser("show"); p.add_argument("id", type=int)
+    p = sub.add_parser("forget"); p.add_argument("ids", type=int, nargs="+")
+    p = sub.add_parser("add"); p.add_argument("text"); p.add_argument("--path")
+    sub.add_parser("stats")
+    p = sub.add_parser("export"); p.add_argument("file", nargs="?")
+    sub.add_parser("prune-stale")
+    a = ap.parse_args(argv)
+    root = store.resolve_root(a.root)
+    con = store.connect(root)
+    try:
+        if a.cmd == "add":
+            return cmd_add(con, a, root)
+        return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
+                "export": cmd_export, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    finally:
+        con.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

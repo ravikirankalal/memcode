@@ -13,6 +13,7 @@ Phase 1 MVP of the plan ("Coding Agent Memory: Product Analysis"), as a Claude C
 | Pinned map + conventions + memories under a hard token cap | `memcode/pinned.py` |
 | Hooks (SessionStart, UserPromptSubmit, PostToolUse, PreCompact) | `hooks/hooks.json`, `memcode/hook_cli.py` |
 | MCP tools `memory_search`, `memory_add`, `memory_pinned` | `memcode/mcp_server.py` |
+| Review/control CLI: `python3 -m memcode list\|show\|forget\|add\|stats\|export\|prune-stale` | `memcode/cli.py` |
 | Offline replay benchmark | `bench/` |
 
 Data lives in `<repo>/.memcode/memory.db` (local-first; memcode adds `.memcode/` to the repo's `.git/info/exclude` and writes `.memcode/.gitignore`).
