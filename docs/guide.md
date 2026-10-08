@@ -17,7 +17,7 @@ Each hook is a fresh process. Trigger state is rebuilt from the last 400 recorde
 
 | Trigger | Fires when | Stored as |
 |---|---|---|
-| correction | your prompt reads as a correction ("No - ...", "never/always ...", "don't ...", "remember that ...") right after the agent acted | `Rule from user correction: <the bare rule>`, repo-wide |
+| correction | your prompt reads as a correction ("No - ...", "never/always ...", "don't ...", "remember that ...") or a stated team rule ("Heads up: we prefer X", "our convention is ...", needs a normative word) right after the agent acted | `Rule from user correction: <the bare rule>`, repo-wide |
 | revert | the agent's edit is undone (git checkout/restore/revert, or an edit that reverses it) | note anchored to the file |
 | fail_to_fix | a command fails, files are edited, the same command passes | note anchored to the edited file (and the edited Python function) |
 | retry | the same command is retried with different flags after a failure | repo-wide note |
@@ -27,6 +27,7 @@ Each hook is a fresh process. Trigger state is rebuilt from the last 400 recorde
 
 ```text
 ## Project rules (stated by the user in earlier sessions; follow them)
+(Listed oldest to newest. If two rules conflict, the later one replaces the earlier one.)
 - Always use tabs.
 
 <memcode-recorded-notes>   <- untrusted data: repo map and agent-derived notes
@@ -35,7 +36,8 @@ Each hook is a fresh process. Trigger state is rebuilt from the last 400 recorde
 </memcode-recorded-notes>
 ```
 
-Only `correction` memories become rules, because they are written from your own prompts. Everything else is data the
+Rules are listed oldest to newest and the agent is told a later rule replaces an earlier conflicting one, so
+"actually, switch to 2 spaces" overrides "use tabs" without any topic matching. Only `correction` memories become rules, because they are written from your own prompts. Everything else is data the
 agent may use but is told not to obey. Total size is capped (default 1500 tokens, approximated as chars/4).
 
 ## What is stored, and privacy
