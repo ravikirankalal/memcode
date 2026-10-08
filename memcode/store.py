@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS session_stats (   -- per-session counters (see `pytho
   repeated_corrections INTEGER NOT NULL DEFAULT 0, -- user re-stated a rule already stored: memory failed
   updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS injections (       -- which memories each session was shown (for later reinforcement)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS retrievals (      -- for reinforce-on-success only
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL
@@ -229,3 +233,15 @@ def bump(con, session: str, field: str, n: int = 1, commit: bool = True) -> None
                 (session, now, n, now))
     if commit:
         con.commit()
+
+
+SALIENCE_KEEP = 30   # salience_log rows kept per memory (shadow-mode time series)
+
+
+def prune_salience_log(con) -> None:
+    con.execute("""DELETE FROM salience_log WHERE id IN (
+                     SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY memory_id ORDER BY id DESC) AS rn
+                                     FROM salience_log) WHERE rn > ?)""", (SALIENCE_KEEP,))
+    con.execute("DELETE FROM salience_log WHERE memory_id NOT IN (SELECT id FROM memories)")
+    con.execute("DELETE FROM injections WHERE memory_id NOT IN (SELECT id FROM memories)")
+    con.commit()
