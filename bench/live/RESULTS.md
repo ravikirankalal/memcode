@@ -232,3 +232,26 @@ Run by two parallel subagents in a read-only worktree. 5 scenarios x 3 configs x
 - Every memcode failure in heldout3 and heldout4 except one borderline case traces to capture, not to the stored rule being ignored.
 - The headless runs shared the launching session's id (see the harness fix after Run 6); resume was verified to keep context, so trap results stand.
 - One model (Haiku), 10 runs per cell, no significance testing.
+
+---
+
+# Run 8 (2026-10-08): BUDGET-PRESSURE SET (pressure1), retrieval vs pinned-only vs CLAUDE.md
+
+~109 seeded memories per scenario; the target is the oldest, so the capped pinned block omits it. Haiku, 5 repeats x 2 later sessions = 10 runs per cell. Main run on pinned snapshot 7f8aac5 (subagent); pinned-only arm re-run after a fix (see below).
+
+**Valid scenarios (p_billing_header, p_tools_flags), 20 later-session runs per arm:**
+
+| arm | repeated mistakes | offline prediction |
+|---|---|---|
+| nomem | 20/20 | (fails) |
+| memcode, pinned only (re-run) | **20/20** | target not pinned -> fails like nomem: held |
+| memcode + retrieval | **0/20** | retrieval surfaces the target first and alone: held |
+| claudemd_full (all ~109 entries in CLAUDE.md) | 0/20 | - |
+
+## Reading
+- **Per-prompt retrieval rescues memories the capped pinned block drops:** 20/20 -> 0/20 with the same store. With retrieval memcode matches a CLAUDE.md that loads everything, while injecting only the one relevant memory per prompt.
+- It does not beat CLAUDE.md here: ~109 entries still fit comfortably in Claude Code's context, so a full CLAUDE.md degrades nothing at this size. Whether CLAUDE.md degrades at larger sizes is untested.
+
+## Problems found (and how they were handled)
+1. **Environment leak (my setup error):** enabling memcode for this repo (`.claude/settings.json`, `MEMCODE_RETRIEVAL=1`) put the flag into this session's environment, and every benchmark child inherited it, so the original "pinned-only" arm had retrieval ON (it scored 0/20, identical to the retrieval arm). Fixed: arms now strip all inherited `MEMCODE_*` variables (with a test); the pinned-only arm was re-run (20/20 failures, as predicted). Earlier runs predate the settings change and are unaffected.
+2. **Two invalid scenarios (my design error):** in `p_data_all` and `p_search_suffix` every arm failed (CLAUDE.md 10/10 and 8/10) because the agents correctly followed *distractor* rules for the same directories ("tests for data/ live in data/tests", "every change under data/ needs a changelog line"), creating test files and CHANGES.md inside the trap's path scope, which the target rule did not cover. Distractor areas overlapped target areas. They are excluded from the reading; a future set must keep distractor rules out of target directories.
