@@ -44,8 +44,8 @@ class T(unittest.TestCase):
         ids = self.ev("prompt", text="No, don't use x=2 instead use x=3")
         self.assertEqual(len(ids), 1)
         m = self.mems("correction")[0]
-        self.assertEqual(m["anchor_path"], "src/a.py")
-        self.assertEqual(m["anchor_hash"], store.sha1(b"x=1\n"))
+        self.assertEqual(m["anchor_path"], "")        # a stated convention is repo-wide
+        self.assertIsNone(m["anchor_hash"])
         self.assertIn("s1", m["provenance"])
 
     def test_no_correction_without_edit(self):

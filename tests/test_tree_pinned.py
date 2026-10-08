@@ -125,7 +125,7 @@ class TestPinned(Base):
         self.seed()
         out = pinned.render_pinned(self.con, self.root)
         self.assertIn("core code", out)
-        self.assertIn("## Conventions", out)
+        self.assertIn("## Project rules", out)
         self.assertIn("always use pathlib", out)
         self.assertIn("build breaks without X", out)
         self.assertNotIn("stale one", out)
