@@ -278,7 +278,8 @@ def main() -> None:
     units = [(sc, cfg, a.model) for sc in chosen for cfg in cfgs for _ in range(a.repeats)]
     if a.dry_run:
         print(json.dumps({"scenarios": [s["name"] for s in chosen], "configs": cfgs, "repeats": a.repeats,
-                          "units": len(units), "claude_calls": sum(len(t) for sc, _, _ in units for t in (sc.get("teach") or [sc["s1"]])) + len(units) * 2}, indent=1))
+                          "units": len(units), "claude_calls": sum(0 if "target" in sc else sum(len(t) for t in (sc.get("teach") or [sc["s1"]]))
+                                              for sc, _, _ in units) + len(units) * 2}, indent=1))
         return
     with cf.ThreadPoolExecutor(a.workers) as ex:
         results = list(ex.map(run_unit, units))
