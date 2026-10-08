@@ -92,13 +92,57 @@ CANDIDATES += [
 ]
 
 
+# ---- scaled distractors (pressure2): many synthetic areas, never a target directory ----
+_SYL = ["al", "bor", "cen", "dax", "el", "fin", "gor", "hal", "ix", "jun", "kel", "lom", "mar", "nov", "or",
+        "pex", "qui", "ros", "sul", "tam", "ur", "vel", "wyn", "xan", "yor", "zed"]
+SCALED_RULES = [
+    "Components in {a}/ use named exports only, never default exports.",
+    "Every change under {a}/ needs a changelog line in {a}/CHANGES.md.",
+    "Tests for {a}/ live in {a}/tests and use the shared fixtures module.",
+    "Configuration for {a}/ is read from {a}/config.toml, never from environment variables.",
+    "Public functions in {a}/ carry a one-line summary docstring.",
+    "Files in {a}/ are named in kebab-case.",
+    "Logging in {a}/ goes through {a}/log.py with the component name as prefix.",
+    "Database access in {a}/ uses the repository classes in {a}/repo.py only.",
+]
+SCALED_NOTES = [
+    "`make {a}-build` failed until the cache directory was cleared; clear it before rebuilding.",
+    "The {a} integration tests flaked on slow network; they now use the local stub server.",
+    "Building {a} on a clean machine failed until the toolchain version was pinned.",
+]
+TARGET_DIRS = {"billing", "tools", "queue", "ledger"}
+
+
+def scaled_areas(n: int) -> list[str]:
+    out = []
+    for i in range(n):
+        a, b = _SYL[i % len(_SYL)], _SYL[(i // len(_SYL) + 7 * i) % len(_SYL)]
+        name = f"{a}{b}{i}"
+        if name not in TARGET_DIRS:
+            out.append(name)
+    return out
+
+
+def scaled_distractors(n_rules: int, n_notes: int) -> tuple[list[str], list[str]]:
+    areas = scaled_areas(n_rules // len(SCALED_RULES) + 2)
+    rules = [t.format(a=a) for a in areas for t in SCALED_RULES][:n_rules]
+    notes = [t.format(a=a) for a in areas for t in SCALED_NOTES][:n_notes]
+    return rules, notes
+
+
+def _distractors_for(sc: dict):
+    if "n_rules" in sc:
+        return scaled_distractors(sc["n_rules"], sc["n_notes"])
+    return distractors()
+
+
 def seed_store(repo: Path, sc: dict) -> int:
     """Seed .memcode with the distractors (newer) and the target (oldest). Returns the target id."""
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
     from memcode import store
     con = store.connect(repo)
-    rules, notes = distractors()
+    rules, notes = _distractors_for(sc)
     t0 = time.time() - 90 * 86400
     trig, text, anchor = sc["target"]
     body = f"Rule from user correction: {text}" if trig == "correction" else text
@@ -116,7 +160,7 @@ def seed_store(repo: Path, sc: dict) -> int:
 
 
 def write_claudemd(repo: Path, sc: dict) -> None:
-    rules, notes = distractors()
+    rules, notes = _distractors_for(sc)
     trig, text, _ = sc["target"]
     lines = ["# Project memory", "", "## Rules"] + [f"- {r}" for r in ([text] if trig == "correction" else []) + rules]
     lines += ["", "## Notes"] + [f"- {n}" for n in ([text] if trig != "correction" else []) + notes]
@@ -132,7 +176,7 @@ def offline_check(sc: dict) -> dict:
     out = {}
     for arm, env in (("relevance", {}), ("salience", {"MEMCODE_RANK": "salience"})):
         d = Path(tempfile.mkdtemp())
-        for n, c in REPO.items():
+        for n, c in sc.get("files", REPO).items():
             (d / n).parent.mkdir(parents=True, exist_ok=True)
             (d / n).write_text(c)
         tid = seed_store(d, sc)
@@ -150,6 +194,7 @@ def offline_check(sc: dict) -> dict:
             for k, v in old.items():
                 os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
         _, ids = retrieval.render(scored)
+        out[f"injected_{arm}"] = len(ids)
         out["target_pinned"] = tid in shown
         out[f"retrieved_{arm}"] = tid in ids
         out[f"rank_{arm}"] = next((i for i, (_, r) in enumerate(scored) if r["id"] == tid), None)

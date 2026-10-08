@@ -57,3 +57,12 @@ class FrozenPressure1(unittest.TestCase):
                          "pressure1 changed: add a NEW set instead of editing this one")
         self.assertEqual(sorted(PREDICTIONS), sorted(s["name"] for s in PRESSURE1))
         self.assertTrue(all(not p["target_pinned"] and p["retrieved_relevance"] for p in PREDICTIONS.values()))
+
+
+class FrozenPressure2(unittest.TestCase):
+    def test_hash_and_predictions(self):
+        from bench.live.pressure2 import FROZEN_SHA256 as H, PREDICTIONS, PRESSURE2
+        self.assertEqual(hashlib.sha256(json.dumps(PRESSURE2, sort_keys=True).encode()).hexdigest(), H,
+                         "pressure2 changed: add a NEW set instead of editing this one")
+        self.assertEqual(len(PRESSURE2), 8)
+        self.assertTrue(all(not p["target_pinned"] and p["injected_relevance"] == 1 for p in PREDICTIONS.values()))
