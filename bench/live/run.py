@@ -96,7 +96,9 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         # Child processes otherwise inherit the PARENT Claude Code session's id (via the environment), so
         # every run would share one session id and memcode's per-session state would leak between them.
         cmd += ["--session-id", str(uuid.uuid4())]
-    env = dict(os.environ)
+    # Never inherit memcode switches from the launching shell (a project that enables memcode, e.g. this repo's
+    # .claude/settings.json, exports MEMCODE_RETRIEVAL=1); each arm sets exactly the flags it is defined by.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_")}
     if config == "nomem":
         env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
     if config == "memcode_legacy":
