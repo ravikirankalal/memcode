@@ -41,8 +41,9 @@ def edit_paths(events: list[dict]) -> list[str]:
     return paths
 
 
-def edit_content(events: list[dict]) -> list[str]:
-    """Text the agent wrote via Write/Edit/MultiEdit (for content-based traps)."""
+def edit_content(events: list[dict], with_kind: bool = False) -> list:
+    """Text the agent wrote via Write/Edit/MultiEdit (for content-based traps). With with_kind,
+    items are (text, is_snippet): Edit/MultiEdit write a fragment, Write writes a whole file."""
     out = []
     for e in events:
         if e.get("type") != "assistant":
@@ -50,8 +51,9 @@ def edit_content(events: list[dict]) -> list[str]:
         for b in (e.get("message") or {}).get("content") or []:
             if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Write", "Edit", "MultiEdit"):
                 i = b.get("input") or {}
-                out.append(str(i.get("content") or i.get("new_string") or "")
-                           + " ".join(str(x.get("new_string", "")) for x in i.get("edits", []) if isinstance(x, dict)))
+                text = (str(i.get("content") or i.get("new_string") or "")
+                        + " ".join(str(x.get("new_string", "")) for x in i.get("edits", []) if isinstance(x, dict)))
+                out.append((text, b.get("name") != "Write") if with_kind else text)
     return out
 
 
@@ -72,12 +74,21 @@ def tool_results(events: list[dict]) -> list[str]:
 def metrics(events: list[dict], trap_regex: str, trap_on: str = "cmd_path") -> dict:
     """trap_on: cmd_path (commands + written paths) | content (written text)."""
     bash = bash_calls(events)
-    cmds = edit_content(events) if trap_on == "content" else bash + edit_paths(events)
     trap = re.compile(trap_regex, re.S)   # commands may be multi-line (heredocs)
+    if trap_on == "content":
+        # Start-of-file clauses (\A...) can only judge a whole file (Write), never an Edit fragment:
+        # neutralise them for fragments so "fragment lacks the header" is not scored as a mistake.
+        frag = re.compile(trap_regex.replace(r"\A", r"(?!)"), re.S)
+        items = edit_content(events, with_kind=True)
+        cmds = [t for t, snip in items if (frag if snip else trap).search(t)]
+        hit = bool(cmds)
+    else:
+        cmds = bash + edit_paths(events)
+        hit = any(trap.search(c) for c in cmds)
     final = next((e for e in reversed(events) if e.get("type") == "result"), {})
     return {
-        "trap_hit": any(trap.search(c) for c in cmds),
-        "evidence": next((c[:160] for c in cmds if trap.search(c)), None),
+        "trap_hit": hit,
+        "evidence": next((c[:160] for c in cmds if trap_on == "content" or trap.search(c)), None),
         "explore_calls": sum(1 for c in bash if EXPLORE_RE.match(c)),
         "bash_calls": len(bash),
         "cost_usd": final.get("total_cost_usd", 0.0),
