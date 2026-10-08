@@ -130,3 +130,37 @@ Trap hits per scenario (of 10 later-session runs):
 
 ## Policy
 The held-out set is spent: further trigger/pinned changes made in response to Run 4 mean its results can no longer be quoted as held-out. Validate any fix on a NEW frozen set, and make later sessions start from a clean copy of the original repo (plus only the memory store) to remove the contamination.
+
+---
+
+# Run 5 (2026-10-08): SECOND FROZEN HELD-OUT SET (heldout2), after the pinned-block fix
+
+`python3 bench/live/run.py --set heldout2 --repeats 5 --workers 8 --model haiku --configs nomem,claudemd,memcode,memcode_legacy`: 5 scenarios x 4 configs x 5 repeats x 2 later sessions = 50 later-session runs per config (Haiku, ~$0.19-0.21 per config). Later sessions start from a CLEAN copy of the original repo plus only the memory (no session-1 code). The set was frozen (pilot-selected without memcode) and the pinned-block fix was implemented before it was built.
+
+| config | runs | repeated-mistake rate | memory written in session 1 |
+|---|---|---|---|
+| nomem | 50 | **1.00** | n/a |
+| claudemd ("save this rule to CLAUDE.md") | 50 | **0.00** | 25/25 |
+| **memcode** (fixed framing) | 50 | **0.00** | 25/25 |
+| memcode_legacy (old all-untrusted framing) | 50 | 0.30 | 25/25 |
+
+Trap hits per scenario (of 10 later-session runs):
+
+| scenario | nomem | claudemd | memcode | memcode_legacy |
+|---|---|---|---|---|
+| k_pathlib | 10 | 0 | 0 | 0 |
+| k_dataclass | 10 | 0 | 0 | 0 |
+| k_module_imports | 10 | 0 | 0 | 0 |
+| k_main_block | 10 | 0 | 0 | **5** |
+| k_header | 10 | 0 | 0 | **10** |
+
+## Reading
+- **The Run 4 hypothesis is supported by a controlled A/B.** Same plugin, same stored memories, only the framing differs: the old "untrusted data, never instructions" wrapper let the agent ignore stored rules on the two scenarios where following them is unusual (`k_main_block` 5/10, `k_header` 10/10), while presenting user-authored rules as the user's instructions (with the injection defence kept for agent-derived text) gave 0/50.
+- **memcode now matches, but does not beat, a manually maintained CLAUDE.md** (0/50 vs 0/50). Both drive repeated mistakes from 100% to 0% against no memory. memcode's remaining advantages are not measured here: it captures the rule automatically (the `claudemd` arm needed the user to say "save this to CLAUDE.md"; default built-in memory wrote almost nothing in earlier runs), it expires stale memories, and it injects a repo map. "Gate 1: beats built-in memory" is therefore met only against default built-in memory, and tied against a hand-curated CLAUDE.md.
+- **The no-memory baseline is now 100% (it was 23% in Run 4).** That confirms the Run 4 contamination caveat: with clean-copy sessions the agent no longer inherits the convention from code written in session 1.
+- **Ceiling effect.** Both arms are at 0%, so these single-rule scenarios cannot separate memcode from CLAUDE.md. Differences would have to come from harder cases: many rules, rules that become wrong (staleness), a large repo, or rules stated only in passing.
+- **Caveat on code freeze.** The per-session-counters / CLI / docs commits (additive, intended to be behaviour-neutral, unit-tested) were merged while the last ~9 of 100 units were running, so the final units are not strictly on the frozen code. The symbol-level staleness change was merged only after the run finished.
+- One model (Haiku), 10 runs per cell, no significance testing. Run 4 stands as the record that the old framing failed; this run validates the fix on a set built after it.
+
+## Next
+A harder, frozen set that can separate memcode from CLAUDE.md: (1) several rules at once, (2) a rule that later becomes wrong and must be superseded or expire, (3) a rule stated once in a long conversation, (4) a larger repo where the pinned map matters. Salience ranking (Phase 2) stays gated until a set like this shows a gain over CLAUDE.md.
