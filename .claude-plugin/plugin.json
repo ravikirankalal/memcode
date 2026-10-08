@@ -1,6 +1,6 @@
 {
   "name": "memcode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Event-triggered, anchored, budgeted memory for coding agents: the agent stops repeating mistakes in a codebase it has seen before.",
   "mcpServers": {
     "memcode": {
