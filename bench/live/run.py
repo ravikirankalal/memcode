@@ -28,6 +28,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -88,6 +89,10 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         cmd += ["--plugin-dir", str(ROOT)]
     if resume:
         cmd += ["--resume", resume]
+    else:
+        # Child processes otherwise inherit the PARENT Claude Code session's id (via the environment), so
+        # every run would share one session id and memcode's per-session state would leak between them.
+        cmd += ["--session-id", str(uuid.uuid4())]
     env = dict(os.environ)
     if config == "nomem":
         env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
