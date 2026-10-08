@@ -17,7 +17,7 @@ Each hook is a fresh process. Trigger state is rebuilt from the last 400 recorde
 
 | Trigger | Fires when | Stored as |
 |---|---|---|
-| correction | your prompt reads as a correction ("No - ...", "never/always ...", "don't ...", "remember that ...") or a stated team rule ("Heads up: we prefer X", "our convention is ...", needs a normative word) right after the agent acted | `Rule from user correction: <the bare rule>`, repo-wide |
+| correction | your prompt reads as a correction ("No - ...", "never/always ...", "don't ...", "remember that ...") or a stated team rule ("Heads up: we prefer X", "our convention is ...", needs a normative word) right after the agent acted (or, after a text-only exchange, an explicit rule such as "never/always <verb>" or "remember that") | `Rule from user correction: <the bare rule>`, repo-wide |
 | revert | the agent's edit is undone (git checkout/restore/revert, or an edit that reverses it) | note anchored to the file |
 | fail_to_fix | a command fails, files are edited, the same command passes | note anchored to the edited file (and the edited Python function) |
 | retry | the same command is retried with different flags after a failure | repo-wide note |

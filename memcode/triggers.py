@@ -27,7 +27,7 @@ _DEP_NAMES = re.compile(
     r"uv\.lock|Pipfile|Pipfile\.lock|requirements[^/]*\.txt|Cargo\.toml|Cargo\.lock|go\.mod|go\.sum|"
     r"Gemfile|Gemfile\.lock|composer\.json|composer\.lock|setup\.cfg|tox\.ini)$", re.I)
 _CORRECTION = re.compile(
-    r"(?i)^\s*(no[,.!:]|no\s*[-\u2013\u2014]|no\s+(?:don't|do not|that|use|not)\b|nope\b|don'?t\b|do not\b|stop\b)"
+    r"(?i)^\s*(no[,.!:]|no\s*[-\u2013\u2014]|no\s+(?:don't|do not|that|use|not)\b|nope\b|don'?t\b(?!\s+forget)|do not\b|stop\b)"
     r"|\bthat'?s (?:wrong|not (?:right|correct|what))\b|\binstead,? use\b|\buse\b.{1,60}\binstead\b"
     r"|\brevert (?:that|this|it)\b|\bundo (?:that|this|it)\b|\byou (?:should not|shouldn'?t)\b"
     r"|\b(?:never|always)\s+(?:use|run|call|put|write|add|commit)\b|\bremember (?:that|this)\b|\bfrom now on\b")
@@ -38,6 +38,11 @@ _STATEMENT = re.compile(
     r"\b(?:prefer\w*|should|must|convention|rule|standard|style|always|never|only|every|all)\b"
     r"|\b(?:we|our team|this team|the team)\s+(?:prefer|always|never|only use)\b"
     r"|\bour (?:convention|rule|standard|style)\b")
+# Rule-bearing phrases only. Used when the agent did NOT act since the previous prompt (a text-only
+# exchange in between): bare complaints ("that's wrong", "No,", "Don't") are not rules by themselves.
+_STRONG = re.compile(
+    r"(?i)\b(?:never|always)\s+(?:use|run|call|put|write|add|commit|name|start|end|indent|import|create|keep|make)\b"
+    r"|\bremember (?:that|this)\b|\bfrom now on\b")
 _GIT_REVERT = re.compile(r"\bgit\s+(?:checkout|restore|revert|reset\s+--hard)\b")
 _STAGED_ONLY = re.compile(r"\bgit\s+restore\b(?=.*(?:--staged|\s-S\b))(?!.*(?:--worktree|\s-W\b))")
 _TRIVIAL = {"ls", "cd", "cat", "echo", "pwd", "head", "tail", "which", "clear", "git status",
@@ -122,6 +127,7 @@ class _Session:
         self.edits = []            # dicts: path, old, new, ev
         self.edited_since_prompt = False
         self.acted_since_prompt = False   # any agent tool call since the last prompt
+        self.acted_ever = False           # the agent has used Bash/an edit tool at some point this session
         self.failing = {}          # cmd -> {"ev": id, "n_edits": int, "output": str}
         self.variants = {}         # cmd_key -> list of distinct raw commands
         self.retry_fired = set()
@@ -236,7 +242,7 @@ class TriggerEngine:
             out += self._prompt(event, sess, st, ev)
         elif kind == "tool_use":
             if tool in EDIT_TOOLS or tool in BASH_TOOLS:
-                st.acted_since_prompt = True
+                st.acted_since_prompt = st.acted_ever = True
             if tool in EDIT_TOOLS:
                 out += self._edit(inp, sess, st, ev)
             elif tool in BASH_TOOLS:
@@ -251,7 +257,15 @@ class TriggerEngine:
         text = _s(event.get("text") or event.get("prompt"))
         had_edit, acted = st.edited_since_prompt, st.acted_since_prompt
         st.edited_since_prompt = st.acted_since_prompt = False
-        if not ((had_edit or acted) and (_CORRECTION.search(text) or _STATEMENT.search(text))):
+        # Two tiers. If the agent acted since the last prompt, any correction/statement pattern counts.
+        # If only a text-only exchange came in between, the agent must have acted earlier in the session
+        # and the prompt must carry an explicit rule ("never/always <verb>", "remember that", "from now
+        # on", or a stated team rule). The first prompt of a session can never be a correction.
+        if had_edit or acted:
+            ok = _CORRECTION.search(text) or _STATEMENT.search(text)
+        else:
+            ok = st.acted_ever and (_STRONG.search(text) or _STATEMENT.search(text))
+        if not ok:
             return []
         if had_edit and st.edits:
             last = st.edits[-1]
