@@ -17,6 +17,7 @@ from bench.live import metrics, run  # noqa: E402
 from bench.live.candidates import CANDIDATES  # noqa: E402
 from bench.live.candidates2 import CANDIDATES2  # noqa: E402
 from bench.live.candidates3 import CANDIDATES3  # noqa: E402
+from bench.live.candidates4 import CANDIDATES4  # noqa: E402
 
 
 ORACLE = False
@@ -35,10 +36,10 @@ def main():
     ap.add_argument("--repeats", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--pool", default="1", choices=("1", "2", "3"))
+    ap.add_argument("--pool", default="1", choices=("1", "2", "3", "4"))
     ap.add_argument("--oracle", action="store_true", help="append the scenario's rules to the prompt (traps must then be ~0)")
     a = ap.parse_args()
-    pool = {"1": CANDIDATES, "2": CANDIDATES2, "3": CANDIDATES3}[a.pool]
+    pool = {"1": CANDIDATES, "2": CANDIDATES2, "3": CANDIDATES3, "4": CANDIDATES4}[a.pool]
     global ORACLE
     ORACLE = a.oracle
     units = [(sc, a.model) for sc in pool for _ in range(a.repeats)]

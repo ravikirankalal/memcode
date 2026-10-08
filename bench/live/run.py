@@ -202,7 +202,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--scenarios", default="", help="comma-separated scenario names (default: all)")
-    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3"), help="scenario set")
+    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3", "heldout4"), help="scenario set")
     ap.add_argument("--configs", default="", help="comma-separated configs (default: all but memcode_legacy)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results" / "raw.json"))
@@ -211,6 +211,9 @@ def main() -> None:
     if a.set == "heldout":
         from bench.live.heldout import HELDOUT
         pool = HELDOUT
+    elif a.set == "heldout4":
+        from bench.live.heldout4 import HELDOUT4
+        pool = HELDOUT4
     elif a.set == "heldout3":
         from bench.live.heldout3 import HELDOUT3
         pool = HELDOUT3
