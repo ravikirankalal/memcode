@@ -199,3 +199,36 @@ Trap hits per scenario (of 10 later-session runs):
 ## Next
 1. Relax the capture condition (accept a correction when the agent has acted earlier in the session, not only since the last prompt), with a false-positive check.
 2. Validate both capture changes on a NEW frozen set (heldout4) that includes stated-as-information rules and text-only intermediate turns. heldout3 is now spent for this purpose.
+
+---
+
+# Run 7 (2026-10-08): FOURTH FROZEN SET (heldout4), validating the capture changes, on pinned snapshot c71545b
+
+Run by two parallel subagents in a read-only worktree. 5 scenarios x 3 configs x 5 repeats x 2 later sessions = 50 later-session runs per config (Haiku). Predictions were written into `heldout4.py` before any memcode run.
+
+| scenario | prediction for memcode | nomem | claudemd | memcode | memcode stored (units) | verdict |
+|---|---|---|---|---|---|---|
+| n_info_header ("our standard is ...") | captured -> 0 failures | 10/10 | 0/10 | **0/10** | 5/5 (1 rule) | as predicted |
+| n_info_tabs ("FYI ... we indent with tabs") | NOT captured -> 10/10 | 10/10 | 0/10 | **10/10** | 0/5 | as predicted |
+| n_text_gap_main (rule after a Q&A turn) | captured -> 0 | 10/10 | 0/10 | **0/10** | 5/5 (1) | as predicted |
+| n_text_gap_two_rules (2 rules, Q&A turns between) | captured -> 0 | 10/10 | 0/10 | **0/10** | 5/5 (2) | as predicted |
+| n_mixed (info rule + Q&A gap + correction) | captured -> 0 | 10/10 | 0/10 | 2/10 as scored, **1/10 audited** | 5/5 (3) | one real miss |
+
+| config | repeated-mistake rate (50 runs) |
+|---|---|
+| nomem | 1.00 |
+| claudemd | 0.00 |
+| memcode, as scored | 0.24 (12/50) |
+| memcode, audited | 0.22 (11/50) |
+| memcode, the 4 scenarios predicted to be captured | 0.05 as scored (2/40), **0.025 audited (1/40)** |
+
+## Audit of the n_mixed hits
+- Hit 1 was a **scoring false positive**: the evidence is an `Edit` fragment (`    path = Path(root) / name`) and the only clause that matched is "file does not start with `# Copyright Acme`", which cannot apply to a fragment. Across all 252 trap hits in every result file this is the only fragment hit. `metrics.py` now evaluates start-of-file clauses on whole files (`Write`) only; the frozen sets are unchanged.
+- Hit 2 is a **real but borderline** violation: the file has the header, uses pathlib and single-quoted strings, but contains double-quote characters inside a string (`f'Log file "{name}" ...'`), and the rule said "never double quotes anywhere". It happened with all 3 rules stored, so it is a compliance miss, not a capture miss.
+
+## Reading
+- **The capture changes work as designed.** Every rule given as "our standard is ...", after a text-only Q&A turn, or mixed with other forms was stored (20/20 units in the four captured scenarios), and memcode then matched CLAUDE.md within one borderline miss (1/40 vs 0/40).
+- **Pattern-based capture has a clear boundary,** confirmed by a pre-registered prediction: descriptive phrasing without a normative word ("we indent with tabs") is not captured, and that alone makes memcode lose to CLAUDE.md on this set (11/50 vs 0/50). Closing it with more patterns risks junk rules; a better fix is a capture step that can recognise a stated convention without keyword matching (for example a small model call), which would also trade away the "no model calls" property. Not decided.
+- Every memcode failure in heldout3 and heldout4 except one borderline case traces to capture, not to the stored rule being ignored.
+- The headless runs shared the launching session's id (see the harness fix after Run 6); resume was verified to keep context, so trap results stand.
+- One model (Haiku), 10 runs per cell, no significance testing.

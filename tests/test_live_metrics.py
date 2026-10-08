@@ -35,3 +35,21 @@ class Heredoc(unittest.TestCase):
         bad = metrics.metrics(ev("git commit -m 'oops'"), r"git commit(?!.*PROJ-\d+:)")
         self.assertTrue(bad["trap_hit"])
         self.assertIn("git commit", bad["evidence"])
+
+
+def wr(name, **inp):
+    return [{"type": "assistant", "message": {"content": [{"type": "tool_use", "name": name, "input": inp}]}},
+            {"type": "result", "session_id": "s", "total_cost_usd": 0}]
+
+
+class Fragments(unittest.TestCase):
+    RX = r"\A(?!# Copyright Acme)|\bimport os\b"
+
+    def test_header_clause_ignores_edit_fragments_but_judges_whole_files(self):
+        self.assertFalse(metrics.metrics(wr("Edit", new_string="    path = Path(root) / name"), self.RX, "content")["trap_hit"])
+        self.assertTrue(metrics.metrics(wr("Write", content="def f():\n  pass\n"), self.RX, "content")["trap_hit"])
+        self.assertFalse(metrics.metrics(wr("Write", content="# Copyright Acme\ndef f():\n  pass\n"), self.RX, "content")["trap_hit"])
+
+    def test_non_anchored_clauses_still_judge_fragments(self):
+        m = metrics.metrics(wr("Edit", new_string="import os\n"), self.RX, "content")
+        self.assertTrue(m["trap_hit"]); self.assertIn("import os", m["evidence"])
