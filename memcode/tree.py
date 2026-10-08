@@ -6,6 +6,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from . import symbols
 from .store import sha1, upsert_path
 
 SKIP_DIRS = {".git", ".memcode", "node_modules", "__pycache__"}
@@ -220,14 +221,22 @@ def mark_stale(con, repo_root) -> int:
     the file's current hash. Stale memories whose anchor matches again are revived.
     Repo-wide memories (anchor '') never go stale. Returns the number newly staled.
     """
-    rows = con.execute("SELECT id, anchor_path, anchor_hash, stale FROM memories "
+    rows = con.execute("SELECT id, anchor_path, anchor_hash, anchor_symbol, symbol_hash, stale FROM memories "
                        "WHERE anchor_path!=''").fetchall()
     root = Path(repo_root)
     n = 0
     now = time.time()
     for r in rows:
         p = root / r["anchor_path"]
-        if r["anchor_hash"] is not None:
+        bad = None
+        if r["anchor_symbol"] and p.is_file():
+            try:     # symbol-level: stale only when THIS function/method changed or vanished
+                bad = symbols.current_symbol_hash(p.read_text(), r["anchor_symbol"]) != r["symbol_hash"]
+            except (ValueError, OSError, UnicodeDecodeError):
+                bad = None       # unparseable now: fall back to the file hash below
+        if bad is not None:
+            pass
+        elif r["anchor_hash"] is not None:
             cur = _hash_file(repo_root, r["anchor_path"]) if p.is_file() else None
             bad = cur is None or cur != r["anchor_hash"]
         else:

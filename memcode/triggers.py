@@ -16,7 +16,7 @@ import shlex
 import time
 from pathlib import Path
 
-from . import store
+from . import store, symbols
 from .redact import redact
 
 EDIT_TOOLS = {"edit", "write", "multiedit", "notebookedit", "str_replace", "create"}
@@ -151,7 +151,16 @@ class TriggerEngine:
             return rel, h
         return rel, None
 
-    def _write(self, trig, text, rel, sess, events, conf=0.6):
+    def _symbol(self, rel, snippet):
+        """(name, ast hash) of the Python function the edited `snippet` lives in, else None."""
+        if not (rel and snippet and rel.endswith(".py")):
+            return None
+        try:
+            return symbols.symbol_for_snippet((self.root / rel).read_text(), snippet)
+        except (OSError, UnicodeDecodeError):
+            return None
+
+    def _write(self, trig, text, rel, sess, events, conf=0.6, snippet=None):
         if self._replay:      # replay only rebuilds state: no file reads, no DB writes
             return None
         text = redact(text)
@@ -163,7 +172,9 @@ class TriggerEngine:
             return None
         a, h = self._anchor(rel)
         prov = {"session": sess, "event_ids": [e for e in events if e], "ts": time.time()}
-        mid = store.add_memory(self.con, trig, text, a, h, prov, conf, commit=False)
+        sym = self._symbol(a, snippet)
+        mid = store.add_memory(self.con, trig, text, a, h, prov, conf, commit=False,
+                               anchor_symbol=sym[0] if sym else None, symbol_hash=sym[1] if sym else None)
         store.bump(self.con, sess, "captured", commit=False)
         return mid
 
@@ -341,4 +352,5 @@ class TriggerEngine:
         # No raw tool output: it is untrusted and would be re-injected into future sessions.
         msg = (f"`{_clip(cmd, 100)}` failed and passed after editing "
                f"{', '.join(files[:5])}. Fix was in {anchor}.")
-        return [self._write("fail_to_fix", msg, anchor, sess, [f["ev"], ev], 0.7)]
+        snippet = next((e["new"] for e in reversed(st.edits) if e["path"] == anchor and e["new"]), None)
+        return [self._write("fail_to_fix", msg, anchor, sess, [f["ev"], ev], 0.7, snippet=snippet)]
