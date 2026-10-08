@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS memories (
   text TEXT NOT NULL,             -- redacted summary
   anchor_path TEXT NOT NULL,      -- paths.path this memory is attached to ('' = repo-wide)
   anchor_hash TEXT,               -- content hash of the anchor when written
+  anchor_symbol TEXT,             -- optional Python symbol (Class.method) inside the anchor file
+  symbol_hash TEXT,               -- AST hash of that symbol when written
   provenance TEXT NOT NULL,       -- JSON: session id, event ids, timestamps
   confidence REAL NOT NULL DEFAULT 0.5,
   stale INTEGER NOT NULL DEFAULT 0,
@@ -128,6 +130,13 @@ def _migrate(con) -> None:
                 con.execute(f"ALTER TABLE paths ADD COLUMN {col} INTEGER")
             except sqlite3.OperationalError:
                 pass  # another process migrated first
+    mcols = {r[1] for r in con.execute("PRAGMA table_info(memories)")}
+    for col in ("anchor_symbol", "symbol_hash"):
+        if col not in mcols:
+            try:
+                con.execute(f"ALTER TABLE memories ADD COLUMN {col} TEXT")
+            except sqlite3.OperationalError:
+                pass
     con.commit()
 
 
@@ -172,13 +181,14 @@ def upsert_path(con, path: str, kind: str, content_hash: str | None = None,
 
 def add_memory(con, trigger: str, text: str, anchor_path: str = "",
                anchor_hash: str | None = None, provenance: dict | None = None,
-               confidence: float = 0.5, commit: bool = True) -> int:
+               confidence: float = 0.5, commit: bool = True,
+               anchor_symbol: str | None = None, symbol_hash: str | None = None) -> int:
     now = time.time()
     cur = con.execute(
         """INSERT INTO memories(trigger,text,anchor_path,anchor_hash,provenance,
-             confidence,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)""",
+             confidence,created_at,updated_at,anchor_symbol,symbol_hash) VALUES(?,?,?,?,?,?,?,?,?,?)""",
         (trigger, text, anchor_path, anchor_hash, json.dumps(provenance or {}),
-         confidence, now, now))
+         confidence, now, now, anchor_symbol, symbol_hash))
     if commit:
         con.commit()
     return cur.lastrowid

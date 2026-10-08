@@ -19,7 +19,7 @@ Each hook is a fresh process. Trigger state is rebuilt from the last 400 recorde
 |---|---|---|
 | correction | your prompt reads as a correction ("No - ...", "never/always ...", "don't ...", "remember that ...") right after the agent acted | `Rule from user correction: <the bare rule>`, repo-wide |
 | revert | the agent's edit is undone (git checkout/restore/revert, or an edit that reverses it) | note anchored to the file |
-| fail_to_fix | a command fails, files are edited, the same command passes | note anchored to the edited file |
+| fail_to_fix | a command fails, files are edited, the same command passes | note anchored to the edited file (and the edited Python function) |
 | retry | the same command is retried with different flags after a failure | repo-wide note |
 | dep_change | the agent edits a dependency or lock file | note anchored to the file |
 
@@ -71,6 +71,7 @@ rm -rf <repo>/.memcode          # delete a repository's memory
 ## Known limits
 
 - Only the last 400 events per session inform trigger state.
-- Staleness is per file (any edit to the anchor file marks a memory stale); symbol-level staleness is not built.
+- Staleness is per symbol for Python (`file.py::function`, hashed on the AST, so comments and formatting do not
+  count) and falls back to the whole file for other languages or files that do not parse.
 - Plain `mv` of a whole directory is not re-anchored.
 - The benefit over a hand-written `CLAUDE.md` is unproven; see the benchmark results.

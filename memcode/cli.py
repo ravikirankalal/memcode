@@ -34,7 +34,8 @@ def cmd_list(con, a) -> int:
         print("no memories")
     for r in rows:
         flag = " [stale]" if r["stale"] else ""
-        print(f"#{r['id']:<4} {r['trigger']:<9} {r['anchor_path'] or '/':<20} {r['text']}{flag}")
+        anchor = (r["anchor_path"] or "/") + (f"::{r['anchor_symbol']}" if r["anchor_symbol"] else "")
+        print(f"#{r['id']:<4} {r['trigger']:<9} {anchor:<20} {r['text']}{flag}")
     return 0
 
 
@@ -45,7 +46,10 @@ def cmd_show(con, a) -> int:
         return 1
     n = con.execute("SELECT COUNT(*) FROM retrievals WHERE memory_id=?", (a.id,)).fetchone()[0]
     print(f"#{r['id']} [{r['trigger']}] confidence={r['confidence']:.2f} stale={bool(r['stale'])} retrievals={n}")
-    print(f"anchor: {r['anchor_path'] or '(repo-wide)'}  hash: {r['anchor_hash'] or '-'}")
+    where = r["anchor_path"] or "(repo-wide)"
+    if r["anchor_symbol"]:
+        where += f"::{r['anchor_symbol']}"
+    print(f"anchor: {where}  hash: {r['anchor_hash'] or '-'}")
     print(f"created {_fmt_ts(r['created_at'])}, updated {_fmt_ts(r['updated_at'])}")
     print(f"provenance: {r['provenance']}")
     print(f"\n{r['text']}")
