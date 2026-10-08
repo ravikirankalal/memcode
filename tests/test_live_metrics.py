@@ -64,3 +64,19 @@ class TrapPath(unittest.TestCase):
         rx = r"\A(?!# PCI-SCOPE)"
         self.assertTrue(metrics.metrics(ev, rx, "content")["trap_hit"])                          # test file lacks header
         self.assertFalse(metrics.metrics(ev, rx, "content", trap_path=r"(^|/)billing/")["trap_hit"])  # only billing/ judged
+
+
+class ArmEnv(unittest.TestCase):
+    def test_arms_do_not_inherit_memcode_flags(self):
+        import os
+        from unittest import mock
+        from bench.live import run
+        seen = {}
+        def fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None, env=None):
+            seen.update(env)
+            class P: stdout = ""
+            return P()
+        with mock.patch.dict(os.environ, {"MEMCODE_RETRIEVAL": "1", "MEMCODE_RANK": "salience"}), \
+             mock.patch.object(run.subprocess, "run", fake_run):
+            run.claude(run.Path("/tmp"), "x", "haiku", "memcode")
+        self.assertNotIn("MEMCODE_RETRIEVAL", seen); self.assertNotIn("MEMCODE_RANK", seen)
