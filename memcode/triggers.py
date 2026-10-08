@@ -233,8 +233,9 @@ class TriggerEngine:
             return []
         if had_edit and st.edits:
             last = st.edits[-1]
+            # a stated convention applies repo-wide: anchor '' so it never goes stale with one file
             msg = f"Rule from user correction: {_clip(_imperative(text), 240)} (context: {last['path']})"
-            return [self._write("correction", msg, last["path"], sess, [last["ev"], ev], 0.7)]
+            return [self._write("correction", msg, "", sess, [last["ev"], ev], 0.7)]
         msg = f"Rule from user correction: {_clip(_imperative(text), 240)}"
         return [self._write("correction", msg, "", sess, [ev], 0.7)]
 

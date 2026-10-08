@@ -9,6 +9,10 @@ Configs
   builtin  Claude Code's own memory (default), no plugin    (the incumbent; Gate 1 baseline)
   claudemd like builtin, but the correction turn also says 'Save this rule to CLAUDE.md.' (a fair incumbent)
   memcode  plugin loaded on top of default built-in memory  (what a real user would run)
+  memcode_legacy  same, but MEMCODE_FRAMING=legacy (old all-untrusted framing): an A/B for the pinned-block fix
+
+Later sessions start from a CLEAN copy of the original repo plus only the memory store
+(.memcode / CLAUDE.md / auto-memory dir), so code written in session 1 cannot leak the convention.
 
   python3 bench/live/run.py --dry-run
   python3 bench/live/run.py --repeats 3 --workers 6 --model haiku
@@ -34,7 +38,8 @@ from bench.live import metrics  # noqa: E402
 ALLOWED = ("Read Edit Write Bash(pytest:*) Bash(python3:*) Bash(ls:*) Bash(find:*) Bash(grep:*) "
            "Bash(cat:*) Bash(./qa:*) Bash(mv:*) Bash(git mv:*) Bash(mkdir:*) "
            "Bash(git add:*) Bash(git commit:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*)")
-CONFIGS = ("nomem", "builtin", "claudemd", "memcode")
+CONFIGS = ("nomem", "builtin", "claudemd", "memcode", "memcode_legacy")
+PLUGIN = ("memcode", "memcode_legacy")
 
 BASE = {"app.py": "def add(a, b):\n    return a + b\n",
         "conftest.py": "import pytest\n\n@pytest.fixture\ndef three():\n    return 3\n",
@@ -79,13 +84,15 @@ SCENARIOS = [
 def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None = None) -> list[dict]:
     cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
            "--max-turns", "10", "--allowedTools", ALLOWED]
-    if config == "memcode":
+    if config in PLUGIN:
         cmd += ["--plugin-dir", str(ROOT)]
     if resume:
         cmd += ["--resume", resume]
     env = dict(os.environ)
     if config == "nomem":
         env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+    if config == "memcode_legacy":
+        env["MEMCODE_FRAMING"] = "legacy"
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300, env=env)
     except subprocess.TimeoutExpired:
@@ -123,6 +130,28 @@ def builtin_memory_written(repo: Path) -> bool:
     return any(Path(p).is_file() for p in glob.glob(os.path.expanduser(f"~/.claude/projects/{key}/memory/**"), recursive=True))
 
 
+def automem_dir(repo: Path) -> Path:
+    key = str(repo.resolve()).replace("/", "-").replace(".", "-")
+    return Path(os.path.expanduser(f"~/.claude/projects/{key}/memory"))
+
+
+def fresh_with_memory(sc: dict, src: Path, config: str) -> Path:
+    """New pristine repo + ONLY the memory carried over from `src` (no session-1 code)."""
+    import shutil
+    dst = make_repo(sc)
+    if config in PLUGIN and (src / ".memcode").exists():
+        shutil.copytree(src / ".memcode", dst / ".memcode")
+    if config in ("builtin", "claudemd", "memcode", "memcode_legacy"):
+        if (src / "CLAUDE.md").exists():
+            shutil.copy(src / "CLAUDE.md", dst / "CLAUDE.md")
+        a = automem_dir(src)
+        if a.exists():
+            b = automem_dir(dst)
+            b.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(a, b, dirs_exist_ok=True)
+    return dst
+
+
 def run_unit(args: tuple) -> dict:
     sc, config, model = args
     repo = make_repo(sc)
@@ -130,10 +159,10 @@ def run_unit(args: tuple) -> dict:
     sid = metrics.metrics(ev, sc["trap_regex"], sc.get("trap_on", "cmd_path"))["session_id"]
     fix = sc["s1"][1] + (" Save this rule to CLAUDE.md." if config == "claudemd" else "")
     claude(repo, sc["s1"][1] if config != "claudemd" else fix, model, config, resume=sid)
-    stored = memcode_memories(repo) if config == "memcode" else None
+    stored = memcode_memories(repo) if config in PLUGIN else None
     builtin = builtin_memory_written(repo) if config != "nomem" else None
-    later = [metrics.metrics(claude(repo, sc["later"], model, config), sc["trap_regex"], sc.get("trap_on", "cmd_path"))
-             for _ in (2, 3)]
+    later = [metrics.metrics(claude(fresh_with_memory(sc, repo, config), sc["later"], model, config),
+                             sc["trap_regex"], sc.get("trap_on", "cmd_path")) for _ in (2, 3)]
     return {"scenario": sc["name"], "tuned_on": sc["tuned_on"], "config": config,
             "stored": stored, "builtin_written": builtin, "later": later}
 
@@ -147,7 +176,7 @@ def table(results: list[dict], title: str, pick) -> str:
         if not runs:
             continue
         s = metrics.summarize(runs)
-        if cfg == "memcode":
+        if cfg in PLUGIN:
             wrote = f"{sum(1 for r in rs if (r['stored'] or 0) > 0)}/{len(rs)}"
         elif cfg in ("builtin", "claudemd"):
             wrote = f"{sum(1 for r in rs if r['builtin_written'])}/{len(rs)}"
@@ -163,7 +192,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--scenarios", default="", help="comma-separated scenario names (default: all)")
-    ap.add_argument("--set", default="dev", choices=("dev", "heldout"), help="scenario set")
+    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2"), help="scenario set")
+    ap.add_argument("--configs", default="", help="comma-separated configs (default: all but memcode_legacy)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results" / "raw.json"))
     a = ap.parse_args()
@@ -171,10 +201,14 @@ def main() -> None:
     if a.set == "heldout":
         from bench.live.heldout import HELDOUT
         pool = HELDOUT
+    elif a.set == "heldout2":
+        from bench.live.heldout2 import HELDOUT2
+        pool = HELDOUT2
     chosen = [s for s in pool if not a.scenarios or s["name"] in a.scenarios.split(",")]
-    units = [(sc, cfg, a.model) for sc in chosen for cfg in CONFIGS for _ in range(a.repeats)]
+    cfgs = a.configs.split(",") if a.configs else [c for c in CONFIGS if c != "memcode_legacy"]
+    units = [(sc, cfg, a.model) for sc in chosen for cfg in cfgs for _ in range(a.repeats)]
     if a.dry_run:
-        print(json.dumps({"scenarios": [s["name"] for s in chosen], "configs": CONFIGS, "repeats": a.repeats,
+        print(json.dumps({"scenarios": [s["name"] for s in chosen], "configs": cfgs, "repeats": a.repeats,
                           "units": len(units), "claude_calls": len(units) * 4}, indent=1))
         return
     with cf.ThreadPoolExecutor(a.workers) as ex:
