@@ -45,6 +45,21 @@ def count_injected(text: str) -> tuple[int, int]:
     return rules, notes
 
 
+def shown_ids(con, text: str) -> list[int]:
+    """Ids of the memories that actually made it into a rendered block (rules and notes)."""
+    lines = set(text.splitlines())
+    shown = []
+    for r in con.execute("SELECT id, trigger, text FROM memories WHERE stale=0 ORDER BY id"):
+        if r["trigger"] == "correction":
+            if f"- {_one_line(_rule_text(r['text']), 240)}" in lines:
+                shown.append(r["id"])
+        else:
+            prefix = f"- ({r['trigger']}) {_one_line(r['text'])}"
+            if any(l == prefix or l.startswith(prefix + " [") for l in lines):
+                shown.append(r["id"])
+    return shown
+
+
 def _one_line(s: str, n: int = LINE_MAX) -> str:
     s = " ".join((s or "").replace("<", "(").replace(">", ")").split())
     return s if len(s) <= n else s[: n - 1] + "…"

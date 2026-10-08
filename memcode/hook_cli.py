@@ -100,6 +100,13 @@ def main(argv: list[str]) -> int:
                     sid = d.get("session_id", "unknown")
                     store.bump(con, sid, "rules_injected", rules)
                     store.bump(con, sid, "notes_injected", notes)
+                    now = time.time()
+                    con.executemany("INSERT INTO injections(session,memory_id,ts) VALUES(?,?,?)",
+                                    [(sid, i, now) for i in pinned.shown_ids(con, text)])
+                    con.commit()
+                    from . import salience              # shadow mode: logged, never used for ranking
+                    salience.log_all(con)
+                    store.prune_salience_log(con)
                     if text:
                         print(json.dumps({"hookSpecificOutput": {
                             "hookEventName": "SessionStart", "additionalContext": text}}))

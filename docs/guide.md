@@ -40,6 +40,12 @@ Rules are listed oldest to newest and the agent is told a later rule replaces an
 "actually, switch to 2 spaces" overrides "use tabs" without any topic matching. Only `correction` memories become rules, because they are written from your own prompts. Everything else is data the
 agent may use but is told not to obey. Total size is capped (default 1500 tokens, approximated as chars/4).
 
+### Shadow-mode salience
+
+At every session start memcode logs four scores per memory (surprise, friction, fragility, confidence; kept for the last 30
+samples) and records which memories were shown. They are **never used for ranking**; `python3 -m memcode salience` shows
+them. The data exists so a later phase can test whether salience beats recency/frequency before it is allowed to rank anything.
+
 ## What is stored, and privacy
 
 - **Memories**: short redacted summaries, never raw tool output.

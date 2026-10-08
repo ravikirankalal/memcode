@@ -6,6 +6,7 @@
   add TEXT [--path P] record a manual memory (redacted, path confined to the repo)
   stats               counts by trigger, stale, retrievals, events
   sessions [-n N]     per-session counters: rules/notes injected, captured, repeated corrections
+  salience            shadow-mode scores per memory (logged each session start; not used for ranking)
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
 
@@ -119,6 +120,24 @@ def cmd_sessions(con, a) -> int:
     return 0
 
 
+def cmd_salience(con, a) -> int:
+    rows = con.execute("""SELECT m.id, m.trigger, m.text,
+          (SELECT COUNT(*) FROM injections i WHERE i.memory_id=m.id) AS shown,
+          s.surprise, s.friction, s.fragility, s.confidence,
+          (SELECT COUNT(*) FROM salience_log x WHERE x.memory_id=m.id) AS samples
+        FROM memories m LEFT JOIN salience_log s ON s.id=(SELECT MAX(id) FROM salience_log WHERE memory_id=m.id)
+        WHERE m.stale=0 ORDER BY m.id""").fetchall()
+    if not rows:
+        print("no memories")
+        return 0
+    print(f"{'id':<4} {'trigger':<10} {'shown':>5} {'samples':>7} {'surp':>5} {'fric':>5} {'frag':>5} {'conf':>5}  text")
+    for r in rows:
+        f = lambda v: f"{v:.2f}" if v is not None else "  - "
+        print(f"{r['id']:<4} {r['trigger']:<10} {r['shown']:>5} {r['samples']:>7} {f(r['surprise']):>5} "
+              f"{f(r['friction']):>5} {f(r['fragility']):>5} {f(r['confidence']):>5}  {r['text'][:50]}")
+    return 0
+
+
 def cmd_export(con, a) -> int:
     rows = [dict(r) for r in store.list_memories(con, include_stale=True)]
     for r in rows:
@@ -143,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("add"); p.add_argument("text"); p.add_argument("--path")
     sub.add_parser("stats")
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
+    sub.add_parser("salience")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
     a = ap.parse_args(argv)
@@ -152,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "add":
             return cmd_add(con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
-                "export": cmd_export, "sessions": cmd_sessions, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
+                "export": cmd_export, "sessions": cmd_sessions, "salience": cmd_salience, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
