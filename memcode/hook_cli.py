@@ -96,6 +96,10 @@ def main(argv: list[str]) -> int:
                 if name == "SessionStart":
                     from . import pinned
                     text = pinned.render_pinned(con, root)
+                    rules, notes = pinned.count_injected(text)
+                    sid = d.get("session_id", "unknown")
+                    store.bump(con, sid, "rules_injected", rules)
+                    store.bump(con, sid, "notes_injected", notes)
                     if text:
                         print(json.dumps({"hookSpecificOutput": {
                             "hookEventName": "SessionStart", "additionalContext": text}}))

@@ -28,6 +28,22 @@ RULES_HEADER = "## Project rules (stated by the user in earlier sessions; follow
 MAX_RULES = 20
 
 
+def count_injected(text: str) -> tuple[int, int]:
+    """(user rules, other memories) present in a rendered pinned block."""
+    rules = notes = 0
+    in_rules = False
+    for line in text.splitlines():
+        if line == RULES_HEADER:
+            in_rules = True
+        elif not line.strip():
+            in_rules = False
+        elif in_rules and line.startswith("- "):
+            rules += 1
+        elif line.startswith("- ("):          # "- (trigger) text" lines of ## Memories
+            notes += 1
+    return rules, notes
+
+
 def _one_line(s: str, n: int = LINE_MAX) -> str:
     s = " ".join((s or "").replace("<", "(").replace(">", ")").split())
     return s if len(s) <= n else s[: n - 1] + "…"
