@@ -46,6 +46,18 @@ At every session start memcode logs four scores per memory (surprise, friction, 
 samples) and records which memories were shown. They are **never used for ranking**; `python3 -m memcode salience` shows
 them. The data exists so a later phase can test whether salience beats recency/frequency before it is allowed to rank anything.
 
+### Reinforcement (shadow mode)
+
+A memory's confidence changes only from evidence, never from being shown. Sessions are scored at the next session
+start once they have been quiet for 30 minutes:
+
+| Memory | Confidence up | Confidence down | No change |
+|---|---|---|---|
+| anchored to a file/function | shown, then the agent edited that file, then a test command passed | the same mistake recurred on that anchor (new fail_to_fix/revert there) | anchor not touched, or touched without a passing test |
+| your rule (repo-wide) | never (relevance cannot be verified) | you had to state the same rule again | otherwise |
+
+Confidence is not used for ranking yet; `python3 -m memcode salience` shows ok/bad counts and `show ID` lists outcomes.
+
 ## What is stored, and privacy
 
 - **Memories**: short redacted summaries, never raw tool output.

@@ -182,6 +182,8 @@ class TriggerEngine:
         if dup:
             if trig == "correction":     # the user had to say it again: the stored rule did not stick
                 store.bump(self.con, sess, "repeated_corrections", commit=False)
+                from . import outcomes
+                outcomes.record(self.con, sess, dup[0], "failure:repeated", commit=False)
             return None
         a, h = self._anchor(rel)
         prov = {"session": sess, "event_ids": [e for e in events if e], "ts": time.time()}

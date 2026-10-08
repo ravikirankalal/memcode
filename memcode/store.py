@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS injections (       -- which memories each session was
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS outcomes (         -- reinforcement signal per (session, memory); see outcomes.py
+  session TEXT NOT NULL, memory_id INTEGER NOT NULL, outcome TEXT NOT NULL, ts REAL NOT NULL,
+  PRIMARY KEY (session, memory_id)
+);
+CREATE TABLE IF NOT EXISTS scored_sessions (session TEXT PRIMARY KEY, ts REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS retrievals (      -- for reinforce-on-success only
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL
@@ -244,4 +249,5 @@ def prune_salience_log(con) -> None:
                                      FROM salience_log) WHERE rn > ?)""", (SALIENCE_KEEP,))
     con.execute("DELETE FROM salience_log WHERE memory_id NOT IN (SELECT id FROM memories)")
     con.execute("DELETE FROM injections WHERE memory_id NOT IN (SELECT id FROM memories)")
+    con.execute("DELETE FROM outcomes WHERE memory_id NOT IN (SELECT id FROM memories)")
     con.commit()

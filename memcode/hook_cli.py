@@ -94,7 +94,8 @@ def main(argv: list[str]) -> int:
                 tree.scan_repo(con, root)
                 tree.mark_stale(con, root)
                 if name == "SessionStart":
-                    from . import pinned
+                    from . import outcomes, pinned
+                    outcomes.score_finished_sessions(con, root, current_session=d.get("session_id"))
                     text = pinned.render_pinned(con, root)
                     rules, notes = pinned.count_injected(text)
                     sid = d.get("session_id", "unknown")
