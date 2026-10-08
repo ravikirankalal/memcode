@@ -53,6 +53,9 @@ def cmd_show(con, a) -> int:
     print(f"anchor: {where}  hash: {r['anchor_hash'] or '-'}")
     print(f"created {_fmt_ts(r['created_at'])}, updated {_fmt_ts(r['updated_at'])}")
     print(f"provenance: {r['provenance']}")
+    outs = con.execute("SELECT outcome, COUNT(*) FROM outcomes WHERE memory_id=? GROUP BY outcome", (a.id,)).fetchall()
+    if outs:
+        print("outcomes: " + ", ".join(f"{o} x{n}" for o, n in outs))
     print(f"\n{r['text']}")
     return 0
 
@@ -123,6 +126,8 @@ def cmd_sessions(con, a) -> int:
 def cmd_salience(con, a) -> int:
     rows = con.execute("""SELECT m.id, m.trigger, m.text,
           (SELECT COUNT(*) FROM injections i WHERE i.memory_id=m.id) AS shown,
+          (SELECT COUNT(*) FROM outcomes o WHERE o.memory_id=m.id AND o.outcome LIKE 'success%') AS ok,
+          (SELECT COUNT(*) FROM outcomes o WHERE o.memory_id=m.id AND o.outcome LIKE 'failure%') AS bad,
           s.surprise, s.friction, s.fragility, s.confidence,
           (SELECT COUNT(*) FROM salience_log x WHERE x.memory_id=m.id) AS samples
         FROM memories m LEFT JOIN salience_log s ON s.id=(SELECT MAX(id) FROM salience_log WHERE memory_id=m.id)
@@ -130,10 +135,10 @@ def cmd_salience(con, a) -> int:
     if not rows:
         print("no memories")
         return 0
-    print(f"{'id':<4} {'trigger':<10} {'shown':>5} {'samples':>7} {'surp':>5} {'fric':>5} {'frag':>5} {'conf':>5}  text")
+    print(f"{'id':<4} {'trigger':<10} {'shown':>5} {'ok':>3} {'bad':>3} {'samples':>7} {'surp':>5} {'fric':>5} {'frag':>5} {'conf':>5}  text")
     for r in rows:
         f = lambda v: f"{v:.2f}" if v is not None else "  - "
-        print(f"{r['id']:<4} {r['trigger']:<10} {r['shown']:>5} {r['samples']:>7} {f(r['surprise']):>5} "
+        print(f"{r['id']:<4} {r['trigger']:<10} {r['shown']:>5} {r['ok']:>3} {r['bad']:>3} {r['samples']:>7} {f(r['surprise']):>5} "
               f"{f(r['friction']):>5} {f(r['fragility']):>5} {f(r['confidence']):>5}  {r['text'][:50]}")
     return 0
 
