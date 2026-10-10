@@ -140,8 +140,7 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
             s += ACTIVE_W
         if salience_rank and s > 0:                       # Phase 2 A/B only; off by default
             from . import salience
-            sv = salience.compute(con, con.execute("SELECT * FROM memories WHERE id=?", (r["id"],)).fetchone())
-            s *= 1 + sum(sv.values()) / 4
+            s *= 1 + salience.score(con, con.execute("SELECT * FROM memories WHERE id=?", (r["id"],)).fetchone())
         if s >= MIN_SCORE:
             out.append((s, r))
     out.sort(key=lambda x: (-x[0], -x[1]["updated_at"], -x[1]["id"]))

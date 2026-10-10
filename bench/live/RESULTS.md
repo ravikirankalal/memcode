@@ -255,3 +255,68 @@ Run by two parallel subagents in a read-only worktree. 5 scenarios x 3 configs x
 ## Problems found (and how they were handled)
 1. **Environment leak (my setup error):** enabling memcode for this repo (`.claude/settings.json`, `MEMCODE_RETRIEVAL=1`) put the flag into this session's environment, and every benchmark child inherited it, so the original "pinned-only" arm had retrieval ON (it scored 0/20, identical to the retrieval arm). Fixed: arms now strip all inherited `MEMCODE_*` variables (with a test); the pinned-only arm was re-run (20/20 failures, as predicted). Earlier runs predate the settings change and are unaffected.
 2. **Two invalid scenarios (my design error):** in `p_data_all` and `p_search_suffix` every arm failed (CLAUDE.md 10/10 and 8/10) because the agents correctly followed *distractor* rules for the same directories ("tests for data/ live in data/tests", "every change under data/ needs a changelog line"), creating test files and CHANGES.md inside the trap's path scope, which the target rule did not cover. Distractor areas overlapped target areas. They are excluded from the reading; a future set must keep distractor rules out of target directories.
+
+---
+
+# Run 9 (2026-10-08): BUDGET PRESSURE AT SCALE (pressure2), on pinned snapshot 7917834
+
+4 arbitrary conventions x 2 store sizes x 3 arms x 5 repeats x 2 later sessions = 40 later-session runs per arm per size (Haiku). Run by two parallel subagents. Distractors never overlap a target directory; traps judge only the exact file the task creates.
+
+| arm | 300 memories: mistakes | 300: cost per session | 1,200 memories: mistakes | 1,200: cost per session |
+|---|---|---|---|---|
+| nomem | 40/40 | $0.0044 | 40/40 | $0.0045 |
+| claudemd_full (every memory in CLAUDE.md; ~24k / ~95k chars) | **0/40** | $0.0072 | **0/40** | **$0.0139** |
+| memcode + retrieval | **0/40** | $0.0053 | **0/40** | **$0.0053** |
+
+Pre-registered predictions held: the target was never in the pinned block, and retrieval (which injects exactly one memory) gave 0 mistakes at both sizes.
+
+## Reading
+- **Accuracy: a tie at every size tested.** A CLAUDE.md holding 1,200 rules (~24k tokens) did not drop the one rule that mattered: 0/80 mistakes across both sizes, same as retrieval. The hypothesis that a huge CLAUDE.md degrades is not supported at this scale with Haiku.
+- **Cost: memcode's first measured advantage.** The CLAUDE.md arm's per-session cost rose 1.9x from 300 to 1,200 memories (+$0.0067/session, ~3x the no-memory baseline at 1,200), because every rule is loaded into every session. Retrieval's cost stayed flat (+$0.0009 over no memory at both sizes), because it injects only the relevant memory. The gap grows linearly with store size; on Haiku the absolute amounts are small, on larger models and larger stores they are not.
+- So the evidence now says: memcode matches CLAUDE.md on accuracy, captures rules automatically, and scales in context cost where CLAUDE.md does not. It has not been shown to be *more accurate* than CLAUDE.md anywhere.
+- Limits: one model, 10 runs per cell, single-rule tasks; larger stores (5k+), multi-rule tasks at scale, and stronger models untested.
+
+---
+
+# Run 10 (2026-10-10): Gate 2 on salience1 — passes its pre-registered criterion, with a real cost on controls
+
+Frozen set `bench/live/salience1.py` (commit 3980b60). Each task has seven relevant rules for one directory, more than
+retrieval's TOP_K=5, plus 100 newer distractors in synthetic directories. *costly* (4): the needed rule is the oldest
+and the user restated it twice; *control* (2): the needed rule is cheap and three competitors carry restatements.
+Command: `python3 bench/live/run.py --set salience1 --configs nomem,memcode_retrieval,memcode_salience --repeats 3`
+(Haiku, 3 repeats x 2 clean-copy later sessions = 6 runs per cell, $0.58 total).
+
+| scenario | kind | nomem | memcode_retrieval (recency) | memcode_salience | predicted surfaced (recency / salience) |
+|---|---|---|---|---|---|
+| s_billing_header | costly | 6/6 | 6/6 | 0/6 | no / yes |
+| s_data_all | costly | 6/6 | 0/6 | 0/6 | yes / yes |
+| s_search_suffix | costly | 6/6 | 6/6 | 0/6 | no / yes |
+| s_reports_ctx | costly | 6/6 | 6/6 | 3/6 | no / yes |
+| c_tools_flags | control | 6/6 | 0/6 | 0/6 | yes / yes |
+| c_queue_version | control | 6/6 | 0/6 | 6/6 | yes / no |
+| **costly total** | | 24/24 | 18/24 | **3/24** | |
+| **control total** | | 12/12 | **0/12** | 6/12 | |
+| **all** | | 36/36 (1.00) | 18/36 (0.50) | **9/36 (0.25)** | |
+
+Cost per config (later sessions): nomem $0.170, retrieval $0.203, salience $0.206.
+
+## Reading
+- **Gate 2 passes by the criterion written before the run:** salience has fewer repeated mistakes on costly variants
+  (3/24 vs 18/24) and a better net over all six (9/36 vs 18/36).
+- **Every cell matched the deterministic prediction.** Where the needed rule was surfaced, it was followed; where it
+  was not, the agent made the mistake every time. The model run confirms that surfacing is what matters; the ranking
+  decision itself was already fully determined offline.
+- **The cost is real:** salience pushed a cheap needed rule out of the top 5 in c_queue_version (6/6 mistakes where
+  recency had 0/6). Whether salience helps in practice depends on how often the needed memory is a restated one
+  versus a cheap one, which this constructed set cannot tell us.
+- s_reports_ctx under salience: 3/6 mistakes with the rule surfaced, all in private helpers (`_order_date(order)`)
+  without `ctx` — the oracle pilot showed the same weakness (1/4). Rule following, not ranking.
+
+## Caveats
+Constructed set (built so ranking must choose), six scenarios, one model, 6 runs per cell. The 50/50 split of costly
+and control variants is a design choice, not a measured real-world mix.
+
+## Next
+- Keep `MEMCODE_RANK=salience` opt-in until dogfooding data shows how often restated rules are the ones needed.
+- Reduce the control cost without giving up the costly wins: e.g. reserve part of the top-k for recency and part for
+  salience. Must be tested on a NEW frozen set (salience1 now informs the design).
