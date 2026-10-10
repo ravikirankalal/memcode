@@ -95,19 +95,21 @@ CANDIDATES = [
      "later": "Add an option to tools/sync.py that makes it skip writing any files (a dry run).",
      "trap_regex": r"--dry[-_]run", "trap_on": "content", "trap_path": r"(^|/)tools/sync\.py$",
      "oracle": "Rule: command-line options in tools/ are one lowercase word without inner dashes, e.g. --dryrun."},
-    {"name": "c_worker_logger", "kind": "control", "dir": "worker",
-     "target": "Modules under worker/ get their logger from worker.log.get(__name__), never from logging.getLogger.",
+    # replaced c_worker_logger after the pilot: its convention is visible in worker/log.py (0/6 without memory) and
+    # its trap flagged compliant `from worker.log import get`. queue_version passed the pressure2 pilots (6/6, 0/4).
+    {"name": "c_queue_version", "kind": "control", "dir": "queue", "files": "pressure2",
+     "target": "Every new module under queue/ defines a module-level constant SCHEMA_VERSION = 2.",
      "competitors": [
-         "Functions in worker/ never sleep in a loop without a maximum attempt count.",
-         "Functions in worker/ carry type hints on parameters and return values.",
-         "Exceptions in worker/ are re-raised after logging, never swallowed.",
-         "Public functions in worker/ have a one-line docstring.",
-         "Modules in worker/ keep no module-level mutable state.",
-         "Retry delays in worker/ grow exponentially and are capped at 30 seconds.",
+         "Functions in queue/ never sleep in a loop without a maximum attempt count.",
+         "Functions in queue/ carry type hints on parameters and return values.",
+         "Exceptions in queue/ are re-raised after logging, never swallowed.",
+         "Public functions in queue/ have a one-line docstring.",
+         "Modules in queue/ keep no module-level mutable state.",
+         "Delays computed in queue/ are floats in seconds and are capped at 300.",
      ],
-     "later": "Create worker/retry.py with a function retry(fn, attempts) that logs each failed attempt.",
-     "trap_regex": r"logging\.getLogger|\bprint\(|\A(?!.*log\.get\()", "trap_on": "content", "trap_path": r"(^|/)worker/retry\.py$",
-     "oracle": "Rule: modules under worker/ get their logger from worker.log.get(__name__), never logging.getLogger."},
+     "later": "Create queue/retry_policy.py with a function backoff(attempt) that returns the delay in seconds for a retry.",
+     "trap_regex": r"\A(?!.*SCHEMA_VERSION\s*=\s*2\b)", "trap_on": "content", "trap_path": r"(^|/)queue/retry_policy\.py$",
+     "oracle": "Rule: every new module under queue/ defines a module-level constant SCHEMA_VERSION = 2."},
 ]
 
 # Ages in days. costly: target is the oldest, restated by the user 20 and 6 days ago.
@@ -139,7 +141,7 @@ def seed_store(repo: Path, sc: dict, now: float | None = None) -> int:
     now = time.time() if now is None else now
     con = store.connect(repo)
     tid = None
-    for i, h in enumerate(history(sc)):
+    for i, h in enumerate(sc.get("history") or history(sc)):     # a frozen set stores its history
         ts = now - h["age"] * DAY
         mid = store.add_memory(con, "correction", f"Rule from user correction: {h['text']}", "", None,
                                {"source": "seed"}, 0.6, commit=False)
@@ -149,7 +151,7 @@ def seed_store(repo: Path, sc: dict, now: float | None = None) -> int:
                         (f"hist-{i}-{j}", mid, "failure:repeated", now - ra * DAY))
         if h["needed"]:
             tid = mid
-    rules, notes = scaled_distractors(N_RULES, N_NOTES)
+    rules, notes = scaled_distractors(sc.get("n_rules", N_RULES), sc.get("n_notes", N_NOTES))
     for i, r in enumerate(rules):
         ts = now - 3 * DAY + 3600 * i
         mid = store.add_memory(con, "correction", f"Rule from user correction: {r}", "", None, {"source": "seed"}, 0.6,
@@ -164,8 +166,15 @@ def seed_store(repo: Path, sc: dict, now: float | None = None) -> int:
     return tid
 
 
+def files_for(sc: dict) -> dict:
+    if sc.get("files") == "pressure2":
+        from bench.live.pressure2_candidates import FILES
+        return dict(FILES)
+    return dict(sc.get("files") or REPO)
+
+
 def write_files(repo: Path, sc: dict) -> None:
-    for n, c in sc.get("files", REPO).items():
+    for n, c in files_for(sc).items():
         (repo / n).parent.mkdir(parents=True, exist_ok=True)
         (repo / n).write_text(c)
 
@@ -201,6 +210,13 @@ def offline_check(sc: dict) -> dict:
         finally:
             for k, v in old.items():
                 os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+    return out
+
+
+def freeze(sc: dict) -> dict:
+    """Self-contained scenario for the frozen set: files, the seeded history and distractor counts are spelled out."""
+    out = {k: v for k, v in sc.items() if k not in ("files", "competitors")}
+    out.update(files=files_for(sc), history=history(sc), n_rules=N_RULES, n_notes=N_NOTES, tuned_on=False)
     return out
 
 

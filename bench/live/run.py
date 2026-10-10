@@ -210,7 +210,7 @@ def run_unit(args: tuple) -> dict:
     if "target" in sc:                       # budget-pressure / salience scenario: memory is seeded, not taught
         from bench.live import pressure, salience1_candidates
         if config in PLUGIN:
-            (salience1_candidates if "competitors" in sc else pressure).seed_store(repo, sc)
+            (salience1_candidates if "kind" in sc else pressure).seed_store(repo, sc)
         elif config == "claudemd_full":
             pressure.write_claudemd(repo, sc)
         later = [metrics.metrics(claude(fresh_with_memory(sc, repo, config), sc["later"], model, config),
@@ -248,11 +248,6 @@ def table(results: list[dict], title: str, pick) -> str:
     return "\n".join(out)
 
 
-def salience_repo() -> dict:
-    from bench.live.pressure import REPO
-    return REPO
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repeats", type=int, default=3)
@@ -272,8 +267,8 @@ def main() -> None:
         from bench.live.pressure2 import PRESSURE2
         pool = PRESSURE2
     elif a.set == "salience1":
-        from bench.live.salience1_candidates import CANDIDATES as S1   # becomes a frozen set after the pilots
-        pool = [dict(c, files=dict(c.get("files") or salience_repo())) for c in S1]
+        from bench.live.salience1_candidates import CANDIDATES as S1, files_for   # frozen after the pilots
+        pool = [dict(c, files=files_for(c)) for c in S1]
     elif a.set == "pressure1":
         from bench.live.pressure1 import PRESSURE1
         pool = PRESSURE1

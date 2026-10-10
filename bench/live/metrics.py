@@ -86,13 +86,17 @@ def metrics(events: list[dict], trap_regex: str, trap_on: str = "cmd_path", trap
             items = [it for it in items if re.search(trap_path, it[2])]
         cmds = [t for t, snip, _ in items if (frag if snip else trap).search(t)]
         hit = bool(cmds)
+        m = next((m for t, snip, _ in items for m in [(frag if snip else trap).search(t)] if m), None)
+        match = m.string[max(0, m.start() - 40): m.start() + 120] if m else None
     else:
         cmds = bash + edit_paths(events)
         hit = any(trap.search(c) for c in cmds)
+        match = None
     final = next((e for e in reversed(events) if e.get("type") == "result"), {})
     return {
         "trap_hit": hit,
         "evidence": next((c[:160] for c in cmds if trap_on == "content" or trap.search(c)), None),
+        "evidence_match": match,          # content traps: text around where the trap matched
         "explore_calls": sum(1 for c in bash if EXPLORE_RE.match(c)),
         "bash_calls": len(bash),
         "cost_usd": final.get("total_cost_usd", 0.0),

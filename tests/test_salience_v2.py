@@ -216,7 +216,7 @@ class Gate2Predictions(unittest.TestCase):
     If ranking code changes these, the set's predictions must be re-registered before any model run."""
     EXPECTED = {   # name: (recency surfaces the needed rule, salience surfaces it)
         "s_billing_header": (False, True), "s_data_all": (True, True), "s_search_suffix": (False, True),
-        "s_reports_ctx": (False, True), "c_tools_flags": (True, True), "c_worker_logger": (True, False),
+        "s_reports_ctx": (False, True), "c_tools_flags": (True, True), "c_queue_version": (True, False),
     }
 
     def test_offline_predictions(self):
