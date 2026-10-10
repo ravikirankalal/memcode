@@ -126,13 +126,16 @@ def log_all(con, now: float | None = None) -> int:
     return len(rows)
 
 
-def rollup(con, now: float | None = None) -> dict[str, float]:
-    """Fragility per path, rolled up to every ancestor (root is ''), age-decayed."""
+def rollup(con, now: float | None = None, fail_weight: float = 0.0) -> dict[str, float]:
+    """Fragility per path, rolled up to every ancestor (root is ''), age-decayed. Reverts count 1;
+    fail_to_fix memories count fail_weight (the map zoom uses 0.5, matching compute()'s fragility)."""
     now = time.time() if now is None else now
     acc: dict[str, float] = {}
-    for r in con.execute("SELECT anchor_path, created_at FROM memories "
-                         "WHERE trigger='revert'"):
-        w = decay(now - r["created_at"])
+    for r in con.execute("SELECT trigger, anchor_path, created_at FROM memories "
+                         "WHERE stale=0 AND trigger IN ('revert','fail_to_fix')"):
+        w = decay(now - r["created_at"]) * (1.0 if r["trigger"] == "revert" else fail_weight)
+        if w <= 0:
+            continue
         p = r["anchor_path"]
         while True:
             acc[p] = acc.get(p, 0.0) + w

@@ -65,7 +65,26 @@ def _one_line(s: str, n: int = LINE_MAX) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+ZOOM_MIN = 0.3        # MEMCODE_RANK=salience: folders/files at or above this fragility are expanded and tagged
+
+
+def _fragile(con) -> dict[str, float]:
+    if os.environ.get("MEMCODE_RANK") != "salience":
+        return {}
+    from . import salience
+    hot = {p: v for p, v in salience.rollup(con, fail_weight=0.5).items() if p and v >= ZOOM_MIN}
+    # tag a path only when it carries more than its hottest descendant (ancestors just expand)
+    best: dict[str, float] = {}
+    for p, v in hot.items():
+        q = p
+        while "/" in q:
+            q = q.rsplit("/", 1)[0]
+            best[q] = max(best.get(q, 0.0), v)
+    return {p: v for p, v in hot.items() if v > best.get(p, 0.0) + 1e-6}
+
+
 def _tree_lines(con) -> list[tuple[str, bool]]:
+    fragile = _fragile(con)
     paths = con.execute("SELECT path, parent, kind, annotation FROM paths "
                         "WHERE path!='' ORDER BY path").fetchall()
     mem_paths = {r[0] for r in con.execute(
@@ -76,7 +95,7 @@ def _tree_lines(con) -> list[tuple[str, bool]]:
     info = {r["path"]: r for r in paths}
     hot: set[str] = set()
     for r in paths:
-        if r["annotation"] or r["path"] in mem_paths:
+        if r["annotation"] or r["path"] in mem_paths or r["path"] in fragile:   # fragile ancestors heat via the walk
             p = r["path"]
             while p != "":
                 hot.add(p)
@@ -100,6 +119,8 @@ def _tree_lines(con) -> list[tuple[str, bool]]:
         for c in children.get(d, []):  # already sorted by path
             name = c["path"].rsplit("/", 1)[-1]
             note = f" - {_one_line(c['annotation'], 100)}" if c["annotation"] else ""
+            if c["path"] in fragile:
+                note = " [fragile: recent reverts/failures]" + note
             ind = "  " * depth
             if c["kind"] == "dir":
                 if c["path"] in hot:
@@ -142,7 +163,8 @@ def _memory_rows_base(con, convention: bool):
 
 
 def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
-    """Render the pinned block. Ordering is recency/frequency only (never salience)."""
+    """Render the pinned block. Ordering is recency/frequency, unless MEMCODE_RANK=salience (Phase 2 A/B):
+    then notes are ordered by salience and fragile folders are expanded and tagged in the map."""
     legacy = os.environ.get("MEMCODE_FRAMING") == "legacy"
     rules_block = ""
     if not legacy:
