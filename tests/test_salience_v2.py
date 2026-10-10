@@ -211,5 +211,20 @@ class Why(unittest.TestCase):
             self.assertEqual(cli.main(["--root", root, "why", "999"]), 1)
 
 
+class Gate2Predictions(unittest.TestCase):
+    """Pre-registered, deterministic predictions for the Gate 2 set (bench/live/salience1_candidates.py).
+    If ranking code changes these, the set's predictions must be re-registered before any model run."""
+    EXPECTED = {   # name: (recency surfaces the needed rule, salience surfaces it)
+        "s_billing_header": (False, True), "s_data_all": (True, True), "s_search_suffix": (False, True),
+        "s_reports_ctx": (False, True), "c_tools_flags": (True, True), "c_worker_logger": (True, False),
+    }
+
+    def test_offline_predictions(self):
+        from bench.live import salience1_candidates as s1
+        got = {sc["name"]: (o["relevance_surfaced"], o["salience_surfaced"])
+               for sc in s1.CANDIDATES for o in [s1.offline_check(sc)]}
+        self.assertEqual(got, self.EXPECTED)
+
+
 if __name__ == "__main__":
     unittest.main()

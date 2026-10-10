@@ -207,10 +207,10 @@ def wait_for_capture_queue(repo: Path, timeout_s: float = 240) -> int:
 def run_unit(args: tuple) -> dict:
     sc, config, model = args
     repo = make_repo(sc)
-    if "target" in sc:                       # budget-pressure scenario: memory is seeded, not taught
-        from bench.live import pressure
+    if "target" in sc:                       # budget-pressure / salience scenario: memory is seeded, not taught
+        from bench.live import pressure, salience1_candidates
         if config in PLUGIN:
-            pressure.seed_store(repo, sc)
+            (salience1_candidates if "competitors" in sc else pressure).seed_store(repo, sc)
         elif config == "claudemd_full":
             pressure.write_claudemd(repo, sc)
         later = [metrics.metrics(claude(fresh_with_memory(sc, repo, config), sc["later"], model, config),
@@ -248,13 +248,18 @@ def table(results: list[dict], title: str, pick) -> str:
     return "\n".join(out)
 
 
+def salience_repo() -> dict:
+    from bench.live.pressure import REPO
+    return REPO
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--scenarios", default="", help="comma-separated scenario names (default: all)")
-    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3", "heldout4", "pressure1", "pressure2"), help="scenario set")
+    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3", "heldout4", "pressure1", "pressure2", "salience1"), help="scenario set")
     ap.add_argument("--configs", default="", help="comma-separated configs (default: all but memcode_legacy)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results" / "raw.json"))
@@ -266,6 +271,9 @@ def main() -> None:
     elif a.set == "pressure2":
         from bench.live.pressure2 import PRESSURE2
         pool = PRESSURE2
+    elif a.set == "salience1":
+        from bench.live.salience1_candidates import CANDIDATES as S1   # becomes a frozen set after the pilots
+        pool = [dict(c, files=dict(c.get("files") or salience_repo())) for c in S1]
     elif a.set == "pressure1":
         from bench.live.pressure1 import PRESSURE1
         pool = PRESSURE1

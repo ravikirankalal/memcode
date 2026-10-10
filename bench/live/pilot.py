@@ -22,6 +22,10 @@ from bench.live.pressure import CANDIDATES as _PC, REPO as _PREPO  # noqa: E402
 PCANDS = [dict(c, files=dict(_PREPO)) for c in _PC]
 from bench.live.pressure2_candidates import CANDIDATES as _P2  # noqa: E402
 P2CANDS = [c for c in _P2 if c["name"].endswith("_s300")]   # pilots carry no memory, so one size suffices
+from bench.live.salience1_candidates import CANDIDATES as _S1  # noqa: E402
+# Gate 2: the oracle carries ALL seven relevant rules, so it checks the needed rule is followed amid its competitors
+S1CANDS = [dict(c, files=dict(_PREPO), oracle="Project rules: " + " ".join([c["target"]] + c["competitors"]))
+           for c in _S1]
 
 
 ORACLE = False
@@ -41,10 +45,10 @@ def main():
     ap.add_argument("--repeats", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--pool", default="1", choices=("1", "2", "3", "4", "P", "P2"))
+    ap.add_argument("--pool", default="1", choices=("1", "2", "3", "4", "P", "P2", "S1"))
     ap.add_argument("--oracle", action="store_true", help="append the scenario's rules to the prompt (traps must then be ~0)")
     a = ap.parse_args()
-    pool = {"1": CANDIDATES, "2": CANDIDATES2, "3": CANDIDATES3, "4": CANDIDATES4, "P": PCANDS, "P2": P2CANDS}[a.pool]
+    pool = {"1": CANDIDATES, "2": CANDIDATES2, "3": CANDIDATES3, "4": CANDIDATES4, "P": PCANDS, "P2": P2CANDS, "S1": S1CANDS}[a.pool]
     global ORACLE
     ORACLE = a.oracle
     units = [(sc, a.model) for sc in pool for _ in range(a.repeats)]
