@@ -269,8 +269,8 @@ def main() -> None:
         from bench.live.pressure2 import PRESSURE2
         pool = PRESSURE2
     elif a.set == "salience2":
-        from bench.live.salience2_candidates import CANDIDATES as S2   # becomes a frozen set after the pilots
-        pool = S2
+        from bench.live.salience2 import SALIENCE2
+        pool = SALIENCE2
     elif a.set == "salience1":
         from bench.live.salience1 import SALIENCE1
         pool = SALIENCE1
