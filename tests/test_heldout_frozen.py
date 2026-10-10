@@ -66,3 +66,16 @@ class FrozenPressure2(unittest.TestCase):
                          "pressure2 changed: add a NEW set instead of editing this one")
         self.assertEqual(len(PRESSURE2), 8)
         self.assertTrue(all(not p["target_pinned"] and p["injected_relevance"] == 1 for p in PREDICTIONS.values()))
+
+
+class FrozenSalience1(unittest.TestCase):
+    def test_hash_and_predictions(self):
+        from bench.live import salience1_candidates as s1
+        from bench.live.salience1 import FROZEN_SHA256 as HS, PREDICTIONS, SALIENCE1
+        self.assertEqual(hashlib.sha256(json.dumps(SALIENCE1, sort_keys=True).encode()).hexdigest(), HS,
+                         "salience1 changed: add a NEW set instead of editing this one")
+        self.assertEqual(sorted(PREDICTIONS), sorted(s["name"] for s in SALIENCE1))
+        for sc in SALIENCE1:      # ranking code must still produce the pre-registered predictions
+            got = s1.offline_check(sc)
+            for k in ("relevance_surfaced", "salience_surfaced"):
+                self.assertEqual(got[k], PREDICTIONS[sc["name"]][k], (sc["name"], k))

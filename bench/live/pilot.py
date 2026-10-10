@@ -65,7 +65,7 @@ def main():
         if m["trap_hit"]:
             d["evidence"].append(m.get("evidence_match") or m["evidence"])
     for name, d in out.items():
-        print(f"{name:18s} nomem trap rate {d['hits']}/{d['n']}")
+        print(f"{name:18s} {'oracle' if ORACLE else 'nomem'} trap rate {d['hits']}/{d['n']}")
     Path(HERE := ROOT / "bench" / "live" / "results").mkdir(parents=True, exist_ok=True)
     (HERE / (f"pilot{a.pool}{'_' + a.scenarios.replace(',', '+') if a.scenarios else ''}{'_oracle' if a.oracle else ''}.json")).write_text(json.dumps(out, indent=1))
 

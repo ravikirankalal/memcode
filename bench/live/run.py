@@ -267,8 +267,8 @@ def main() -> None:
         from bench.live.pressure2 import PRESSURE2
         pool = PRESSURE2
     elif a.set == "salience1":
-        from bench.live.salience1_candidates import CANDIDATES as S1, files_for   # frozen after the pilots
-        pool = [dict(c, files=files_for(c)) for c in S1]
+        from bench.live.salience1 import SALIENCE1
+        pool = SALIENCE1
     elif a.set == "pressure1":
         from bench.live.pressure1 import PRESSURE1
         pool = PRESSURE1
