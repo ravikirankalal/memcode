@@ -109,6 +109,8 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["MEMCODE_RETRIEVAL"] = "1"
     if config == "memcode_split":
         env["MEMCODE_RANK"] = "split"
+    if config == "memcode_retrieval":          # the recency arm: pinned, since split became the default (Run 11)
+        env["MEMCODE_RANK"] = "relevance"
     if config == "memcode_salience":
         env["MEMCODE_RANK"] = "salience"
     try:

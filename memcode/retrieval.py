@@ -13,8 +13,9 @@ Relevance (stdlib, deterministic), summed per memory:
     parse_items / ParseItems / "parse items" match), normalised by the prompt's term weight (0..TERM_W);
     counts only with >= MIN_SHARED_TERMS shared terms
 Only memories scoring >= MIN_SCORE are shown, at most TOP_K, under TOKEN_CAP, never one already shown
-in this session (pinned or retrieved), never a stale one. Ranking is relevance only by default. Two
-opt-in alternatives exist for Phase 2 A/Bs (MEMCODE_RANK):
+in this session (pinned or retrieved), never a stale one. Ranking (MEMCODE_RANK) defaults to split,
+adopted after Gate 2b (bench/live/RESULTS.md, Run 11):
+  relevance relevance only, ties broken by recency (the pre-Phase-2 behaviour)
   salience  relevance x (1 + salience) decides the top TOP_K (Gate 2 / Run 10: wins on restated rules, but can
             push out a cheap memory the task needs)
   split     the relevance top TOP_K is kept unchanged, and up to PROMOTE_K EXTRA slots go to relevant memories
@@ -157,7 +158,7 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
 def select(con, scored: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
     """The memories to show, in order: the top TOP_K, plus (MEMCODE_RANK=split) up to PROMOTE_K promotions."""
     top = scored[:TOP_K]
-    if os.environ.get("MEMCODE_RANK") != "split" or con is None:
+    if os.environ.get("MEMCODE_RANK", "split") != "split" or con is None:
         return top
     from . import salience
     now = time.time()

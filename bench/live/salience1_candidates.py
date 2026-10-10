@@ -183,7 +183,7 @@ def offline_check(sc: dict) -> dict:
     """Deterministic: does each arm surface the needed rule (pinned block or retrieval), and at what rank?"""
     from memcode import pinned, retrieval, store, tree
     out = {"kind": sc["kind"]}
-    for arm, env in (("relevance", {}), ("salience", {"MEMCODE_RANK": "salience"}), ("split", {"MEMCODE_RANK": "split"})):
+    for arm, env in (("relevance", {"MEMCODE_RANK": "relevance"}), ("salience", {"MEMCODE_RANK": "salience"}), ("split", {"MEMCODE_RANK": "split"})):
         old = {k: os.environ.get(k) for k in ("MEMCODE_RANK",)}
         os.environ.pop("MEMCODE_RANK", None)
         os.environ.update(env)

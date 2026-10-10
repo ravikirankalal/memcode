@@ -40,9 +40,13 @@ class Split(unittest.TestCase):
             os.environ.pop("MEMCODE_RANK", None) if not rank else None
             return [r["id"] for _, r in retrieval.select(self.con, self.scored)]
 
-    def test_default_is_plain_top_k(self):
+    def test_relevance_mode_is_plain_top_k(self):
         self.restate(self.ids[0], 10, 3)
-        self.assertEqual(self.chosen(None), [r["id"] for _, r in self.scored[:retrieval.TOP_K]])
+        self.assertEqual(self.chosen("relevance"), [r["id"] for _, r in self.scored[:retrieval.TOP_K]])
+
+    def test_split_is_the_default(self):
+        self.restate(self.ids[0], 10, 3)
+        self.assertEqual(self.chosen(None), self.chosen("split"))
 
     def test_restated_rule_outside_top_k_is_promoted_without_displacing(self):
         self.restate(self.ids[0], 10, 3)

@@ -65,8 +65,13 @@ The pinned block is built at session start, before the task is known, and is cap
 to *that* prompt (under ~600 tokens), as additional context. Relevance is deterministic: a file or function named in the
 prompt, a file the agent edited earlier in the session, and IDF-weighted word overlap (at least two shared terms;
 identifiers are split, so `parse_items` and "parse items" match). Unrelated prompts get nothing; a memory is never shown
-twice in a session; stale memories are skipped. Rules are framed as rules, other notes as untrusted data. Ranking is by
-relevance only; `MEMCODE_RANK=salience` multiplies by salience for experiments and is off by default (Phase 2 gate).
+twice in a session; stale memories are skipped. Rules are framed as rules, other notes as untrusted data.
+
+Ranking (since 0.3.0) is *split*: the 5 most relevant memories are always shown, plus up to 2 extra relevant memories
+that proved costly to learn: the user had to restate them, or the same failure recurred (recent evidence counts more;
+14-day half-life). It won Gate 2b (`bench/live/RESULTS.md`, Run 11). `python3 -m memcode why ID` shows a memory's salience
+and the evidence behind it. `MEMCODE_RANK=relevance` restores relevance-only ranking; `MEMCODE_RANK=salience` (relevance x
+salience, also orders the pinned notes and tags fragile folders in the map) is kept for experiments.
 `python3 -m memcode sessions` counts what was injected.
 
 ### Opt-in model capture

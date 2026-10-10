@@ -320,3 +320,36 @@ and control variants is a design choice, not a measured real-world mix.
 - Keep `MEMCODE_RANK=salience` opt-in until dogfooding data shows how often restated rules are the ones needed.
 - Reduce the control cost without giving up the costly wins: e.g. reserve part of the top-k for recency and part for
   salience. Must be tested on a NEW frozen set (salience1 now informs the design).
+
+---
+
+# Run 11 (2026-10-10): Gate 2b on salience2 — split ranking keeps salience's wins without its control loss; adopted
+
+Split ranking (`MEMCODE_RANK=split`) was designed after Run 10 and judged on a NEW frozen set, `bench/live/salience2.py`
+(commit 5ac5e4c): fresh conventions and history shapes salience1 lacked. Haiku, 3 repeats x 2 clean-copy later sessions
+= 6 runs per cell, $0.77 total. The recency arm is `memcode_retrieval` with `MEMCODE_RANK=relevance`.
+
+| scenario | shape | nomem | recency | salience | split | predicted surfaced (rec / sal / split) |
+|---|---|---|---|---|---|---|
+| t_inventory_owner | restated twice | 6/6 | 6/6 | 0/6 | 0/6 | no / yes / yes |
+| t_notify_header | restated once | 6/6 | 6/6 | 0/6 | 6/6 | no / yes / no |
+| t_orders_trace | crowded (4 restated) | 6/6 | 6/6 | 0/6 | 0/6 | no / yes / yes |
+| t_auth_footer | nine relevant | 6/6 | 6/6 | 0/6 | 0/6 | no / yes / yes |
+| t_geo_srid | control, 4 competitors restated | 6/6 | 0/6 | 6/6 | 0/6 | yes / no / yes |
+| t_export_version | control, needed is newest | 6/6 | 0/6 | 0/6 | 0/6 | yes / yes / yes |
+| **all** | | 36/36 | 24/36 | 6/36 | **6/36** | |
+| **controls** | | 12/12 | 0/12 | 6/12 | **0/12** | |
+
+Per-run cost: nomem $0.0043, recency $0.0058, salience $0.0056, split $0.0057.
+
+## Reading
+- **Pre-registered criterion met:** split's rate (6/36) is no worse than salience's (6/36), better than recency's
+  (24/36), and no control is worse than recency (0/12). Split becomes the default ranking for retrieval in 0.3.0.
+- **Every cell matched the offline prediction**, as in Run 10: surfacing decides the outcome, and every cell was 0/6 or 6/6.
+- **Split's known blind spot:** a rule restated only once recently (decayed weight ~0.74 < PROMOTE_MIN 1.0) is not
+  promoted. Salience catches it. Lowering the threshold trades against crowding; a later set should measure it.
+- Cost: split shows up to two extra memories per prompt; per-run cost did not move measurably.
+
+## Caveats
+Constructed sets, one model, 6 runs per cell; two sets (12 scenarios) so far. Real-world frequency of restated rules
+is still unmeasured (this repo's store had no memories yet).
