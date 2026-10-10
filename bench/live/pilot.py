@@ -26,6 +26,8 @@ from bench.live.salience1_candidates import CANDIDATES as _S1, files_for as _s1f
 # Gate 2: the oracle carries ALL seven relevant rules, so it checks the needed rule is followed amid its competitors
 S1CANDS = [dict(c, files=_s1files(c), oracle="Project rules: " + " ".join([c["target"]] + c["competitors"]))
            for c in _S1]
+from bench.live.salience2_candidates import CANDIDATES as _S2, oracle_all as _s2oracle  # noqa: E402
+S2CANDS = [dict(c, oracle=_s2oracle(c)) for c in _S2]
 
 
 ORACLE = False
@@ -45,11 +47,11 @@ def main():
     ap.add_argument("--repeats", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--pool", default="1", choices=("1", "2", "3", "4", "P", "P2", "S1"))
+    ap.add_argument("--pool", default="1", choices=("1", "2", "3", "4", "P", "P2", "S1", "S2"))
     ap.add_argument("--oracle", action="store_true", help="append the scenario's rules to the prompt (traps must then be ~0)")
     ap.add_argument("--scenarios", default="", help="comma-separated names (default: the whole pool)")
     a = ap.parse_args()
-    pool = {"1": CANDIDATES, "2": CANDIDATES2, "3": CANDIDATES3, "4": CANDIDATES4, "P": PCANDS, "P2": P2CANDS, "S1": S1CANDS}[a.pool]
+    pool = {"1": CANDIDATES, "2": CANDIDATES2, "3": CANDIDATES3, "4": CANDIDATES4, "P": PCANDS, "P2": P2CANDS, "S1": S1CANDS, "S2": S2CANDS}[a.pool]
     if a.scenarios:
         pool = [c for c in pool if c["name"] in a.scenarios.split(",")]
     global ORACLE

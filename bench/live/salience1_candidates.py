@@ -183,7 +183,7 @@ def offline_check(sc: dict) -> dict:
     """Deterministic: does each arm surface the needed rule (pinned block or retrieval), and at what rank?"""
     from memcode import pinned, retrieval, store, tree
     out = {"kind": sc["kind"]}
-    for arm, env in (("relevance", {}), ("salience", {"MEMCODE_RANK": "salience"})):
+    for arm, env in (("relevance", {}), ("salience", {"MEMCODE_RANK": "salience"}), ("split", {"MEMCODE_RANK": "split"})):
         old = {k: os.environ.get(k) for k in ("MEMCODE_RANK",)}
         os.environ.pop("MEMCODE_RANK", None)
         os.environ.update(env)
@@ -198,7 +198,7 @@ def offline_check(sc: dict) -> dict:
             con.executemany("INSERT INTO injections(session,memory_id,ts) VALUES('s',?,0)", [(i,) for i in shown])
             con.commit()
             scored = retrieval.score(con, str(d), "s", sc["later"])
-            _, ids = retrieval.render(scored)
+            _, ids = retrieval.render(scored, con)
             relevant = {r["id"] for _, r in scored if sc["dir"] + "/" in r["text"]}
             out[f"{arm}_pinned"] = tid in shown
             out[f"{arm}_retrieved"] = tid in ids

@@ -42,8 +42,8 @@ ALLOWED = ("Read Edit Write Bash(pytest:*) Bash(python3:*) Bash(ls:*) Bash(find:
            "Bash(cat:*) Bash(./qa:*) Bash(mv:*) Bash(git mv:*) Bash(mkdir:*) "
            "Bash(git add:*) Bash(git commit:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*)")
 CONFIGS = ("nomem", "builtin", "claudemd", "memcode", "memcode_legacy", "memcode_model",
-           "claudemd_full", "memcode_retrieval", "memcode_salience")
-PLUGIN = ("memcode", "memcode_legacy", "memcode_model", "memcode_retrieval", "memcode_salience")
+           "claudemd_full", "memcode_retrieval", "memcode_salience", "memcode_split")
+PLUGIN = ("memcode", "memcode_legacy", "memcode_model", "memcode_retrieval", "memcode_salience", "memcode_split")
 
 BASE = {"app.py": "def add(a, b):\n    return a + b\n",
         "conftest.py": "import pytest\n\n@pytest.fixture\ndef three():\n    return 3\n",
@@ -105,8 +105,10 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["MEMCODE_FRAMING"] = "legacy"
     if config == "memcode_model":
         env["MEMCODE_MODEL_CAPTURE"] = "1"
-    if config in ("memcode_retrieval", "memcode_salience"):
+    if config in ("memcode_retrieval", "memcode_salience", "memcode_split"):
         env["MEMCODE_RETRIEVAL"] = "1"
+    if config == "memcode_split":
+        env["MEMCODE_RANK"] = "split"
     if config == "memcode_salience":
         env["MEMCODE_RANK"] = "salience"
     try:
@@ -254,7 +256,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--scenarios", default="", help="comma-separated scenario names (default: all)")
-    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3", "heldout4", "pressure1", "pressure2", "salience1"), help="scenario set")
+    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3", "heldout4", "pressure1", "pressure2", "salience1", "salience2"), help="scenario set")
     ap.add_argument("--configs", default="", help="comma-separated configs (default: all but memcode_legacy)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results" / "raw.json"))
@@ -266,6 +268,9 @@ def main() -> None:
     elif a.set == "pressure2":
         from bench.live.pressure2 import PRESSURE2
         pool = PRESSURE2
+    elif a.set == "salience2":
+        from bench.live.salience2_candidates import CANDIDATES as S2   # becomes a frozen set after the pilots
+        pool = S2
     elif a.set == "salience1":
         from bench.live.salience1 import SALIENCE1
         pool = SALIENCE1
