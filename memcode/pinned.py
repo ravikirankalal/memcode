@@ -126,6 +126,14 @@ def _rule_text(t: str) -> str:
 
 
 def _memory_rows(con, convention: bool):
+    rows = _memory_rows_base(con, convention)
+    if not convention and os.environ.get("MEMCODE_RANK") == "salience":    # Phase 2, off by default
+        from . import salience
+        rows = sorted(rows, key=lambda r: (-salience.score(con, r), -r["updated_at"], -r["id"]))
+    return rows
+
+
+def _memory_rows_base(con, convention: bool):
     cond = "m.trigger='correction'" if convention else "m.trigger!='correction'"
     return con.execute(
         f"""SELECT m.* , (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq

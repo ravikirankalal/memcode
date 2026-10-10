@@ -6,6 +6,7 @@
   add TEXT [--path P] record a manual memory (redacted, path confined to the repo)
   stats               counts by trigger, stale, retrievals, events
   sessions [-n N]     per-session counters: rules/notes injected, captured, repeated corrections
+  why ID              salience score and the evidence behind it
   salience            shadow-mode scores per memory (logged each session start; not used for ranking)
   config [KEY on|off] show or set options (model-capture: opt-in model-based rule capture)
   export [FILE]       JSON dump (stdout if no FILE)
@@ -127,6 +128,19 @@ def cmd_sessions(con, a) -> int:
     return 0
 
 
+def cmd_why(con, a) -> int:
+    from . import salience
+    r = con.execute("SELECT * FROM memories WHERE id=?", (a.id,)).fetchone()
+    if not r:
+        print(f"no memory #{a.id}", file=sys.stderr)
+        return 1
+    dims = salience.compute(con, r)
+    print(f"#{r['id']} salience {salience.score(con, r):.2f}  "
+          + "  ".join(f"{k} {v:.2f}" for k, v in dims.items()))
+    print(salience.explain(con, r))
+    return 0
+
+
 def cmd_salience(con, a) -> int:
     rows = con.execute("""SELECT m.id, m.trigger, m.text,
           (SELECT COUNT(*) FROM injections i WHERE i.memory_id=m.id) AS shown,
@@ -194,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("stats")
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
     sub.add_parser("salience")
+    p = sub.add_parser("why"); p.add_argument("id", type=int)
     p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
@@ -206,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "config":
             return cmd_config(con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
-                "export": cmd_export, "sessions": cmd_sessions, "salience": cmd_salience, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
+                "export": cmd_export, "sessions": cmd_sessions, "salience": cmd_salience, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
