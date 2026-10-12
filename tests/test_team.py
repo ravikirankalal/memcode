@@ -174,3 +174,24 @@ class Dashboard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BenchTransfer(unittest.TestCase):
+    """The live benchmark's team arms: B gets only what A committed."""
+
+    def test_team_arm_carries_shared_rules_and_local_arm_carries_nothing(self):
+        from bench.live import run
+        sc = {"files": {"app.py": "x = 1\n"}}
+        a = run.make_repo(sc)
+        con = store.connect(a)
+        store.add_memory(con, "correction", "Rule from user correction: Use tabs.", "", None, {"session": "A"})
+        con.close()
+        self.assertEqual(run.share_all_rules(a), 1)
+        b = run.fresh_with_memory(sc, a, "memcode_team")
+        self.assertFalse((b / ".memcode").exists())
+        con = store.connect(b)
+        team.sync(con, str(b))
+        self.assertIn("Use tabs.", pinned.render_pinned(con, str(b)))
+        con.close()
+        local = run.fresh_with_memory(sc, a, "memcode_local")
+        self.assertEqual(sorted(p.name for p in local.iterdir() if p.name != ".git"), ["app.py"])

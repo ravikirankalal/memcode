@@ -12,6 +12,11 @@ Configs
   memcode_model   memcode with opt-in model capture (MEMCODE_MODEL_CAPTURE=1); the harness waits for the
                   background capture queue to drain before copying memory to later sessions
   memcode_legacy  same, but MEMCODE_FRAMING=legacy (old all-untrusted framing): an A/B for the pinned-block fix
+Team transfer (Phase 3): session 1 is developer A; later sessions are developer B in a fresh clone that gets only
+what is committed to the repo, never A's local store or A's per-machine auto-memory.
+  memcode_local   memcode, nothing shared: B gets nothing (prediction: like nomem)
+  memcode_team    memcode, A shares every captured rule (`memcode share`): B gets only .memcode-team.jsonl
+  claudemd_team   like claudemd: B gets only the committed CLAUDE.md
 
 Later sessions start from a CLEAN copy of the original repo plus only the memory store
 (.memcode / CLAUDE.md / auto-memory dir), so code written in session 1 cannot leak the convention.
@@ -42,8 +47,11 @@ ALLOWED = ("Read Edit Write Bash(pytest:*) Bash(python3:*) Bash(ls:*) Bash(find:
            "Bash(cat:*) Bash(./qa:*) Bash(mv:*) Bash(git mv:*) Bash(mkdir:*) "
            "Bash(git add:*) Bash(git commit:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*)")
 CONFIGS = ("nomem", "builtin", "claudemd", "memcode", "memcode_legacy", "memcode_model",
-           "claudemd_full", "memcode_retrieval", "memcode_salience", "memcode_split")
-PLUGIN = ("memcode", "memcode_legacy", "memcode_model", "memcode_retrieval", "memcode_salience", "memcode_split")
+           "claudemd_full", "memcode_retrieval", "memcode_salience", "memcode_split",
+           "memcode_local", "memcode_team", "claudemd_team")
+TEAM = ("memcode_local", "memcode_team", "claudemd_team")
+PLUGIN = ("memcode", "memcode_legacy", "memcode_model", "memcode_retrieval", "memcode_salience", "memcode_split",
+          "memcode_local", "memcode_team")
 
 BASE = {"app.py": "def add(a, b):\n    return a + b\n",
         "conftest.py": "import pytest\n\n@pytest.fixture\ndef three():\n    return 3\n",
@@ -160,6 +168,11 @@ def fresh_with_memory(sc: dict, src: Path, config: str) -> Path:
     """New pristine repo + ONLY the memory carried over from `src` (no session-1 code)."""
     import shutil
     dst = make_repo(sc)
+    if config in TEAM:                         # developer B: only what A committed to the repo
+        f = src / (".memcode-team.jsonl" if config == "memcode_team" else "CLAUDE.md")
+        if config != "memcode_local" and f.exists():
+            shutil.copy(f, dst / f.name)
+        return dst
     if config in PLUGIN and (src / ".memcode").exists():
         shutil.copytree(src / ".memcode", dst / ".memcode")
     if config in ("builtin", "claudemd", "claudemd_full") or config in PLUGIN:
@@ -180,7 +193,7 @@ def teach(repo: Path, sc: dict, model: str, config: str) -> None:
     for turns in sc.get("teach") or [sc["s1"]]:
         sid = None
         for i, turn in enumerate(turns):
-            prompt = turn + (" Save this rule to CLAUDE.md." if config == "claudemd" and i > 0 else "")
+            prompt = turn + (" Save this rule to CLAUDE.md." if config in ("claudemd", "claudemd_team") and i > 0 else "")
             ev = claude(repo, prompt, model, config, resume=sid)
             if i == 0:
                 sid = metrics.metrics(ev, sc["trap_regex"], sc.get("trap_on", "cmd_path"))["session_id"]
@@ -225,12 +238,25 @@ def run_unit(args: tuple) -> dict:
     teach(repo, sc, model, config)
     if config == "memcode_model":
         wait_for_capture_queue(repo)
+    shared = share_all_rules(repo) if config == "memcode_team" else None
     stored = memcode_memories(repo) if config in PLUGIN else None
     builtin = builtin_memory_written(repo) if config != "nomem" else None
     later = [metrics.metrics(claude(fresh_with_memory(sc, repo, config), sc["later"], model, config),
                              sc["trap_regex"], sc.get("trap_on", "cmd_path")) for _ in (2, 3)]
     return {"scenario": sc["name"], "tuned_on": sc["tuned_on"], "config": config,
-            "stored": stored, "builtin_written": builtin, "later": later}
+            "stored": stored, "builtin_written": builtin, "shared": shared, "later": later}
+
+
+def share_all_rules(repo: Path) -> int:
+    """Developer A shares every non-stale captured rule, as `memcode share` would. Returns how many."""
+    sys.path.insert(0, str(ROOT))
+    from memcode import store, team
+    con = store.connect(repo)
+    try:
+        ids = [r[0] for r in con.execute("SELECT id FROM memories WHERE trigger='correction' AND stale=0")]
+        return len(team.share(con, str(repo), ids)) if ids else 0
+    finally:
+        con.close()
 
 
 def table(results: list[dict], title: str, pick) -> str:
@@ -244,7 +270,7 @@ def table(results: list[dict], title: str, pick) -> str:
         s = metrics.summarize(runs)
         if cfg in PLUGIN:
             wrote = f"{sum(1 for r in rs if (r['stored'] or 0) > 0)}/{len(rs)}"
-        elif cfg in ("builtin", "claudemd"):
+        elif cfg in ("builtin", "claudemd", "claudemd_team"):
             wrote = f"{sum(1 for r in rs if r['builtin_written'])}/{len(rs)}"
         else:
             wrote = "n/a"
