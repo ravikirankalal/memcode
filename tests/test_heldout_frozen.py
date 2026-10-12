@@ -79,3 +79,16 @@ class FrozenSalience1(unittest.TestCase):
             got = s1.offline_check(sc)
             for k in ("relevance_surfaced", "salience_surfaced"):
                 self.assertEqual(got[k], PREDICTIONS[sc["name"]][k], (sc["name"], k))
+
+
+class FrozenSalience2(unittest.TestCase):
+    def test_hash_and_predictions(self):
+        from bench.live import salience1_candidates as s1
+        from bench.live.salience2 import FROZEN_SHA256 as HS, PREDICTIONS, SALIENCE2
+        self.assertEqual(hashlib.sha256(json.dumps(SALIENCE2, sort_keys=True).encode()).hexdigest(), HS,
+                         "salience2 changed: add a NEW set instead of editing this one")
+        self.assertEqual(sorted(PREDICTIONS), sorted(s["name"] for s in SALIENCE2))
+        for sc in SALIENCE2:
+            got = s1.offline_check(sc)
+            for k in ("relevance_surfaced", "salience_surfaced", "split_surfaced"):
+                self.assertEqual(got[k], PREDICTIONS[sc["name"]][k], (sc["name"], k))
