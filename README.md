@@ -3,8 +3,9 @@
 Memory for coding agents: when you correct the agent, it remembers the rule in the next session.
 A Claude Code plugin. Local-first, stdlib-only Python.
 
-> **Status: early.** Capture works in real sessions. Whether it beats a plain `CLAUDE.md` is **not yet shown**: the first
-> frozen held-out benchmark said no; a fix and a second held-out run are in progress. Read
+> **Status: early.** On frozen held-out benchmarks (one model, Haiku, small N), captured rules are followed as reliably as
+> a hand-maintained `CLAUDE.md`, and per-prompt retrieval keeps context cost flat as the store grows; rules stated in
+> plain descriptive language are still missed unless opt-in model capture is on. Read
 > [`bench/live/RESULTS.md`](bench/live/RESULTS.md) before relying on it.
 
 ## Install
@@ -28,6 +29,8 @@ To try it from a checkout instead: `claude --plugin-dir /path/to/memcode`.
 2. **Injects** at session start (and after compaction): your stated rules as *project rules*, then a compact repo map and
    recorded notes under a hard token cap. Agent-derived notes are labelled as untrusted data.
 3. **Expires** memories tied to code that changed (staleness), and re-anchors them across renames.
+4. **Shares** what you choose with your team: `memcode share ID` writes it to `.memcode-team.jsonl`, which you commit
+   and review like any change; teammates' agents pick it up after the merge. Nothing is shared automatically.
 
 Nothing is sent anywhere: no network access, no extra model calls.
 
@@ -46,6 +49,9 @@ python3 -m memcode add "Deploys run from release/ branches" --path .github
 python3 -m memcode stats           # counts by trigger, stale, retrievals
 python3 -m memcode export mem.json
 python3 -m memcode prune-stale
+python3 -m memcode why 3           # salience: how costly this memory was to learn, and why
+python3 -m memcode team            # team memory: shared, imported, worth sharing
+python3 -m memcode share 3         # add memory #3 to .memcode-team.jsonl (then commit it)
 ```
 
 (run from your repo, with `PYTHONPATH` pointing at the plugin directory if you installed it as a plugin; see the guide).
