@@ -353,3 +353,30 @@ Per-run cost: nomem $0.0043, recency $0.0058, salience $0.0056, split $0.0057.
 ## Caveats
 Constructed sets, one model, 6 runs per cell; two sets (12 scenarios) so far. Real-world frequency of restated rules
 is still unmeasured (this repo's store had no memories yet).
+
+---
+
+# Run 12 (2026-10-12): team transfer (Phase 3 technical proxy) — shared memory reaches a teammate as well as CLAUDE.md
+
+Developer A's session learns the rule (frozen `heldout2`, 5 scenarios); developer B's later sessions run in a fresh
+clone that gets only what A committed, never A's local store or per-machine auto-memory. Predictions were posted on
+#19 before the run (commit 3b127a9). Haiku, 2 repeats x 2 later sessions = 4 runs per cell, $0.30 for later sessions.
+
+| scenario | nomem | memcode_local (nothing shared) | memcode_team (`.memcode-team.jsonl`) | claudemd_team (committed CLAUDE.md) |
+|---|---|---|---|---|
+| k_dataclass | 4/4 | 4/4 | 0/4 | 0/4 |
+| k_header | 4/4 | 4/4 | 0/4 | 0/4 |
+| k_main_block | 4/4 | 4/4 | 0/4 | 0/4 |
+| k_module_imports | 4/4 | 4/4 | 0/4 | 0/4 |
+| k_pathlib | 4/4 | 4/4 | 0/4 | 0/4 |
+| **total** | 20/20 | 20/20 | **0/20** | **0/20** |
+
+A captured exactly one rule in every memcode unit (10/10) and shared it; A's agent wrote CLAUDE.md in 10/10.
+
+## Reading
+- **Pass by the pre-registered criterion:** memcode_team (0/20) is no worse than claudemd_team (0/20) and far below
+  memcode_local (20/20). Without sharing, a teammate gets nothing from memcode; with one reviewed file, they get it all.
+- This is the *technical* proxy only. Gate 3 ("teams pay for shared memory") needs real teams.
+
+## Caveats
+Simulated teammates (same model, same task phrasing), one model, 4 runs per cell, a set where capture is known to work.
