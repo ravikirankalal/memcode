@@ -7,6 +7,9 @@
   stats               counts by trigger, stale, retrievals, events
   sessions [-n N]     per-session counters: rules/notes injected, captured, repeated corrections
   why ID              salience score and the evidence behind it
+  share ID...         add memories to .memcode-team.jsonl (commit it to share them through review)
+  unshare KEY...      remove shared memories (team id or local memory id)
+  team                team memory dashboard: shared, imported, stale, worth sharing
   salience            shadow-mode scores per memory (logged each session start; not used for ranking)
   config [KEY on|off] show or set options (model-capture: opt-in model-based rule capture)
   export [FILE]       JSON dump (stdout if no FILE)
@@ -141,6 +144,40 @@ def cmd_why(con, a) -> int:
     return 0
 
 
+def cmd_share(con, a, root) -> int:
+    from . import team
+    ids = team.share(con, root, a.ids)
+    print(f"shared {len(ids)} memor{'y' if len(ids) == 1 else 'ies'} in {team.TEAM_FILE}: {', '.join(ids)}")
+    print(f"commit {team.TEAM_FILE} and open a PR; teammates get them on their next session after it merges")
+    return 0
+
+
+def cmd_unshare(con, a, root) -> int:
+    from . import team
+    n = team.unshare(con, root, a.keys)
+    print(f"removed {n} line(s) from {team.TEAM_FILE}" + ("; commit the change" if n else ""))
+    return 0 if n else 1
+
+
+def cmd_team(con, a, root) -> int:
+    from . import team
+    team.sync(con, root)
+    st = team.status(con, root)
+    if not os.path.exists(team.path(root)):
+        print(f"{team.TEAM_FILE}: not created yet (memcode share ID... creates it)")
+    else:
+        print(f"{team.TEAM_FILE}: {st['records']} shared memories ({st['rules']} rules)"
+              + ("" if st["uncommitted"] is None else ("; UNCOMMITTED changes" if st["uncommitted"] else "; committed")))
+    print(f"imported from teammates: {st['imported']} ({st['stale_imported']} stale: their anchor changed since)")
+    print(f"shared by you: {st['shared_by_me']}")
+    if st["suggest"]:
+        print("worth sharing (rules, restated or recurring, high confidence):")
+        for m in st["suggest"]:
+            print(f"  #{m['id']} [{m['trigger']}] {(m['anchor_path'] or '/')}: {m['text'][:100]}")
+        print("  -> memcode share ID...")
+    return 0
+
+
 def cmd_salience(con, a) -> int:
     rows = con.execute("""SELECT m.id, m.trigger, m.text,
           (SELECT COUNT(*) FROM injections i WHERE i.memory_id=m.id) AS shown,
@@ -209,6 +246,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
     sub.add_parser("salience")
     p = sub.add_parser("why"); p.add_argument("id", type=int)
+    p = sub.add_parser("share"); p.add_argument("ids", type=int, nargs="+")
+    p = sub.add_parser("unshare"); p.add_argument("keys", nargs="+")
+    sub.add_parser("team")
     p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
@@ -220,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_add(con, a, root)
         if a.cmd == "config":
             return cmd_config(con, a, root)
+        if a.cmd in ("share", "unshare", "team"):
+            return {"share": cmd_share, "unshare": cmd_unshare, "team": cmd_team}[a.cmd](con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
                 "export": cmd_export, "sessions": cmd_sessions, "salience": cmd_salience, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:
