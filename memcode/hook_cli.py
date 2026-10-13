@@ -103,7 +103,9 @@ def main(argv: list[str]) -> int:
                         model_capture.enqueue(con, evs[0]["session"], evs[0]["prompt"])
                         model_capture.spawn_worker(root)
             if name in ("SessionStart", "PreCompact"):
-                from . import tree
+                from . import team, tree
+                if name == "SessionStart":
+                    team.sync(con, root)                   # reviewed team memory from .memcode-team.jsonl
                 tree.refresh_from_git_diff(con, root)      # renames / plain mv re-anchor
                 tree.scan_repo(con, root)
                 tree.mark_stale(con, root)

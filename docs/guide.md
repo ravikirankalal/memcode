@@ -84,6 +84,26 @@ convention, and stores it as a rule if so. The prompt is never delayed. **Off by
 text to the model and costs one call per classified prompt (about $0.02 on Opus 5.5; less on Haiku). The worker's model
 call runs with no tools, no settings or plugins (so memcode cannot recurse), and no saved session.
 
+### Team memory
+
+Your local store (`.memcode/`) is never committed. To give teammates a memory, share it:
+
+```
+python3 -m memcode team            # what is shared, imported, stale, and worth sharing
+python3 -m memcode share 12 15     # copy memories #12 and #15 into .memcode-team.jsonl
+git add .memcode-team.jsonl && git commit -m "Share billing rules with the team"
+```
+
+`.memcode-team.jsonl` holds one memory per line, so a PR diff shows exactly which rules and notes are being shared,
+and your team reviews them like any other change. After the PR merges, each teammate's next session imports the file
+(no server; git is the sync). Deleting a line and merging removes it from everyone's agent; `memcode unshare ID`
+does that for you. Shared memories behave like local ones: rules appear as rules, notes as untrusted data, and a note
+goes stale for a teammate whose copy of its file differs.
+
+Trust: the file is repo content, as trusted as CLAUDE.md, which is why sharing always goes through review. On import,
+memcode skips malformed lines, accepts only known memory kinds, confines paths to the repo, redacts secrets and caps
+the file at 500 memories. Session ids and other provenance never leave your machine. `MEMCODE_TEAM=0` disables the import.
+
 ## What is stored, and privacy
 
 - **Memories**: short redacted summaries, never raw tool output.
