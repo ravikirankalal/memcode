@@ -10,6 +10,8 @@
   share ID...         add memories to .memcode-team.jsonl (commit it to share them through review)
   unshare KEY...      remove shared memories (team id or local memory id)
   team                team memory dashboard: shared, imported, stale, worth sharing
+  sync-rules [T...]   write the memory block into another agent's instruction file (default target: agents)
+  setup AGENT         print the config that wires memcode into codex or gemini
   salience            shadow-mode scores per memory (logged each session start; not used for ranking)
   config [KEY on|off] show or set options (model-capture: opt-in model-based rule capture)
   export [FILE]       JSON dump (stdout if no FILE)
@@ -178,6 +180,18 @@ def cmd_team(con, a, root) -> int:
     return 0
 
 
+def cmd_sync_rules(con, a, root) -> int:
+    from . import engine, export_rules
+    engine.session_start(con, root, "sync-rules", prepare_only=True)    # fresh map and staleness first
+    for t, changed in export_rules.sync(con, root, a.targets or ["agents"]).items():
+        rel = export_rules.TARGETS[t][0]
+        print(f"{t}: {rel} {'updated' if changed else 'unchanged'}")
+        if export_rules.TARGETS[t][1] == "block" and export_rules.tracked(root, rel):
+            print(f"  note: {rel} is tracked by git, so this block is shared when you commit it; review it first "
+                  f"(memcode share is the reviewed way to share memories)")
+    return 0
+
+
 def cmd_salience(con, a) -> int:
     rows = con.execute("""SELECT m.id, m.trigger, m.text,
           (SELECT COUNT(*) FROM injections i WHERE i.memory_id=m.id) AS shown,
@@ -249,10 +263,20 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("share"); p.add_argument("ids", type=int, nargs="+")
     p = sub.add_parser("unshare"); p.add_argument("keys", nargs="+")
     sub.add_parser("team")
+    p = sub.add_parser("sync-rules"); p.add_argument("targets", nargs="*")
+    p = sub.add_parser("setup"); p.add_argument("agent")
     p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
     a = ap.parse_args(argv)
+    if a.cmd == "setup":                       # needs no store
+        from . import setup
+        try:
+            print(setup.render(a.agent))
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        return 0
     root = store.resolve_root(a.root)
     con = store.connect(root)
     try:
@@ -260,8 +284,9 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_add(con, a, root)
         if a.cmd == "config":
             return cmd_config(con, a, root)
-        if a.cmd in ("share", "unshare", "team"):
-            return {"share": cmd_share, "unshare": cmd_unshare, "team": cmd_team}[a.cmd](con, a, root)
+        if a.cmd in ("share", "unshare", "team", "sync-rules"):
+            return {"share": cmd_share, "unshare": cmd_unshare, "team": cmd_team,
+                    "sync-rules": cmd_sync_rules}[a.cmd](con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
                 "export": cmd_export, "sessions": cmd_sessions, "salience": cmd_salience, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:

@@ -48,15 +48,19 @@ def count_injected(text: str) -> tuple[int, int]:
 def shown_ids(con, text: str) -> list[int]:
     """Ids of the memories that actually made it into a rendered block (rules and notes)."""
     lines = set(text.splitlines())
+    heads = set(lines)                    # every "prefix" such that some line == prefix or starts with prefix + " ["
+    for l in lines:
+        i = l.find(" [")
+        while i != -1:
+            heads.add(l[:i])
+            i = l.find(" [", i + 1)
     shown = []
     for r in con.execute("SELECT id, trigger, text FROM memories WHERE stale=0 ORDER BY id"):
         if r["trigger"] == "correction":
             if f"- {_one_line(_rule_text(r['text']), 240)}" in lines:
                 shown.append(r["id"])
-        else:
-            prefix = f"- ({r['trigger']}) {_one_line(r['text'])}"
-            if any(l == prefix or l.startswith(prefix + " [") for l in lines):
-                shown.append(r["id"])
+        elif f"- ({r['trigger']}) {_one_line(r['text'])}" in heads:
+            shown.append(r["id"])
     return shown
 
 
@@ -150,7 +154,8 @@ def _memory_rows(con, convention: bool):
     rows = _memory_rows_base(con, convention)
     if not convention and os.environ.get("MEMCODE_RANK") == "salience":    # Phase 2, off by default
         from . import salience
-        rows = sorted(rows, key=lambda r: (-salience.score(con, r), -r["updated_at"], -r["id"]))
+        idx = salience.Index(con)
+        rows = sorted(rows, key=lambda r: (-salience.score(con, r, index=idx), -r["updated_at"], -r["id"]))
     return rows
 
 
