@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""memcode launcher for agents other than Claude Code (no install step, no PYTHONPATH needed).
+
+  memcode hook <Event> <agent>   hook entrypoint (agent: claude | codex | gemini)
+  memcode mcp                    stdio MCP server
+  memcode <command> ...          the inspection CLI (list, show, team, sync-rules, setup, ...)
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if args[:1] == ["hook"]:
+        from memcode.hook_cli import main
+        sys.exit(main(["memcode"] + args[1:]))
+    if args[:1] == ["mcp"]:
+        from memcode.mcp_server import main
+        main()
+        sys.exit(0)
+    from memcode.cli import main
+    sys.exit(main(args))

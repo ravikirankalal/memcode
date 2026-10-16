@@ -104,6 +104,34 @@ Trust: the file is repo content, as trusted as CLAUDE.md, which is why sharing a
 memcode skips malformed lines, accepts only known memory kinds, confines paths to the repo, redacts secrets and caps
 the file at 500 memories. Session ids and other provenance never leave your machine. `MEMCODE_TEAM=0` disables the import.
 
+### Other agents: Codex CLI and Gemini CLI
+
+memcode's core is agent-neutral; small adapters translate each agent's hook payloads. Print the config for your
+agent and paste it where the comment says:
+
+```
+/path/to/memcode/bin/memcode setup codex     # TOML for ~/.codex/config.toml (hooks + MCP server)
+/path/to/memcode/bin/memcode setup gemini    # JSON to merge into .gemini/settings.json
+```
+
+| | Claude Code | Codex CLI | Gemini CLI |
+|---|---|---|---|
+| Rules and notes at session start | yes | yes | yes |
+| Corrections captured from prompts | yes | yes | yes |
+| Per-prompt retrieval | yes | yes | yes (appended to the turn) |
+| Fail-to-fix and retry memories | yes | **no**: Codex sends shell output without an exit code | when the output states the exit code |
+| MCP tools | yes | yes | yes |
+
+The store is shared: the same `.memcode/` serves every agent you use in a repo. Formats were checked against Codex's
+source and Gemini's hook reference (2026-10-16); hooks APIs change, so report breakage.
+
+**Agents without hooks** (or to see the block in a plain file): `memcode sync-rules` writes the same block into
+`AGENTS.md`, between `<!-- memcode:start -->` and `<!-- memcode:end -->` markers; text outside them is never touched.
+Re-run it to refresh. If `AGENTS.md` is committed, the block is shared when you commit it, and the command says so.
+Memcode never writes `AGENTS.override.md`: Codex reads that file *instead of* `AGENTS.md`, which would hide your
+team's instructions. Cursor is not supported yet: its hook docs could not be verified, and users report that its
+hooks cannot inject context.
+
 ## What is stored, and privacy
 
 - **Memories**: short redacted summaries, never raw tool output.

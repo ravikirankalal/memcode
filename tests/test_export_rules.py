@@ -67,5 +67,15 @@ class Sync(unittest.TestCase):
         con.close()
 
 
+class Tracked(unittest.TestCase):
+    def test_tracked(self):
+        d = tempfile.mkdtemp()
+        subprocess.run(["git", "init", "-q", d], check=True)
+        Path(d, "AGENTS.md").write_text("x\n")
+        self.assertFalse(er.tracked(d, "AGENTS.md"))
+        subprocess.run(["git", "-C", d, "add", "AGENTS.md"], check=True)
+        self.assertTrue(er.tracked(d, "AGENTS.md"))
+
+
 if __name__ == "__main__":
     unittest.main()

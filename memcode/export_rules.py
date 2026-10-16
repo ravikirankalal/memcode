@@ -99,6 +99,15 @@ def git_exclude(root: str, rel: str) -> None:
         pass
 
 
+def tracked(root: str, rel: str) -> bool:
+    try:
+        r = subprocess.run(["git", "-C", root, "ls-files", "--error-unmatch", "--", rel],
+                           capture_output=True, timeout=5)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 # target name -> (repo-relative path, mode, header for file mode)
 TARGETS = {
     "agents": ("AGENTS.md", "block", ""),

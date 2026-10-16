@@ -1,51 +1,19 @@
-"""Claude Code hook entrypoint:
-`python3 -m memcode.hook_cli <SessionStart|UserPromptSubmit|PostToolUse|PostToolUseFailure|PreCompact>`.
+"""Hook entrypoint for Claude Code, Codex CLI and Gemini CLI:
+`python3 -m memcode.hook_cli <Event> [claude|codex|gemini]` (agent defaults to claude).
 
-Reads the hook JSON from stdin, feeds trigger events to the engine, and for SessionStart
-(which also fires with source "compact" after a compaction) prints the pinned block as
-additionalContext. PreCompact has no context-injection protocol, so it only does
-side-effect work (refreshing the tree). Never raises: a memory failure must not break
-the agent; failures are appended to .memcode/error.log.
+Reads the hook JSON from stdin, translates it with adapters.normalize, runs the engine, and prints any context as
+{"hookSpecificOutput": {"hookEventName", "additionalContext"}} (session start and per-prompt retrieval).
+Pre-compaction events only refresh the tree. Never raises: a memory failure must not break the agent; failures are
+appended to .memcode/error.log.
 """
 from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import time
 
 from . import store
-
-_EXIT_RE = re.compile(r"Exit code (-?\d+)")
-
-
-def _text(v) -> str:
-    return v if isinstance(v, str) else ("" if v is None else str(v))
-
-
-def _tool_event(d: dict, failed: bool) -> dict:
-    session = d.get("session_id", "unknown")
-    resp = d.get("tool_response")
-    if not isinstance(resp, dict):
-        resp = {"output": _text(resp)}
-    inp = d.get("tool_input") or {}
-    if not isinstance(inp, dict):
-        inp = {"command": _text(inp)}
-    code = resp.get("exit_code", resp.get("returnCode"))
-    out = _text(resp.get("stdout", resp.get("output", "")))
-    err = _text(resp.get("stderr"))
-    if failed:
-        # PostToolUseFailure: {"error": "Exit code 1\n<stderr>", "is_interrupt": bool}
-        msg = _text(d.get("error") or resp.get("error"))
-        m = _EXIT_RE.search(msg)
-        code = int(m.group(1)) if m else (130 if d.get("is_interrupt") else 1)
-        out, err = msg, ""
-    elif code is None:
-        code = 130 if resp.get("interrupted") else 0   # PostToolUse only fires on success
-    return {"kind": "tool_result", "session": session, "tool": d.get("tool_name", ""),
-            "input": inp, "command": inp.get("command"), "file_path": inp.get("file_path"),
-            "exit_code": code, "output": (out + ("\n" + err if err else "")).strip()}
 
 
 def _log_error(root: str, e: BaseException) -> None:
@@ -65,6 +33,7 @@ def main(argv: list[str]) -> int:
     if os.environ.get("MEMCODE_DISABLE"):          # set by memcode's own model calls: never recurse
         return 0
     name = argv[1] if len(argv) > 1 else ""
+    agent = argv[2] if len(argv) > 2 else "claude"
     try:
         d = json.load(sys.stdin)
         if not isinstance(d, dict):
@@ -75,15 +44,17 @@ def main(argv: list[str]) -> int:
     try:
         con = store.connect(root)
         try:
-            from . import engine
+            from . import adapters, engine
             session = d.get("session_id", "unknown")
+            action, data = adapters.normalize(agent, name, d)
             out = ""
-            if name == "UserPromptSubmit":
-                out = engine.prompt(con, root, session, d.get("prompt", ""))
-            elif name in ("PostToolUse", "PostToolUseFailure"):
-                engine.tool_result(con, root, _tool_event(d, failed=(name == "PostToolUseFailure")))
-            elif name in ("SessionStart", "PreCompact"):
-                out = engine.session_start(con, root, session, prepare_only=(name == "PreCompact"))
+            if action == "prompt":
+                out = engine.prompt(con, root, session, data)
+            elif action == "tool":
+                for ev in data:
+                    engine.tool_result(con, root, ev)
+            elif action in ("start", "prepare"):
+                out = engine.session_start(con, root, session, prepare_only=(action == "prepare"))
             if out:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": name, "additionalContext": out}}))
         finally:
