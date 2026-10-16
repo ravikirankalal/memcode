@@ -231,6 +231,13 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
                 for r in _memory_rows(con, True)]
         section("## Conventions", conv, (cap_chars - used) // 2)
 
+    from . import facts                   # keyed, aggregated knowledge: commands, repo, env, inferences
+    try:
+        fact_lines = facts.lines(con)
+    except Exception:                     # noqa: BLE001  (facts never block the block)
+        fact_lines = []
+    section("## Facts", fact_lines, (cap_chars - used) // 3)
+
     mems = [f"- ({r['trigger']}) {_one_line(r['text'])}"
             + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
             for r in _memory_rows(con, False)]

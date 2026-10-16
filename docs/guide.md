@@ -84,6 +84,33 @@ convention, and stores it as a rule if so. The prompt is never delayed. **Off by
 text to the model and costs one call per classified prompt (about $0.02 on Opus 5.5; less on Haiku). The worker's model
 call runs with no tools, no settings or plugins (so memcode cannot recurse), and no saved session.
 
+### Facts
+
+Besides memories (one event each), memcode keeps **facts**: keyed knowledge that is updated in place as evidence
+accumulates, and shown in a short `## Facts` section at session start.
+
+| kind | where it comes from | example |
+|---|---|---|
+| command | shell commands the agent runs, split into simple commands and classified (test, build, lint, typecheck, format, run, install), or kept because they recur | test: `python3 -m unittest discover -s tests` (ran 31x, 31 confirmed ok) |
+| repo | build manifests read at session start (package.json scripts, Makefile targets, pyproject, Cargo, go.mod, CI `run:` steps), main languages, test directory; refreshed when the file changes | build: `npm run build` (from package.json) |
+| env | limitations seen here: a command not installed (exit 127 and not on PATH) | `sqlite3` is not installed in this environment |
+| inference | aggregated: fragile folders, commands that keep failing | `make deploy` has failed 3x and never passed here |
+| user | `memcode fact set KEY VALUE` | Deploys only from release/* branches |
+
+A command only counts as confirmed when its exit status is really its own: not piped (`| tail`), not followed by
+`|| fallback`, not one of several commands in a failing line. Commands run after `cd` to a place outside the repo,
+inline scripts (`python3 -c`, heredocs) and commands with shell variables are not recorded. Nothing is taken from
+command output.
+
+```
+python3 -m memcode facts                 # all facts, and what the session-start block shows
+python3 -m memcode facts --backfill      # first run: build facts from the existing event log
+python3 -m memcode fact set deploy "Deploys only from release/* branches"
+python3 -m memcode fact rm deploy
+```
+
+The agent can also ask with the MCP tool `memory_facts` (optionally filtered by role, e.g. `test`).
+
 ### Team memory
 
 Your local store (`.memcode/`) is never committed. To give teammates a memory, share it:
