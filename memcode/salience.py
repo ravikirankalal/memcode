@@ -72,16 +72,71 @@ def evidence(con, memory_row, now: float | None = None) -> dict:
     return ev
 
 
+class Index:
+    """All evidence inputs read ONCE (O(memories)); per-memory evidence is then a few dict lookups.
+    Equivalent to evidence() row by row, which rescans the store for every memory (O(memories^2))."""
+
+    def __init__(self, con, now: float | None = None):
+        self.now = time.time() if now is None else now
+        self.dirs = {r[0] for r in con.execute("SELECT path FROM paths WHERE kind='dir'")}
+        self.fails_on: dict[str, list] = {}                       # anchor -> [(id, symbol, weight)]
+        self.under: dict[str, list] = {}                          # folder -> [revert weight, fail weight]
+        self.own: dict[int, float] = {}                           # id -> its own weight (revert / fail_to_fix rows)
+        for r in con.execute("SELECT id, trigger, anchor_path, anchor_symbol, created_at FROM memories "
+                             "WHERE trigger IN ('revert','fail_to_fix')"):
+            w = _decayed(self.now, r["created_at"])
+            a, k = r["anchor_path"], 0 if r["trigger"] == "revert" else 1
+            self.own[r["id"]] = w
+            if k:
+                self.fails_on.setdefault(a, []).append((r["id"], r["anchor_symbol"], w))
+            keys = {"", a}                                        # every folder F with _under(a, F)
+            p = a
+            while "/" in p:
+                p = p.rsplit("/", 1)[0]
+                keys.add(p)
+            for f in keys:
+                self.under.setdefault(f, [0.0, 0.0])[k] += w
+        self.outcomes: dict[int, list] = {}
+        for o in con.execute("SELECT memory_id, outcome, ts FROM outcomes"):
+            self.outcomes.setdefault(o["memory_id"], []).append((o["outcome"], o["ts"]))
+
+    def evidence(self, memory_row) -> dict:
+        mid, anchor, sym = memory_row["id"], memory_row["anchor_path"], memory_row["anchor_symbol"]
+        ev = {"recurrences": 0.0, "repeats": 0.0, "reverts": 0.0, "fails": 0.0, "verified_ok": 0, "verified_bad": 0}
+        if anchor:
+            folder = anchor if anchor in self.dirs else (anchor.rsplit("/", 1)[0] if "/" in anchor else "")
+            ev["recurrences"] = sum(w for i, s, w in self.fails_on.get(anchor, ())
+                                    if i != mid and (not sym or not s or s == sym))
+            rev, fail = self.under.get(folder, (0.0, 0.0))
+            if mid in self.own:                                   # a memory is never evidence for itself
+                if memory_row["trigger"] == "revert":
+                    rev -= self.own[mid]
+                else:
+                    fail -= self.own[mid]
+            ev["reverts"], ev["fails"] = max(0.0, rev), max(0.0, fail)
+        for outcome, ts in self.outcomes.get(mid, ()):
+            if outcome == "failure:repeated":
+                ev["repeats"] += _decayed(self.now, ts)
+            if outcome.startswith("success"):
+                ev["verified_ok"] += 1
+            elif outcome.startswith("failure"):
+                ev["verified_bad"] += 1
+        return ev
+
+
 CAP = 0.9            # intensity cap per dimension and for the score: no memory saturates the ranking
 WEIGHTS = {"surprise": 0.3, "friction": 0.3, "fragility": 0.25, "confidence": 0.15}
 
 
-def compute(con, memory_row, now: float | None = None) -> dict:
-    """Four dimensions in [0, CAP], all from observable evidence and age-decayed (confidence excepted)."""
+def compute(con, memory_row, now: float | None = None, index: Index | None = None) -> dict:
+    """Four dimensions in [0, CAP], all from observable evidence and age-decayed (confidence excepted).
+    Pass an Index when scoring many memories (it fixes `now` to the index's)."""
+    if index is not None:
+        now = index.now
     now = time.time() if now is None else now
     trig = memory_row["trigger"]
     own = _decayed(now, memory_row["created_at"])
-    ev = evidence(con, memory_row, now)
+    ev = index.evidence(memory_row) if index is not None else evidence(con, memory_row, now)
     cap = lambda x: min(CAP, _clamp(x))
     return {
         "surprise": cap(max(_SURPRISE.get(trig, 0.1) * own, _squash(ev["recurrences"]))),
@@ -91,9 +146,9 @@ def compute(con, memory_row, now: float | None = None) -> dict:
     }
 
 
-def score(con, memory_row, now: float | None = None) -> float:
+def score(con, memory_row, now: float | None = None, index: Index | None = None) -> float:
     """One salience value in [0, CAP]. Retrieval counts are deliberately NOT an input (rich-get-richer guard)."""
-    dims = compute(con, memory_row, now)
+    dims = compute(con, memory_row, now, index)
     return min(CAP, sum(WEIGHTS[k] * v for k, v in dims.items()))
 
 
@@ -116,8 +171,9 @@ def explain(con, memory_row, now: float | None = None) -> str:
 def log_all(con, now: float | None = None) -> int:
     now = time.time() if now is None else now
     rows = con.execute("SELECT * FROM memories ORDER BY id").fetchall()
+    idx = Index(con, now)
     for m in rows:
-        s = compute(con, m, now)
+        s = compute(con, m, now, idx)
         con.execute("INSERT INTO salience_log(memory_id,surprise,friction,fragility,"
                     "confidence,logged_at) VALUES(?,?,?,?,?,?)",
                     (m["id"], s["surprise"], s["friction"], s["fragility"],

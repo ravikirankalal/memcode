@@ -151,7 +151,7 @@ def _migrate(con) -> None:
             except sqlite3.OperationalError:
                 pass
     mcols = {r[1] for r in con.execute("PRAGMA table_info(memories)")}
-    for col in ("anchor_symbol", "symbol_hash"):
+    for col in ("anchor_symbol", "symbol_hash", "terms"):   # terms: retrieval's cached tokens, keyed by a source hash
         if col not in mcols:
             try:
                 con.execute(f"ALTER TABLE memories ADD COLUMN {col} TEXT")

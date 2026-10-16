@@ -75,7 +75,9 @@ def _mentions(prompt_l: str, anchor: str, symbol: str | None) -> bool:
     cands = {anchor.lower(), base} | ({stem} if len(stem) >= 4 else set())
     if symbol:
         cands |= {symbol.lower(), symbol.rsplit(".", 1)[-1].lower()}
-    return any(re.search(r"(?<![\w/.])" + re.escape(c) + r"(?![\w])", prompt_l) for c in cands if c)
+    # substring test first: the boundary regex (compiled per candidate) only runs when the text is present at all
+    return any(c in prompt_l and re.search(r"(?<![\w/.])" + re.escape(c) + r"(?![\w])", prompt_l)
+               for c in cands if c)
 
 
 _PATHTOK = re.compile(r"(?<![\w./-])((?:[A-Za-z0-9_.-]+/)+(?:[A-Za-z0-9_.-]+)?)")
@@ -114,6 +116,29 @@ def _active_files(con, session: str) -> set[str]:
     return out
 
 
+def _doc_terms(con, rows: list[dict], body) -> dict[int, set[str]]:
+    """Each memory's terms, cached in memories.terms as "<source hash> <term> <term>..." so a prompt does not
+    re-tokenize the whole store. A changed text, anchor or symbol changes the hash and refreshes the cache."""
+    import hashlib
+    docs, stale = {}, []
+    for r in rows:
+        src = body(r) + " " + (r["anchor_path"] or "") + " " + (r["anchor_symbol"] or "")
+        h = hashlib.sha1(src.encode("utf-8", "surrogatepass")).hexdigest()[:12]
+        cached = r.get("terms") or ""
+        if cached.startswith(h + " ") or cached == h:
+            docs[r["id"]] = set(cached.split()[1:])
+        else:
+            docs[r["id"]] = terms(src)
+            stale.append((" ".join([h, *sorted(docs[r["id"]])]), r["id"]))
+    if stale:
+        try:
+            con.executemany("UPDATE memories SET terms=? WHERE id=?", stale)
+            con.commit()
+        except Exception:          # a read-only or busy store must never break retrieval
+            pass
+    return docs
+
+
 def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]:
     """[(score, memory row as dict)] for candidate memories, best first (only score >= MIN_SCORE)."""
     shown = {r[0] for r in con.execute("SELECT memory_id FROM injections WHERE session=?", (session,))}
@@ -122,7 +147,7 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
         return []
     pt = terms(prompt)
     body = lambda r: pinned._rule_text(r["text"]) if r["trigger"] == "correction" else r["text"]   # drop boilerplate
-    docs = {r["id"]: terms(body(r) + " " + (r["anchor_path"] or "") + " " + (r["anchor_symbol"] or "")) for r in rows}
+    docs = _doc_terms(con, rows, body)
     n = len(rows) + 1
     df: dict[str, int] = {}
     for d in docs.values():
@@ -135,6 +160,7 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     prompt_l = (prompt or "").lower()
     prompt_paths = path_tokens(prompt)
     salience_rank = os.environ.get("MEMCODE_RANK") == "salience"
+    sal_idx = None
     out = []
     for r in rows:
         shared = pt & docs[r["id"]]
@@ -146,9 +172,11 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
             s += SCOPE_W
         if a and any(f == a or f.endswith("/" + a) or f == rootp + a for f in active):
             s += ACTIVE_W
-        if salience_rank and s > 0:                       # Phase 2 A/B only; off by default
+        if salience_rank and s > 0:                       # MEMCODE_RANK=salience experiments only
             from . import salience
-            s *= 1 + salience.score(con, con.execute("SELECT * FROM memories WHERE id=?", (r["id"],)).fetchone())
+            if sal_idx is None:
+                sal_idx = salience.Index(con)
+            s *= 1 + salience.score(con, r, index=sal_idx)
         if s >= MIN_SCORE:
             out.append((s, r))
     out.sort(key=lambda x: (-x[0], -x[1]["updated_at"], -x[1]["id"]))
@@ -160,13 +188,16 @@ def select(con, scored: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
     top = scored[:TOP_K]
     if os.environ.get("MEMCODE_RANK", "split") != "split" or con is None:
         return top
+    rest = scored[TOP_K:]
+    if not rest:
+        return top
     from . import salience
-    now = time.time()
+    idx = salience.Index(con)                       # one pass over the store, not one per candidate
     cands = []
-    for s, r in scored[TOP_K:]:
-        ev = salience.evidence(con, r, now)
+    for s, r in rest:
+        ev = idx.evidence(r)
         if ev["repeats"] + ev["recurrences"] >= PROMOTE_MIN:
-            cands.append((salience.score(con, r, now), s, r))
+            cands.append((salience.score(con, r, index=idx), s, r))
     cands.sort(key=lambda x: (-x[0], -x[1], -x[2]["updated_at"], -x[2]["id"]))
     return top + [(s, r) for _, s, r in cands[:PROMOTE_K]]
 
