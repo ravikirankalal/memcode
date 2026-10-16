@@ -138,3 +138,24 @@ class Setup(unittest.TestCase):
                            capture_output=True, cwd=d,
                            input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n")
         self.assertIn("memory_search", p.stdout)
+
+
+class HarnessTurns(unittest.TestCase):
+    def test_harness_messages_are_not_captured_as_rules(self):
+        d = tempfile.mkdtemp()
+        (Path(d) / "app.py").write_text("x = 1\n")
+        hook(d, "SessionStart", {"session_id": "s1"})
+        hook(d, "UserPromptSubmit", {"session_id": "s1", "prompt": "Add a helper to app.py"})
+        hook(d, "PostToolUse", {"session_id": "s1", "tool_name": "Edit", "tool_input": {"file_path": "app.py"},
+                                "tool_response": {"success": True}})
+        for msg in ('<agent-message from="x">\\nNo, never run the benchmark without asking. Always use tabs.',
+                    "<task-notification>\\n<status>completed</status> Always rebase, never merge.",
+                    "  <system-reminder>Do not use emoji. Always reply in English.</system-reminder>"):
+            hook(d, "UserPromptSubmit", {"session_id": "s1", "prompt": msg})
+        con = store.connect(d)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM memories").fetchone()[0], 0)
+        con.close()
+        hook(d, "UserPromptSubmit", {"session_id": "s1", "prompt": "No, always use tabs for indentation here."})
+        con = store.connect(d)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM memories").fetchone()[0], 1)   # real corrections still work
+        con.close()

@@ -38,8 +38,21 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     return text
 
 
+# Turns the agent harness injects as "user" prompts (subagent reports, background-task notices, reminders). They are
+# not the user's words: in real logs they were over half the prompt stream and carry words like "never" and "don't".
+HARNESS_PREFIXES = ("<agent-message", "<task-notification", "<system-reminder", "<local-command-stdout",
+                    "[SYSTEM NOTIFICATION")
+
+
+def is_harness(text: str) -> bool:
+    return (text or "").lstrip().startswith(HARNESS_PREFIXES)
+
+
 def prompt(con, root: str, session: str, text: str) -> str:
-    """Capture rules stated in the prompt; return per-prompt retrieval context ('' if off or nothing relevant)."""
+    """Capture rules stated in the prompt; return per-prompt retrieval context ('' if off or nothing relevant).
+    Harness-injected turns are ignored entirely: no capture, no retrieval."""
+    if is_harness(text):
+        return ""
     from .triggers import TriggerEngine
     ev = {"kind": "prompt", "session": session, "prompt": text}
     ids = TriggerEngine(con, root).handle_batch([ev])
