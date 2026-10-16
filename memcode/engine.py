@@ -26,6 +26,8 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     from . import facts, outcomes, pinned, salience
     outcomes.score_finished_sessions(con, root, current_session=session)
     _safely(con, lambda: (facts.scan_repo(con, root), facts.infer(con)))
+    from . import maintenance
+    _safely(con, lambda: maintenance.run(con, root))      # scope, labels, consolidation, storage budget
     text = pinned.render_pinned(con, root)
     rules, notes = pinned.count_injected(text)
     store.bump(con, session, "rules_injected", rules)

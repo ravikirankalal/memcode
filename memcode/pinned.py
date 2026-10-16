@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 
+from . import store
+
 TOKEN_DIVISOR = 4
 LINE_MAX = 160
 
@@ -163,7 +165,7 @@ def _memory_rows_base(con, convention: bool):
     cond = "m.trigger='correction'" if convention else "m.trigger!='correction'"
     return con.execute(
         f"""SELECT m.* , (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq
-            FROM memories m WHERE m.stale=0 AND {cond}
+            FROM memories m WHERE m.stale=0 AND {cond}{store.injectable_sql("m")}
             ORDER BY freq DESC, m.updated_at DESC, m.id DESC""").fetchall()
 
 
