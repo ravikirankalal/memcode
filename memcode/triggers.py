@@ -43,7 +43,29 @@ _STATEMENT = re.compile(
 _STRONG = re.compile(
     r"(?i)\b(?:never|always)\s+(?:use|run|call|put|write|add|commit|name|start|end|indent|import|create|keep|make)\b"
     r"|\bremember (?:that|this)\b|\bfrom now on\b")
-_GIT_REVERT = re.compile(r"\bgit\s+(?:checkout|restore|revert|reset\s+--hard)\b")
+_GIT_REVERT = re.compile(r"git\s+(?:checkout|restore|revert|reset\s+--hard)\b")   # anchored: the segment's command
+
+
+def _segments(cmd: str) -> list[str]:
+    """Simple commands of a shell line, split on ; | & && || OUTSIDE quotes. The old regex split cut quoted text
+    (a grep pattern "a\\|git revert\\|b" yielded a fake `git revert` command and a false revert memory)."""
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=";&|")
+        lex.whitespace_split = True
+        lex.commenters = ""
+        out, cur = [], []
+        for tok in lex:
+            if tok and set(tok) <= set(";&|"):
+                if cur:
+                    out.append(" ".join(cur))
+                cur = []
+            else:
+                cur.append(tok)
+        if cur:
+            out.append(" ".join(cur))
+        return out
+    except ValueError:                       # unbalanced quotes: treat the whole line as one command
+        return [cmd.strip()]
 _STAGED_ONLY = re.compile(r"\bgit\s+restore\b(?=.*(?:--staged|\s-S\b))(?!.*(?:--worktree|\s-W\b))")
 _TRIVIAL = {"ls", "cd", "cat", "echo", "pwd", "head", "tail", "which", "clear", "git status",
             "git diff", "git log", "git show"}
@@ -322,8 +344,8 @@ class TriggerEngine:
             return []
         st.cmd_ev[cmd] = ev
         out = []
-        for seg in (x.strip() for x in re.split(r"&&|\|\||;|\|", cmd)):
-            if _GIT_REVERT.search(seg) and st.edits and not _STAGED_ONLY.search(seg):
+        for seg in _segments(cmd):
+            if _GIT_REVERT.match(seg) and st.edits and not _STAGED_ONLY.search(seg):
                 files = [r for r in (self._rel(t) for t in self._tokens(seg))
                          if r and any(e["path"] == r for e in st.edits)]
                 if files:

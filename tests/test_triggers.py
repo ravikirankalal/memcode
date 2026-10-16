@@ -163,3 +163,33 @@ class T(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RevertQuoting(unittest.TestCase):
+    """A grep pattern containing 'git revert' once produced a false revert memory (dogfooding, 2026-10-16)."""
+
+    def run_cmds(self, *cmds):
+        import tempfile
+        from pathlib import Path
+        from memcode import engine, store
+        d = tempfile.mkdtemp()
+        (Path(d) / "a.py").write_text("x = 1\n")
+        con = store.connect(d)
+        engine.prompt(con, d, "s", "change a.py")
+        engine.tool_result(con, d, {"kind": "tool_result", "session": "s", "tool": "Edit",
+                                    "input": {"file_path": "a.py", "old_string": "x = 1", "new_string": "x = 2"},
+                                    "command": None, "file_path": "a.py", "exit_code": 0, "output": ""})
+        for c in cmds:
+            engine.tool_result(con, d, {"kind": "tool_result", "session": "s", "tool": "Bash", "input": {"command": c},
+                                        "command": c, "file_path": None, "exit_code": 0, "output": ""})
+        out = [r[0] for r in con.execute("SELECT trigger FROM memories")]
+        con.close()
+        return out
+
+    def test_quoted_git_words_are_not_commands(self):
+        self.assertEqual(self.run_cmds('grep -n "def _revert\\|git revert\\|restore" triggers.py | head',
+                                       "echo 'git reset --hard'", 'git log --grep "git checkout"'), [])
+
+    def test_real_reverts_still_detected(self):
+        self.assertEqual(self.run_cmds("pytest -q && git checkout -- a.py"), ["revert"])
+        self.assertEqual(self.run_cmds("git reset --hard"), ["revert"])
