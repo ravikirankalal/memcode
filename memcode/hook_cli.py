@@ -48,17 +48,6 @@ def _tool_event(d: dict, failed: bool) -> dict:
             "exit_code": code, "output": (out + ("\n" + err if err else "")).strip()}
 
 
-def _events(name: str, d: dict) -> list[dict]:
-    session = d.get("session_id", "unknown")
-    if name == "UserPromptSubmit":
-        return [{"kind": "prompt", "session": session, "prompt": d.get("prompt", "")}]
-    if name in ("PostToolUse", "PostToolUseFailure"):
-        ev = _tool_event(d, failed=(name == "PostToolUseFailure"))
-        # one hook delivers both halves: replay it as tool_use then tool_result
-        return [dict(ev, kind="tool_use"), ev]
-    return []
-
-
 def _log_error(root: str, e: BaseException) -> None:
     try:
         d = os.path.join(root, ".memcode")
@@ -86,47 +75,17 @@ def main(argv: list[str]) -> int:
     try:
         con = store.connect(root)
         try:
-            evs = _events(name, d)
-            if evs:
-                from .triggers import TriggerEngine
-                ids = TriggerEngine(con, root).handle_batch(evs)   # one engine, one replay
-                if name == "UserPromptSubmit":
-                    from . import retrieval            # opt-in: memories relevant to THIS prompt
-                    if retrieval.enabled(root):
-                        ctx = retrieval.for_prompt(con, root, evs[0]["session"], evs[0]["prompt"])
-                        if ctx:
-                            print(json.dumps({"hookSpecificOutput": {
-                                "hookEventName": "UserPromptSubmit", "additionalContext": ctx}}))
-                if name == "UserPromptSubmit" and not any(ids):
-                    from . import model_capture        # opt-in: let a model judge what the patterns missed
-                    if model_capture.enabled(root) and model_capture.should_queue(con, evs[0]["session"], evs[0]["prompt"]):
-                        model_capture.enqueue(con, evs[0]["session"], evs[0]["prompt"])
-                        model_capture.spawn_worker(root)
-            if name in ("SessionStart", "PreCompact"):
-                from . import team, tree
-                if name == "SessionStart":
-                    team.sync(con, root)                   # reviewed team memory from .memcode-team.jsonl
-                tree.refresh_from_git_diff(con, root)      # renames / plain mv re-anchor
-                tree.scan_repo(con, root)
-                tree.mark_stale(con, root)
-                if name == "SessionStart":
-                    from . import outcomes, pinned
-                    outcomes.score_finished_sessions(con, root, current_session=d.get("session_id"))
-                    text = pinned.render_pinned(con, root)
-                    rules, notes = pinned.count_injected(text)
-                    sid = d.get("session_id", "unknown")
-                    store.bump(con, sid, "rules_injected", rules)
-                    store.bump(con, sid, "notes_injected", notes)
-                    now = time.time()
-                    con.executemany("INSERT INTO injections(session,memory_id,ts) VALUES(?,?,?)",
-                                    [(sid, i, now) for i in pinned.shown_ids(con, text)])
-                    con.commit()
-                    from . import salience              # shadow mode: logged, never used for ranking
-                    salience.log_all(con)
-                    store.prune_salience_log(con)
-                    if text:
-                        print(json.dumps({"hookSpecificOutput": {
-                            "hookEventName": "SessionStart", "additionalContext": text}}))
+            from . import engine
+            session = d.get("session_id", "unknown")
+            out = ""
+            if name == "UserPromptSubmit":
+                out = engine.prompt(con, root, session, d.get("prompt", ""))
+            elif name in ("PostToolUse", "PostToolUseFailure"):
+                engine.tool_result(con, root, _tool_event(d, failed=(name == "PostToolUseFailure")))
+            elif name in ("SessionStart", "PreCompact"):
+                out = engine.session_start(con, root, session, prepare_only=(name == "PreCompact"))
+            if out:
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": name, "additionalContext": out}}))
         finally:
             con.close()
     except Exception as e:  # never break the agent
