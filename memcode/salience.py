@@ -43,12 +43,30 @@ def _decayed(now: float, ts: float) -> float:
     return decay(now - (ts or now))
 
 
+def _absorbed_ts(provenance) -> list[float]:
+    """Creation times of a lesson's children that the storage budget evicted (consolidate / budget provenance)."""
+    import json
+    try:
+        p = json.loads(provenance or "{}")
+    except (ValueError, TypeError):
+        return []
+    ts = p.get("absorbed_ts") if isinstance(p, dict) else None
+    return [float(t) for t in ts if isinstance(t, (int, float))] if isinstance(ts, list) else []
+
+
+def _lesson_recurrences(weights: list[float]) -> float:
+    """A lesson (consolidate.py) recurred once per child beyond the first: the decayed weights of its live and absorbed
+    children, minus the newest one (evidence_count - 1 when all are fresh)."""
+    return sum(weights) - max(weights) if weights else 0.0
+
+
 def evidence(con, memory_row, now: float | None = None) -> dict:
     """Observable evidence behind a memory, each event age-decayed (half-life HALF_LIFE_S):
     recurrences   other fail_to_fix memories on the same anchor (and symbol, when both have one)
     repeats       times the user had to restate this rule (outcomes 'failure:repeated')
     reverts/fails reverts and fail_to_fix memories under the anchor's folder (none for repo-wide memories)
-    verified      verified successes / failures recorded for this memory (outcomes.py)"""
+    verified      verified successes / failures recorded for this memory (outcomes.py)
+    A lesson's recurrences are its children instead (live children + evicted ones, see _lesson_recurrences)."""
     now = time.time() if now is None else now
     mid, anchor, sym = memory_row["id"], memory_row["anchor_path"], memory_row["anchor_symbol"]
     ev = {"recurrences": 0.0, "repeats": 0.0, "reverts": 0.0, "fails": 0.0, "verified_ok": 0, "verified_bad": 0}
@@ -62,6 +80,12 @@ def evidence(con, memory_row, now: float | None = None) -> dict:
                 ev["recurrences"] += w
             if _under(r["anchor_path"], folder):
                 ev["reverts" if r["trigger"] == "revert" else "fails"] += w
+    if memory_row["trigger"] == "lesson":
+        ws = [_decayed(now, r[0]) for r in con.execute(
+            "SELECT created_at FROM memories WHERE parent_id=? AND stale=0 ORDER BY id", (mid,))]
+        p = con.execute("SELECT provenance FROM memories WHERE id=?", (mid,)).fetchone()
+        ws += [_decayed(now, t) for t in _absorbed_ts(p[0] if p else None)]
+        ev["recurrences"] = _lesson_recurrences(ws)
     for o in con.execute("SELECT outcome, ts FROM outcomes WHERE memory_id=?", (mid,)):
         if o["outcome"] == "failure:repeated":
             ev["repeats"] += _decayed(now, o["ts"])
@@ -96,6 +120,14 @@ class Index:
                 keys.add(p)
             for f in keys:
                 self.under.setdefault(f, [0.0, 0.0])[k] += w
+        self.lesson_ws: dict[int, list] = {}                     # lesson id -> decayed weights of its children
+        for r in con.execute("SELECT parent_id, created_at FROM memories WHERE parent_id IS NOT NULL AND stale=0 "
+                             "ORDER BY id"):
+            self.lesson_ws.setdefault(r[0], []).append(_decayed(self.now, r[1]))
+        for r in con.execute("SELECT id, provenance FROM memories WHERE trigger='lesson'"):
+            ts = _absorbed_ts(r[1])
+            if ts:
+                self.lesson_ws.setdefault(r[0], []).extend(_decayed(self.now, t) for t in ts)
         self.outcomes: dict[int, list] = {}
         for o in con.execute("SELECT memory_id, outcome, ts FROM outcomes"):
             self.outcomes.setdefault(o["memory_id"], []).append((o["outcome"], o["ts"]))
@@ -114,6 +146,8 @@ class Index:
                 else:
                     fail -= self.own[mid]
             ev["reverts"], ev["fails"] = max(0.0, rev), max(0.0, fail)
+        if memory_row["trigger"] == "lesson":
+            ev["recurrences"] = _lesson_recurrences(self.lesson_ws.get(mid, []))
         for outcome, ts in self.outcomes.get(mid, ()):
             if outcome == "failure:repeated":
                 ev["repeats"] += _decayed(self.now, ts)
@@ -156,7 +190,9 @@ def explain(con, memory_row, now: float | None = None) -> str:
     """Human-readable reasons, e.g. 'fail-to-fix recurred 2x on billing/x.py; 1 revert under billing/'."""
     ev = evidence(con, memory_row, now)
     parts = [f"recorded from a {memory_row['trigger'].replace('_', '-')}"]
-    if ev["recurrences"] >= 0.5:
+    if memory_row["trigger"] == "lesson":
+        parts = [f"lesson over {memory_row['evidence_count']} similar notes (~{ev['recurrences']:.0f} decayed recurrences)"]
+    elif ev["recurrences"] >= 0.5:
         parts.append(f"same failure recurred ~{ev['recurrences']:.0f}x on {memory_row['anchor_path']}")
     if ev["repeats"] >= 0.5:
         parts.append(f"user restated it ~{ev['repeats']:.0f}x")

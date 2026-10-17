@@ -84,6 +84,27 @@ convention, and stores it as a rule if so. The prompt is never delayed. **Off by
 text to the model and costs one call per classified prompt (about $0.02 on Opus 5.5; less on Haiku). The worker's model
 call runs with no tools, no settings or plugins (so memcode cannot recurse), and no saved session.
 
+### Experimental: hierarchical memory
+
+Three opt-in pieces, each off until its own benchmark gate passes:
+
+- **Scope hierarchy** (`MEMCODE_HIER=1`, works with retrieval on). A rule naming directories applies to their deepest
+  common directory ("every module under billing/ ...": scope `billing/`); notes apply to their file or symbol. Retrieval
+  only considers repo-wide memories and those on the path to the files in play, nearest scope first. The session-start
+  block keeps repo-wide rules and marks map folders that hold scoped ones (`billing/ [3 rules]`); the first time the
+  agent reads or edits a file, that file's scoped rules are injected once. `memcode rescope`, `memcode list --scope DIR`.
+- **Consolidation** (`MEMCODE_CONSOLIDATE=1`). At session start, 3 or more agent notes that say the same thing (same
+  trigger and anchor, text equal after numbers, paths and command flags are normalized) are grouped under one *lesson*
+  ("4 similar fail_to_fix notes on api/x.py: ..."), which is shown instead of them. User rules and team memories are
+  never grouped. `memcode consolidate [--dry-run|--undo]`.
+- **Storage budget** (`MEMCODE_STORE_BUDGET=N`). At session start, evicts down to N memories: stale notes first, then
+  consolidated notes (their lesson keeps counting them), then retry / dependency notes, then other agent notes by
+  lowest salience. User rules, team memories and lessons are never evicted. `memcode budget N [--dry-run]`.
+
+Every memory also gets topic **labels** (testing, build, style, naming, git, deps, security, env, perf, api, data, docs,
+ci) for filtering only: `memcode list --label testing`, `memory_search(label=...)`, `memcode label ID +perf -style`.
+Labels never change ranking or injected text.
+
 ### Facts
 
 Besides memories (one event each), memcode keeps **facts**: keyed knowledge that is updated in place as evidence

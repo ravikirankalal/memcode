@@ -14,7 +14,10 @@ from .redact import redact
 TOOLS = [
     {"name": "memory_search", "description": "Search stored coding memories by keyword.",
      "inputSchema": {"type": "object", "properties": {"query": {"type": "string"},
-                     "limit": {"type": "integer"}}, "required": ["query"]}},
+                     "limit": {"type": "integer"},
+                     "label": {"type": "string", "description": "optional topic filter, e.g. testing, build, style, "
+                               "naming, git, deps, security, env, perf, api, data, docs, ci"}},
+                     "required": ["query"]}},
     {"name": "memory_add", "description": "Manually record a memory anchored to a repo path.",
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string"},
                      "path": {"type": "string"}}, "required": ["text"]}},
@@ -78,6 +81,10 @@ def _call_tool(con, root: str, name: str, args: dict) -> str:
         q = str(args.get("query", "")).lower().split()
         rows = [r for r in store.list_memories(con)
                 if all(w in (r["text"] + " " + r["anchor_path"]).lower() for w in q)]
+        label = str(args.get("label") or "").strip().lower()
+        if label:                       # topic labels only filter; they never change order or text
+            from . import labels
+            rows = [r for r in rows if labels.has(r, label)]
         rows = rows[: _bounded_int(args.get("limit"), 10, 1, 50)]
         for r in rows:  # record retrievals for reinforce-on-success
             con.execute("INSERT INTO retrievals(session,memory_id,ts) VALUES('mcp',?,strftime('%s','now'))", (r["id"],))
