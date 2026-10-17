@@ -18,7 +18,7 @@ HOOKS = {
     "codex": [("SessionStart", None, 30), ("UserPromptSubmit", None, 10), ("PostToolUse", "Bash|apply_patch", 10),
               ("PreCompact", None, 30)],
     "gemini": [("SessionStart", None, 30), ("BeforeAgent", None, 10),
-               ("AfterTool", "run_shell_command|write_file|replace", 10), ("PreCompress", None, 30)],
+               ("AfterTool", "run_shell_command|write_file|replace|read_file", 10), ("PreCompress", None, 30)],
 }
 
 

@@ -22,6 +22,10 @@ adopted after Gate 2b (bench/live/RESULTS.md, Run 11):
             outside it with strong cost evidence (restated by the user or a recurring failure, decayed weight
             >= PROMOTE_MIN), best salience first
 Framing matches the pinned block: user rules as rules, everything else inside the untrusted wrapper.
+
+MEMCODE_HIER=1 (scope hierarchy, see scope.py): only memories whose scope is the repo, on or inside the request's
+working set (prompt paths + files edited this session), or named by the prompt are candidates; an on-chain scope earns
++SCOPE_W; TOP_K is allocated one slot per scope level nearest first, the rest by score. Off: unchanged.
 """
 from __future__ import annotations
 
@@ -31,7 +35,7 @@ import os
 import re
 import time
 
-from . import pinned, store
+from . import pinned, scope, store
 
 TOP_K = 5
 PROMOTE_K = 2             # MEMCODE_RANK=split: extra slots for costly memories outside the relevance top-k
@@ -140,7 +144,8 @@ def _doc_terms(con, rows: list[dict], body) -> dict[int, set[str]]:
 
 
 def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]:
-    """[(score, memory row as dict)] for candidate memories, best first (only score >= MIN_SCORE)."""
+    """[(score, memory row as dict)] for candidate memories, best first (only score >= MIN_SCORE). With MEMCODE_HIER
+    the first TOP_K are the per-level allocation (scope.allocate), nearest scope first; the rest follow by score."""
     shown = {r[0] for r in con.execute("SELECT memory_id FROM injections WHERE session=?", (session,))}
     rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0" + store.injectable_sql("m"))
             if r["id"] not in shown]
@@ -162,16 +167,31 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     prompt_paths = path_tokens(prompt)
     salience_rank = os.environ.get("MEMCODE_RANK") == "salience"
     sal_idx = None
+    hier = scope.hier_enabled()
+    if hier:
+        ws = scope.working_set(con, session, prompt, root, active=active)
+        chain = scope.chains(ws)
     out = []
     for r in rows:
+        a = r["anchor_path"] or ""
+        named = _mentions(prompt_l, a, r.get("anchor_symbol"))
+        if hier:
+            sp = r.get("scope_path") or ""
+            spl = sp.lower()
+            on_chain = bool(spl) and spl in chain
+            sc_named = bool(sp) and sp != a and scope.scope_named(prompt_l, sp, r.get("scope_kind"))
+            if spl and not (on_chain or named or sc_named or scope.inside(spl, ws)):
+                continue                                  # off-chain: outside this request's scope
         shared = pt & docs[r["id"]]
         s = TERM_W * sum(idf(t) for t in shared) / p_weight if len(shared) >= MIN_SHARED_TERMS else 0.0
-        a = r["anchor_path"] or ""
-        if _mentions(prompt_l, a, r.get("anchor_symbol")):
+        active_hit = bool(a) and any(f == a or f.endswith("/" + a) or f == rootp + a for f in active)
+        if named or (hier and sc_named):
             s += PATH_W
         elif prompt_paths and _in_scope(prompt_paths, path_tokens(body(r))):
             s += SCOPE_W
-        if a and any(f == a or f.endswith("/" + a) or f == rootp + a for f in active):
+        elif hier and on_chain and not active_hit:
+            s += SCOPE_W
+        if active_hit:
             s += ACTIVE_W
         if salience_rank and s > 0:                       # MEMCODE_RANK=salience experiments only
             from . import salience
@@ -181,6 +201,8 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
         if s >= MIN_SCORE:
             out.append((s, r))
     out.sort(key=lambda x: (-x[0], -x[1]["updated_at"], -x[1]["id"]))
+    if hier:
+        out = scope.allocate(out, TOP_K)                  # scored[:TOP_K] is the per-level allocation
     return out
 
 

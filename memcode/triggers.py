@@ -254,6 +254,13 @@ class TriggerEngine:
         sym = self._symbol(a, snippet)
         mid = store.add_memory(self.con, trig, text, a, h, prov, conf, commit=False,
                                anchor_symbol=sym[0] if sym else None, symbol_hash=sym[1] if sym else None)
+        try:                             # where it applies (scope.py); rules keep anchor '' but may get a dir scope
+            from . import scope
+            sp, sk = scope.assign(self.con, trig, text, a, sym[0] if sym else None)
+            if (sp, sk) != ("", "repo"):
+                self.con.execute("UPDATE memories SET scope_path=?, scope_kind=? WHERE id=?", (sp, sk, mid))
+        except Exception:                # noqa: BLE001  (scope is an extra: rescope_new retries at session start)
+            pass
         store.bump(self.con, sess, "captured", commit=False)
         return mid
 

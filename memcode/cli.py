@@ -289,6 +289,31 @@ def cmd_export(con, a) -> int:
     return 0
 
 
+# --- scope (A) ---
+def cmd_rescope(con, a, root) -> int:
+    """`memcode rescope`: recompute every memory's scope (repo / dir / file / symbol) from its anchor and rule text."""
+    from . import engine, scope
+    engine.session_start(con, root, "rescope-cli", prepare_only=True)     # fresh `paths` first
+    st = scope.rescope_all(con, root)
+    print(f"rescoped {st['updated']} of {st['checked']} memories; now: "
+          + (", ".join(f"{k} {v}" for k, v in sorted(st["kinds"].items())) or "none"))
+    return 0
+
+
+def cmd_list_scope(con, a) -> int:
+    """`memcode list --scope DIR`: memories scoped at DIR or inside it (`--scope .` = repo-wide ones)."""
+    from . import scope
+    rows = scope.list_scoped(con, a.scope, include_stale=a.all)
+    if not rows:
+        print(f"no memories scoped under {scope.norm(a.scope) or '(repo)'}")
+    for r in rows:
+        flag = " [stale]" if r["stale"] else ""
+        where = (r["scope_path"] or "/") + ("/" if r["scope_kind"] == "dir" else "")
+        print(f"#{r['id']:<4} {r['trigger']:<9} {r['scope_kind']:<6} {where:<24} {r['text']}{flag}")
+    return 0
+# --- end scope (A) ---
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="memcode", description="Inspect and control the memcode store.")
     ap.add_argument("--root", help="repo root (default: CLAUDE_PROJECT_DIR / git toplevel / cwd)")
@@ -312,6 +337,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
+    # --- scope (A) ---
+    sub.add_parser("rescope", help="recompute every memory's scope (repo/dir/file/symbol)")
+    sub.choices["list"].add_argument("--scope", metavar="DIR", help="only memories scoped at DIR or inside it ('.' = repo)")
+    # --- end scope (A) ---
     if not (sys.argv[1:] if argv is None else argv):
         ap.print_help()                         # bare `memcode` / `/memcode:cli`: show what is available
         return 0
@@ -327,6 +356,12 @@ def main(argv: list[str] | None = None) -> int:
     root = store.resolve_root(a.root)
     con = store.connect(root)
     try:
+        # --- scope (A) ---
+        if a.cmd == "rescope":
+            return cmd_rescope(con, a, root)
+        if a.cmd == "list" and getattr(a, "scope", None) is not None:
+            return cmd_list_scope(con, a)
+        # --- end scope (A) ---
         if a.cmd == "add":
             return cmd_add(con, a, root)
         if a.cmd == "config":

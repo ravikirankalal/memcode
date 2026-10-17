@@ -206,7 +206,7 @@ class TestHookCli(Repo):
         h = json.loads((ROOT / "hooks" / "hooks.json").read_text())["hooks"]
         self.assertNotIn("PreCompact", h)
         self.assertIn("PostToolUseFailure", h)
-        self.assertEqual(h["PostToolUse"][0]["matcher"], "Bash|Edit|Write|MultiEdit")
+        self.assertEqual(h["PostToolUse"][0]["matcher"], "Bash|Edit|Write|MultiEdit|Read")  # Read: MEMCODE_HIER first touch
         for ev, entries in h.items():
             for e in entries:
                 for hk in e["hooks"]:

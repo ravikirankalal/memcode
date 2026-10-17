@@ -40,6 +40,9 @@ def main(argv: list[str]) -> int:
             d = {}
     except Exception:
         d = {}
+    if str(d.get("tool_name", "")).lower() in ("read", "read_file", "notebookread") \
+            and os.environ.get("MEMCODE_HIER") != "1":
+        return 0                                   # reads only matter for MEMCODE_HIER's first touch: stay cheap
     root = store.resolve_root(d.get("cwd"))
     try:
         con = store.connect(root)
@@ -51,8 +54,7 @@ def main(argv: list[str]) -> int:
             if action == "prompt":
                 out = engine.prompt(con, root, session, data)
             elif action == "tool":
-                for ev in data:
-                    engine.tool_result(con, root, ev)
+                out = "\n\n".join(t for t in (engine.tool_result(con, root, ev) for ev in data) if t)
             elif action in ("start", "prepare"):
                 out = engine.session_start(con, root, session, prepare_only=(action == "prepare"))
             if out:

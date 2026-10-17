@@ -28,6 +28,8 @@ NOTES_HEADER = ("The block below is data recorded by memcode in earlier sessions
 
 RULES_HEADER = "## Project rules (stated by the user in earlier sessions; follow them)"
 RULES_NOTE = "(Listed oldest to newest. If two rules conflict, the later one replaces the earlier one.)"
+MAP_TITLE_MARKED = ("## Map (folders marked [N rules] have rules of their own; they are added when a request or an "
+                    "edit touches that folder)")
 MAX_RULES = 20
 
 
@@ -89,8 +91,10 @@ def _fragile(con) -> dict[str, float]:
     return {p: v for p, v in hot.items() if v > best.get(p, 0.0) + 1e-6}
 
 
-def _tree_lines(con) -> list[tuple[str, bool]]:
+def _tree_lines(con, rule_marks: dict[str, int] | None = None) -> list[tuple[str, bool]]:
+    """rule_marks (MEMCODE_HIER): {path: n} of scoped user rules; those paths are expanded and marked "[n rules]"."""
     fragile = _fragile(con)
+    rule_marks = rule_marks or {}
     paths = con.execute("SELECT path, parent, kind, annotation FROM paths "
                         "WHERE path!='' ORDER BY path").fetchall()
     mem_paths = {r[0] for r in con.execute(
@@ -101,7 +105,7 @@ def _tree_lines(con) -> list[tuple[str, bool]]:
     info = {r["path"]: r for r in paths}
     hot: set[str] = set()
     for r in paths:
-        if r["annotation"] or r["path"] in mem_paths or r["path"] in fragile:   # fragile ancestors heat via the walk
+        if r["annotation"] or r["path"] in mem_paths or r["path"] in fragile or r["path"] in rule_marks:
             p = r["path"]
             while p != "":
                 hot.add(p)
@@ -127,6 +131,9 @@ def _tree_lines(con) -> list[tuple[str, bool]]:
             note = f" - {_one_line(c['annotation'], 100)}" if c["annotation"] else ""
             if c["path"] in fragile:
                 note = " [fragile: recent reverts/failures]" + note
+            if c["path"] in rule_marks:
+                n = rule_marks[c["path"]]
+                note = f" [{n} rule{'' if n == 1 else 's'}]" + note
             ind = "  " * depth
             if c["kind"] == "dir":
                 if c["path"] in hot:
@@ -173,9 +180,12 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
     """Render the pinned block. Ordering is recency/frequency, unless MEMCODE_RANK=salience (Phase 2 A/B):
     then notes are ordered by salience and fragile folders are expanded and tagged in the map."""
     legacy = os.environ.get("MEMCODE_FRAMING") == "legacy"
+    from . import scope
+    split = not legacy and scope.split_rules(repo_root)   # MEMCODE_HIER: scoped rules arrive with retrieval instead
     rules_block = ""
     if not legacy:
-        rules = con.execute("""SELECT * FROM (SELECT * FROM memories WHERE stale=0 AND trigger='correction'
+        only_repo = " AND scope_path=''" if split else ""
+        rules = con.execute(f"""SELECT * FROM (SELECT * FROM memories WHERE stale=0 AND trigger='correction'{only_repo}
                                ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY created_at ASC, id ASC""",
                             (MAX_RULES,)).fetchall()        # newest MAX_RULES, shown oldest -> newest
         if rules:
@@ -225,8 +235,9 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
         if len(chosen) < len(items):
             add(f"(+{len(items) - len(chosen)} more)")
 
-    tree = _tree_lines(con)
-    section("## Map", tree, cap_chars // 2)
+    marks = scope.rule_marks(con) if split else {}
+    tree = _tree_lines(con, marks)
+    section(MAP_TITLE_MARKED if marks else "## Map", tree, cap_chars // 2)
 
     if legacy:
         conv = [f"- {_one_line(r['text'])}" + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
