@@ -30,13 +30,27 @@ def bash_calls(events: list[dict]) -> list[str]:
     return cmds
 
 
+def _refused(events: list[dict]) -> set:
+    """tool_use ids whose result is an error: for Write/Edit that means nothing reached the file (e.g. a hook refused
+    the call, or the edit's old_string did not match), so it must not be judged as written."""
+    out = set()
+    for e in events:
+        c = (e.get("message") or {}).get("content") if e.get("type") == "user" else None
+        for b in c if isinstance(c, list) else []:
+            if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error"):
+                out.add(b.get("tool_use_id"))
+    return out
+
+
 def edit_paths(events: list[dict]) -> list[str]:
+    refused = _refused(events)
     paths = []
     for e in events:
         if e.get("type") != "assistant":
             continue
         for b in (e.get("message") or {}).get("content") or []:
-            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Write", "Edit", "MultiEdit"):
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Write", "Edit", "MultiEdit") \
+                    and b.get("id") not in refused:
                 paths.append((b.get("input") or {}).get("file_path", ""))
     return paths
 
@@ -44,12 +58,14 @@ def edit_paths(events: list[dict]) -> list[str]:
 def edit_content(events: list[dict], with_kind: bool = False) -> list:
     """Text the agent wrote via Write/Edit/MultiEdit (for content-based traps). With with_kind,
     items are (text, is_snippet, path): Edit/MultiEdit write a fragment, Write writes a whole file."""
+    refused = _refused(events)
     out = []
     for e in events:
         if e.get("type") != "assistant":
             continue
         for b in (e.get("message") or {}).get("content") or []:
-            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Write", "Edit", "MultiEdit"):
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Write", "Edit", "MultiEdit") \
+                    and b.get("id") not in refused:
                 i = b.get("input") or {}
                 text = (str(i.get("content") or i.get("new_string") or "")
                         + " ".join(str(x.get("new_string", "")) for x in i.get("edits", []) if isinstance(x, dict)))

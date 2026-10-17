@@ -37,6 +37,10 @@ def one(args) -> dict:
     events = run.claude(repo, sc["later"], model, "memcode_split", extra_env=ARMS[arm], plugin_dir=plugin_dir)
     m = metrics.metrics(events, sc["trap_regex"], sc.get("trap_on", "cmd_path"), sc.get("trap_path"))
     final = next((e for e in reversed(events) if e.get("type") == "result"), {})
+    import re
+    tp = re.compile(sc.get("trap_path") or r"$^")
+    wrote = any(tp.search(p) for p in metrics.edit_paths(events)) or any(
+        tp.search(str(f.relative_to(repo))) for f in repo.rglob("*.py"))
     inj = {"pinned": False, "prompt": False, "touch": False}
     try:
         con = sqlite3.connect(repo / ".memcode" / "memory.db")
@@ -48,7 +52,8 @@ def one(args) -> dict:
     except sqlite3.Error:
         n_touch = None
     return {"name": sc["name"], "shape": sc["shape"], "control": bool(sc.get("control")), "arm": arm,
-            "ok": bool(final) and not final.get("is_error"), "trap_hit": bool(m["trap_hit"]),
+            "ok": bool(final) and not final.get("is_error"), "wrote_target": wrote,
+            "trap_hit": bool(m["trap_hit"]) or not wrote,   # never writing the file is a failed task, not a pass
             "needed_injected": inj, "touch_injections": n_touch, "cost_usd": final.get("total_cost_usd", 0.0),
             "bash_calls": m.get("bash_calls"), "wall_s": round(time.perf_counter() - t0, 1),
             "evidence": m.get("evidence")}
