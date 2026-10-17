@@ -94,11 +94,12 @@ SCENARIOS = [
 ]
 
 
-def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None = None) -> list[dict]:
+def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None = None,
+           extra_env: dict | None = None, plugin_dir: Path | None = None) -> list[dict]:
     cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
            "--max-turns", "10", "--allowedTools", ALLOWED]
     if config in PLUGIN:
-        cmd += ["--plugin-dir", str(ROOT)]
+        cmd += ["--plugin-dir", str(plugin_dir or ROOT)]
     if resume:
         cmd += ["--resume", resume]
     else:
@@ -122,6 +123,7 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["MEMCODE_RANK"] = "relevance"
     if config == "memcode_salience":
         env["MEMCODE_RANK"] = "salience"
+    env.update(extra_env or {})                 # arm-specific switches on top (e.g. MEMCODE_HIER for hier1)
     waited = 0
     while True:
         try:
