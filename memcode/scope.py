@@ -299,6 +299,20 @@ def list_scoped(con, d: str, include_stale: bool = False) -> list:
                            ORDER BY scope_path, updated_at DESC""", (dl, len(dl) + 1, dl + "/")).fetchall()
 
 
+def has_unseen_rules(con, session: str, path: str, root=None) -> bool:
+    """True when a user rule scoped on `path`'s chain (repo scope excluded) has not been shown this session."""
+    if not hier_enabled():
+        return False
+    rel = _rel(path, _root_prefixes(root)) if path else None
+    chain = [c for c in store.scope_chain(rel or "") if c]
+    if not chain:
+        return False
+    return con.execute(f"""SELECT 1 FROM memories m WHERE m.stale=0 AND m.trigger='correction'
+                           AND m.scope_path IN ({",".join("?" * len(chain))}){store.injectable_sql("m")}
+                           AND m.id NOT IN (SELECT memory_id FROM injections WHERE session=?) LIMIT 1""",
+                       (*chain, session)).fetchone() is not None
+
+
 def rules_for_path(con, session: str, path: str, root=None, token_cap: int = TOUCH_TOKEN_CAP) -> tuple[str, list[int]]:
     """Context for a path the agent just touched (read or edited): the live memories scoped on its scope_chain (repo
     scope excluded: the start block shows it) not yet shown this session, nearest first (rules before notes within a

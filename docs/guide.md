@@ -92,7 +92,8 @@ Three opt-in pieces, each off until its own benchmark gate passes:
   common directory ("every module under billing/ ...": scope `billing/`); notes apply to their file or symbol. Retrieval
   only considers repo-wide memories and those on the path to the files in play, nearest scope first. The session-start
   block keeps repo-wide rules and marks map folders that hold scoped ones (`billing/ [3 rules]`); the first time the
-  agent reads or edits a file, that file's scoped rules are injected once. `memcode rescope`, `memcode list --scope DIR`.
+  agent reads a file, that file's scoped rules are injected once. If its first contact is a write, that write is refused
+  once with the rules as the reason (context added after a write would come too late) and the agent redoes it. `memcode rescope`, `memcode list --scope DIR`.
 - **Consolidation** (`MEMCODE_CONSOLIDATE=1`). At session start, 3 or more agent notes that say the same thing (same
   trigger and anchor, text equal after numbers, paths and command flags are normalized) are grouped under one *lesson*
   ("4 similar fail_to_fix notes on api/x.py: ..."), which is shown instead of them. User rules and team memories are

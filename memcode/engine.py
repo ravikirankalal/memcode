@@ -83,6 +83,26 @@ def tool_result(con, root: str, ev: dict) -> str:
     return touch(con, root, ev)
 
 
+WRITE_TOOLS = ("write", "edit", "multiedit", "notebookedit")
+DENY_PREFIX = ("memcode: this file falls under project rules you have not seen yet, so this write was not made. "
+               "Redo it following them:\n\n")
+
+
+def before_write(con, root: str, session: str, tool: str, tool_input: dict) -> str:
+    """MEMCODE_HIER: the reason to refuse the FIRST write into a scope whose user rules this session has not shown
+    ('' = allow). A PostToolUse injection would arrive after a new file's content is already written, and PreToolUse
+    context cannot change a tool call that is already composed, so the write is refused once with the rules as the
+    reason; the agent redoes it. Rules are then recorded as shown (source 'touch'): later writes pass."""
+    if str(tool).lower() not in WRITE_TOOLS or not isinstance(tool_input, dict):
+        return ""
+    from . import scope
+    path = tool_input.get("file_path") or tool_input.get("notebook_path")
+    if not path or not scope.has_unseen_rules(con, session, str(path), root):
+        return ""
+    text, _ = scope.rules_for_path(con, session, str(path), root)
+    return DENY_PREFIX + text if text else ""
+
+
 READ_TOOLS = ("read", "read_file", "notebookread")
 
 

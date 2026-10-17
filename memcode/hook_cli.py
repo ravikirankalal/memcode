@@ -3,6 +3,7 @@
 
 Reads the hook JSON from stdin, translates it with adapters.normalize, runs the engine, and prints any context as
 {"hookSpecificOutput": {"hookEventName", "additionalContext"}} (session start and per-prompt retrieval).
+PreToolUse (MEMCODE_HIER only) may refuse a first write into a scope with unseen rules (engine.before_write).
 Pre-compaction events only refresh the tree. Never raises: a memory failure must not break the agent; failures are
 appended to .memcode/error.log.
 """
@@ -43,12 +44,20 @@ def main(argv: list[str]) -> int:
     if str(d.get("tool_name", "")).lower() in ("read", "read_file", "notebookread") \
             and os.environ.get("MEMCODE_HIER") != "1":
         return 0                                   # reads only matter for MEMCODE_HIER's first touch: stay cheap
+    if name == "PreToolUse" and os.environ.get("MEMCODE_HIER") != "1":
+        return 0                                   # only MEMCODE_HIER refuses a first write (engine.before_write)
     root = store.resolve_root(d.get("cwd"))
     try:
         con = store.connect(root)
         try:
             from . import adapters, engine
             session = d.get("session_id", "unknown")
+            if name == "PreToolUse":
+                reason = engine.before_write(con, root, session, d.get("tool_name", ""), d.get("tool_input") or {})
+                if reason:
+                    print(json.dumps({"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "deny",
+                                                             "permissionDecisionReason": reason}}))
+                return 0
             action, data = adapters.normalize(agent, name, d)
             out = ""
             if action == "prompt":

@@ -137,12 +137,12 @@ class Seeded(unittest.TestCase):
 class FirstTouchHook(unittest.TestCase):
     """The real hook: PostToolUse on Read/Edit injects scoped rules once (MEMCODE_HIER), reads never feed capture."""
 
-    def hook(self, d, payload, **flags):
+    def hook(self, d, payload, _event="PostToolUse", **flags):
         import json, subprocess, sys
         root = str(Path(__file__).resolve().parent.parent)
         e = {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_") and k != "CLAUDE_PROJECT_DIR"}
         e.update(PYTHONPATH=root, **flags)
-        p = subprocess.run([sys.executable, "-m", "memcode.hook_cli", "PostToolUse"], env=e, text=True,
+        p = subprocess.run([sys.executable, "-m", "memcode.hook_cli", _event], env=e, text=True,
                            capture_output=True, input=json.dumps(dict(payload, cwd=d)))
         return json.loads(p.stdout) if p.stdout.strip() else None
 
@@ -162,6 +162,26 @@ class FirstTouchHook(unittest.TestCase):
         con = store.connect(d)
         self.assertEqual(con.execute("SELECT source FROM injections WHERE memory_id=?", (rid,)).fetchone()[0], "touch")
         con.close()
+
+    def test_first_write_refused_once_with_the_rules(self):
+        d, con = repo()
+        store.add_memory(con, "correction", RULE + "Every module under billing/ starts with # PCI-SCOPE.", "", None, {})
+        store.add_memory(con, "correction", RULE + "Views in web/ use jinja.", "", None, {})
+        scope.rescope_new(con, d)
+        con.close()
+        write = {"session_id": "s1", "tool_name": "Write",
+                 "tool_input": {"file_path": os.path.join(d, "billing/new.py"), "content": "x = 1\n"}}
+        self.assertIsNone(self.hook(d, write, _event="PreToolUse"))              # flag off: never refuses
+        out = self.hook(d, write, _event="PreToolUse", MEMCODE_HIER="1")["hookSpecificOutput"]
+        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertIn("PCI-SCOPE", out["permissionDecisionReason"])
+        self.assertNotIn("jinja", out["permissionDecisionReason"])            # another directory's rule
+        self.assertIsNone(self.hook(d, write, _event="PreToolUse", MEMCODE_HIER="1"))   # shown now: allowed
+        read = {"session_id": "s2", "tool_name": "Read", "tool_input": {"file_path": os.path.join(d, "billing/invoice.py")}}
+        self.hook(d, read, MEMCODE_HIER="1")                                    # read first: rules arrive, no refusal
+        self.assertIsNone(self.hook(d, dict(write, session_id="s2"), _event="PreToolUse", MEMCODE_HIER="1"))
+        top = dict(write, session_id="s3", tool_input={"file_path": os.path.join(d, "setup.py"), "content": ""})
+        self.assertIsNone(self.hook(d, top, _event="PreToolUse", MEMCODE_HIER="1"))     # repo scope: start block has it
 
     def test_reads_never_reach_capture(self):
         from memcode import engine
