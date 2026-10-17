@@ -276,7 +276,7 @@ class TestTriggers(Repo):
 
     def test_replay_does_not_touch_db_or_duplicate(self):
         self.ev("tool_use", tool="Edit", input={"file_path": "src/a.py", "old_string": "x=1", "new_string": "x=2"})
-        self.ev("prompt", text="no, that's wrong")
+        self.ev("prompt", text="no, use pathlib instead of os.path")
         self.assertEqual(len(self.mems("correction")), 1)
         calls = []
         orig = store.upsert_path

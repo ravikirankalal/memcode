@@ -151,7 +151,7 @@ class T(unittest.TestCase):
 
     def test_fresh_correction(self):
         self.fresh_edit()
-        self.assertEqual(len(self.fresh("prompt", text="that's wrong, revert that")), 1)
+        self.assertEqual(len(self.fresh("prompt", text="that's wrong, use pathlib instead of os.path")), 1)
         self.assertEqual(self.fresh("prompt", text="that's wrong again"), [])
 
     def test_fresh_retry_once(self):

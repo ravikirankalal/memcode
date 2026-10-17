@@ -47,7 +47,9 @@ class CorpusIntegrity(unittest.TestCase):
 
 
 class CurrentCapture(unittest.TestCase):
-    """Frozen: what the current prompt triggers capture."""
+    """Frozen: what the prompt triggers capture now that proposal.diff has landed in memcode/triggers.py.
+    Before it landed (commit 5b84354 and earlier) the corpus gave tp/fp/fn = 39/49/26 and the dogfooding turn
+    "No, not just heirarchical memory ..." was stored as a rule."""
 
     @classmethod
     def setUpClass(cls):
@@ -56,12 +58,11 @@ class CurrentCapture(unittest.TestCase):
 
     def test_frozen_counts(self):
         o = self.s["overall"]
-        self.assertEqual((o["tp"], o["fp"], o["fn"]), (39, 49, 26))
+        self.assertEqual((o["tp"], o["fp"], o["fn"]), (39, 5, 26))
 
-    def test_dogfooding_false_positive_reproduces(self):
+    def test_dogfooding_false_positive_fixed(self):
         r = next(r for r in self.res if r["text"].startswith("No, not just heirarchical memory"))
-        self.assertTrue(r["captured"])
-        self.assertTrue(r["stored"].startswith("Rule from user correction: Not just heirarchical memory"))
+        self.assertFalse(r["captured"])
 
     def test_harness_turns_never_captured(self):
         self.assertFalse(any(r["captured"] for r in self.res if r["category"] == "harness"))
@@ -88,22 +89,12 @@ class Proposal(unittest.TestCase):
         # an explicit rule phrase beats the soft vetoes in a mixed message
         self.assertIsNone(P.veto("No, I meant the payments module. And remember that we never log card numbers."))
 
-    @unittest.skipUnless(shutil.which("patch"), "needs patch(1)")
-    def test_diff_matches_monkeypatch(self):
-        """proposal.diff applied to a copy of memcode/ captures exactly what proposal.py does."""
-        with tempfile.TemporaryDirectory() as tmp:
-            shutil.copytree(ROOT / "memcode", Path(tmp) / "memcode",
-                            ignore=shutil.ignore_patterns("__pycache__"))
-            subprocess.run(["patch", "-s", "-p1", "-d", tmp, "-i", str(PRECISION / "proposal.diff")], check=True)
-            for name in SETS:
-                out = Path(tmp) / f"{name}.json"
-                subprocess.run([sys.executable, str(PRECISION / "evaluate.py"), "--corpus", str(PRECISION / name),
-                                "--json", str(out)], check=True, capture_output=True,
-                               env=dict(os.environ, PRECISION_MEMCODE_SRC=tmp))
-                patched = [i["captured"] for i in json.loads(out.read_text())["items"]]
-                mp = [i["captured"] for i in E.capture(E.load(PRECISION / name), proposal=True)]
-                self.assertEqual(patched, mp, name)
-
+    def test_landed_code_matches_proposal(self):
+        """memcode/triggers.py (with proposal.diff landed) captures exactly what proposal.py describes."""
+        for name in SETS:
+            landed = [i["captured"] for i in E.capture(E.load(PRECISION / name))]
+            mp = [i["captured"] for i in E.capture(E.load(PRECISION / name), proposal=True)]
+            self.assertEqual(landed, mp, name)
 
 if __name__ == "__main__":
     unittest.main()
