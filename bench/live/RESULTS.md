@@ -380,3 +380,41 @@ A captured exactly one rule in every memcode unit (10/10) and shared it; A's age
 
 ## Caveats
 Simulated teammates (same model, same task phrasing), one model, 4 runs per cell, a set where capture is known to work.
+
+---
+
+# Run 13 (2026-10-17): e2e1, a simulated developer week — memcode cuts convention mistakes 19/24 -> 5/24; CLAUDE.md 0/24
+
+Frozen `e2e1` (bench/live/e2e1.py, predictions pre-registered there). One project (`shelf`), three teaching days in
+which the user states 7 conventions in passing while real tasks get done, then two later feature tasks (Thursday,
+Friday) and a question (Monday) in fresh sessions. Plugin under test: 4e74a4a (as frozen). Haiku, 3 simulated weeks
+per arm. The first attempt hit an account usage limit mid-run (sessions answered instantly at $0 and were scored as
+idle); those weeks were discarded, the runner now waits out limits and drops any week with a refused session, and the
+builtin / claudemd / memcode arms were rerun (nomem weeks from the first attempt were complete and are reused).
+
+Primary cells (mistakes; Thursday C1 P2 P3 E1 + Friday C1 C2 P2 P3, 8 per week, 24 per arm):
+
+| arm | Thu C1 | Thu P2 | Thu P3 | Thu E1 | Fri C1 | Fri C2 | Fri P2 | Fri P3 | **total** | all 9 lessons, both tasks |
+|---|---|---|---|---|---|---|---|---|---|---|
+| nomem | 1/3 | 3/3 | 3/3 | 0/3 | 3/3 | 3/3 | 3/3 | 3/3 | **19/24** | 19/54 |
+| builtin (auto-memory) | 2/3 | 3/3 | 3/3 | 1/3 | 3/3 | 3/3 | 3/3 | 3/3 | **21/24** | 22/54 |
+| claudemd (user asks to save each rule) | 0/3 | 0/3 | 0/3 | 0/3 | 0/3 | 0/3 | 0/3 | 0/3 | **0/24** | 0/54 |
+| memcode | 0/3 | 0/3 | 1/3 | 0/3 | 0/3 | 3/3 | 0/3 | 1/3 | **5/24** | 5/54 |
+
+All arms passed the project's checks on every task. Cost per week (teaching + later): nomem $0.27, builtin $0.30,
+claudemd $0.33, memcode $0.33; memcode injected ~390 tokens at session start, 0 irrelevant prompt lines.
+
+## Against the predictions
+- memcode "well below nomem except fri C2": **held.** 5/24 vs 19/24; 3 of its 5 mistakes are C2, the convention the
+  offline replay predicted it would not capture (stated descriptively). The other 2 are P3 (commit prefix) once each.
+- claudemd "near 0 incl. C2": **held** (0/24). It costs the user an explicit "save this to CLAUDE.md" every time.
+- builtin "between nomem and claudemd": **failed.** Auto-memory was indistinguishable from no memory (21/24).
+- E1 (never-stated `make check`): **untestable** in this run: nomem made the E1 mistake 0/3 (pilot: 2/6).
+
+## Reading
+memcode gets most of the way to a hand-maintained CLAUDE.md with no user effort, and its remaining gap is exactly
+capture recall on descriptive phrasing (C2), already measured offline. Model capture (opt-in) targets that gap.
+
+## Caveats
+One constructed project, one model, 3 weeks per arm (Wilson intervals are wide: memcode 5/24 = [0.09, 0.40], nomem
+19/24 = [0.60, 0.91]); simulated user; the claudemd arm's user is unusually disciplined.
