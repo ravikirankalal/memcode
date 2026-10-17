@@ -459,3 +459,9 @@ anchor file, even if the start block showed it) and a fresh set, since hier1 is 
 
 ## Caveats
 One constructed store, one model, 6 runs per cell; the refusal costs one extra tool call on the first write per folder.
+
+## Run 14b (same day, TUNED on hier1): after the re-surface fix
+Hier arm only, same frozen set, plugin with the fix (re-show a start-block file note when the prompt names its file).
+Not a gate (hier1 is tuned on now): hier 2/54 mistakes; c_avatar_prefix 0/6 (was 2/6, needed note now also arrives
+at prompt time 6/6); c_auth_audit 2/6 (was 0/6; flat 2/6, oracle pilot 1/4: this scenario is noisy even with the rule
+in the prompt); everything else 0/6. Adoption as default waits for an untuned set (hier2). $0.35.
