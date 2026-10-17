@@ -80,17 +80,37 @@ def claude(cwd: Path, prompt: str, model: str, arm: str, plugin_dir: Path, resum
         cmd += ["--plugin-dir", str(plugin_dir)]
     cmd += ["--resume", resume] if resume else ["--session-id", str(uuid.uuid4())]
     t0 = time.perf_counter()
-    try:
-        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=TIMEOUT_S, env=env_for(arm))
-        out = p.stdout
-    except subprocess.TimeoutExpired as e:
-        out = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
+    waited = 0
+    while True:
+        try:
+            p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=TIMEOUT_S, env=env_for(arm))
+            out = p.stdout
+        except subprocess.TimeoutExpired as e:
+            out = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
+        if not _rate_limited(out) or waited >= LIMIT_WAIT_S:
+            break
+        # a usage limit answers instantly at $0 and would be scored as an agent that did nothing: wait, then retry
+        pause = min(900, 60 * 2 ** min(4, waited // 600))
+        print(f"[e2e] usage limit ({arm}); retrying in {pause}s", file=sys.stderr, flush=True)
+        time.sleep(pause)
+        waited += pause
+        t0 = time.perf_counter()
     if RAW_DIR:
         import gzip
         RAW_DIR.mkdir(parents=True, exist_ok=True)
         with gzip.open(RAW_DIR / f"{arm}-{cwd.name}-{uuid.uuid4().hex[:8]}.jsonl.gz", "wt") as fh:
             fh.write(out)
     return metrics.parse_stream(out), time.perf_counter() - t0
+
+
+LIMIT_WAIT_S = 4 * 3600
+
+
+def _rate_limited(out: str) -> bool:
+    """The turn was refused by a usage/rate limit (429) before the model ran."""
+    final = next((e for e in reversed(metrics.parse_stream(out)) if e.get("type") == "result"), {})
+    return bool(final.get("is_error")) and not final.get("total_cost_usd") and (
+        final.get("api_error_status") == 429 or "limit" in str(final.get("result", "")).lower())
 
 
 # ---------------------------------------------------------------- transcript metrics
@@ -153,7 +173,8 @@ def session_metrics(events: list, wall: float) -> dict:
             "bash_calls": len(bash), "bash_failed": sum(1 for r in bash if r["exit"] not in (0, None)),
             "permission_denials": len(final.get("permission_denials") or []),
             "bash_log": [f"{r['cmd'][:140]} -> {r['exit']}" for r in bash],
-            "tokens": tok, "tokens_total": sum(tok.values()), "models": sorted(mu)}
+            "tokens": tok, "tokens_total": sum(tok.values()), "models": sorted(mu),
+            "error": str(final.get("result", ""))[:300] if final.get("is_error") or not final else ""}
 
 
 _ASSIGN = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+")
@@ -389,8 +410,16 @@ def snapshot_plugin(ref: str) -> tuple[Path, str]:
 LESSONS = ("C1", "C2", "C3", "C4", "P1", "P2", "P3", "E1", "E2")
 
 
+def valid(r: dict) -> bool:
+    """A simulated week counts only if every session in it ran: a refused teaching turn means memory was never
+    taught, a refused later session means nothing was measured."""
+    return all(t.get("ok") for s in r["teach"] for t in s["turns"]) and all(m.get("ok") for m in r["later"])
+
+
 def summarize(results: list[dict]) -> str:
     from bench.scorecard import wilson
+    dropped = [f"{r['arm']}#{r['rep']}" for r in results if not valid(r)]
+    results = [r for r in results if valid(r)]
     arms = list(dict.fromkeys(r["arm"] for r in results))
     names = list(dict.fromkeys(m["name"] for r in results for m in r["later"]))
     L = ["| session | arm | n | " + " | ".join(LESSONS) + " | lesson mistakes | checks pass | tool calls | bash failed | "
@@ -428,7 +457,8 @@ def summarize(results: list[dict]) -> str:
         tcost = sum(t["cost_usd"] for r in rs for s in r["teach"] for t in s["turns"]) / max(1, len(rs))
         lcost = sum(m["cost_usd"] for r in rs for m in r["later"]) / max(1, len(rs))
         week.append(f"- {arm}: teaching ${tcost:.3f} + later ${lcost:.3f} per week (mean of {len(rs)})")
-    return "\n".join(L + ["", "Cost per simulated week:"] + week)
+    note = ["", f"Excluded (a session failed to run): {', '.join(dropped)}"] if dropped else []
+    return "\n".join(L + ["", "Cost per simulated week:"] + week + note)
 
 
 def main() -> None:
@@ -443,7 +473,11 @@ def main() -> None:
     ap.add_argument("--plugin-ref", default="", help="git ref of the plugin under test (default: this checkout)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default="")
+    ap.add_argument("--summarize", nargs="+", metavar="JSON", help="print the summary of saved result files and exit")
     a = ap.parse_args()
+    if a.summarize:
+        print(summarize([r for f in a.summarize for r in json.loads(Path(f).read_text())["results"]]))
+        return
     spec = load_spec(a.set)
     names = [n for n in a.later.split(",") if n]
     plugin_dir, sha = (snapshot_plugin(a.plugin_ref) if a.plugin_ref else (ROOT, "worktree"))

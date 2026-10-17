@@ -84,6 +84,27 @@ convention, and stores it as a rule if so. The prompt is never delayed. **Off by
 text to the model and costs one call per classified prompt (about $0.02 on Opus 5.5; less on Haiku). The worker's model
 call runs with no tools, no settings or plugins (so memcode cannot recurse), and no saved session.
 
+### Experimental: hierarchical memory
+
+Three opt-in pieces, each off until its own benchmark gate passes:
+
+- **Scope hierarchy** (`MEMCODE_HIER=1`, works with retrieval on). A rule naming directories applies to their deepest
+  common directory ("every module under billing/ ...": scope `billing/`); notes apply to their file or symbol. Retrieval
+  only considers repo-wide memories and those on the path to the files in play, nearest scope first. The session-start
+  block keeps repo-wide rules and marks map folders that hold scoped ones (`billing/ [3 rules]`); the first time the
+  agent reads or edits a file, that file's scoped rules are injected once. `memcode rescope`, `memcode list --scope DIR`.
+- **Consolidation** (`MEMCODE_CONSOLIDATE=1`). At session start, 3 or more agent notes that say the same thing (same
+  trigger and anchor, text equal after numbers, paths and command flags are normalized) are grouped under one *lesson*
+  ("4 similar fail_to_fix notes on api/x.py: ..."), which is shown instead of them. User rules and team memories are
+  never grouped. `memcode consolidate [--dry-run|--undo]`.
+- **Storage budget** (`MEMCODE_STORE_BUDGET=N`). At session start, evicts down to N memories: stale notes first, then
+  consolidated notes (their lesson keeps counting them), then retry / dependency notes, then other agent notes by
+  lowest salience. User rules, team memories and lessons are never evicted. `memcode budget N [--dry-run]`.
+
+Every memory also gets topic **labels** (testing, build, style, naming, git, deps, security, env, perf, api, data, docs,
+ci) for filtering only: `memcode list --label testing`, `memory_search(label=...)`, `memcode label ID +perf -style`.
+Labels never change ranking or injected text.
+
 ### Facts
 
 Besides memories (one event each), memcode keeps **facts**: keyed knowledge that is updated in place as evidence
@@ -97,10 +118,14 @@ accumulates, and shown in a short `## Facts` section at session start.
 | inference | aggregated: fragile folders, commands that keep failing | `make deploy` has failed 3x and never passed here |
 | user | `memcode fact set KEY VALUE` | Deploys only from release/* branches |
 
-A command only counts as confirmed when its exit status is really its own: not piped (`| tail`), not followed by
-`|| fallback`, not one of several commands in a failing line. Commands run after `cd` to a place outside the repo,
-inline scripts (`python3 -c`, heredocs) and commands with shell variables are not recorded. Nothing is taken from
-command output.
+A command only counts as confirmed when its exit status is really its own: not followed by `|| fallback`, not one
+of several commands in a failing line. Agents usually pipe output (`python3 -m unittest 2>&1 | tail -3`), which hides
+the exit status; for a lone piped command the runner's summary line decides instead (`OK`, `FAILED (failures=1)`,
+`5 passed in 0.1s`, `test result: ok.`, `All checks passed!`, ...). A failure summary counts through any filter; a
+pass only through end-keeping ones (`tail`, `cat`, `tee`), since `head` or `grep` may have cut a failure off. Without
+a summary line the run stays "not confirmed". Commands run after `cd` to a place outside the repo, inline scripts
+(`python3 -c`, heredocs), probes (`--version`, `--help`) and commands with shell variables are not recorded. Nothing
+from command output is stored.
 
 ```
 python3 -m memcode facts                 # all facts, and what the session-start block shows

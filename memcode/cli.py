@@ -18,6 +18,11 @@
   config [KEY on|off] show or set options (model-capture: opt-in model-based rule capture)
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
+  rescope             recompute every memory's scope; `list --scope DIR` lists memories scoped under DIR
+  consolidate [--dry-run|--undo]  group redundant agent notes under one lesson (MEMCODE_CONSOLIDATE=1 does it
+                      at session start and shows lessons instead of their notes)
+  budget N [--dry-run]  evict down to N memories (MEMCODE_STORE_BUDGET=N does it at session start)
+  label ID [+x] [-y]  show or edit a memory's topic labels; `list --label X` filters by label
 
 Root resolution matches the hooks (CLAUDE_PROJECT_DIR, else git toplevel, else cwd).
 """
@@ -289,6 +294,83 @@ def cmd_export(con, a) -> int:
     return 0
 
 
+# --- scope (A) ---
+def cmd_rescope(con, a, root) -> int:
+    """`memcode rescope`: recompute every memory's scope (repo / dir / file / symbol) from its anchor and rule text."""
+    from . import engine, scope
+    engine.session_start(con, root, "rescope-cli", prepare_only=True)     # fresh `paths` first
+    st = scope.rescope_all(con, root)
+    print(f"rescoped {st['updated']} of {st['checked']} memories; now: "
+          + (", ".join(f"{k} {v}" for k, v in sorted(st["kinds"].items())) or "none"))
+    return 0
+
+
+def cmd_list_scope(con, a) -> int:
+    """`memcode list --scope DIR`: memories scoped at DIR or inside it (`--scope .` = repo-wide ones)."""
+    from . import scope
+    rows = scope.list_scoped(con, a.scope, include_stale=a.all)
+    if not rows:
+        print(f"no memories scoped under {scope.norm(a.scope) or '(repo)'}")
+    for r in rows:
+        flag = " [stale]" if r["stale"] else ""
+        where = (r["scope_path"] or "/") + ("/" if r["scope_kind"] == "dir" else "")
+        print(f"#{r['id']:<4} {r['trigger']:<9} {r['scope_kind']:<6} {where:<24} {r['text']}{flag}")
+    return 0
+# --- end scope (A) ---
+
+
+# --- abstraction (B) ---
+def cmd_consolidate(con, a) -> int:
+    """`memcode consolidate [--dry-run | --undo]`: group redundant agent notes under one lesson each."""
+    from . import consolidate
+    if a.undo:
+        print(f"removed {consolidate.undo(con)} lessons; their notes are top-level again")
+        return 0
+    st = consolidate.run(con, dry_run=a.dry_run)
+    print(("would: " if a.dry_run else "") + f"{st['lessons']} lessons over {st['children']} notes "
+          f"(created {st['created']}, updated {st['updated']}, dissolved {st['dissolved']}; "
+          f"{st['candidates']} candidate notes)")
+    if not consolidate.enabled():
+        print("note: injection still shows the individual notes until MEMCODE_CONSOLIDATE=1")
+    return 0
+
+
+def cmd_budget(con, a) -> int:
+    """`memcode budget N [--dry-run]`: evict down to N memories (user rules, team memories, lessons are kept)."""
+    from . import budget
+    st = budget.enforce(con, a.cap, time.time(), dry_run=a.dry_run)
+    why = ", ".join(f"{k} {v}" for k, v in st["evicted"].items() if v) or "nothing"
+    print(("would evict: " if a.dry_run else "evicted: ") + why + f"; {st['before']} -> {st['after']} memories"
+          + (" (still over the cap: only protected memories left)" if st["over_cap"] else ""))
+    return 0
+
+
+def cmd_label(con, a) -> int:
+    """`memcode label ID [+x] [-y]`: show or edit a memory's topic labels."""
+    from . import labels
+    if a.changes:
+        labs = labels.edit(con, a.id, a.changes)
+    else:
+        r = con.execute("SELECT * FROM memories WHERE id=?", (a.id,)).fetchone()
+        if r is None:
+            raise ValueError(f"no memory #{a.id}")
+        labs = labels.of(r)
+    print(f"#{a.id}: " + (", ".join(labs) or "(no labels)"))
+    return 0
+
+
+def cmd_list_label(con, a) -> int:
+    from . import labels
+    rows = [r for r in store.list_memories(con, include_stale=a.all) if labels.has(r, a.label)]
+    if not rows:
+        print(f"no memories labelled {a.label}")
+    for r in rows:
+        flag = " [stale]" if r["stale"] else ""
+        print(f"#{r['id']:<4} {r['trigger']:<9} {(r['anchor_path'] or '/'):<20} {r['text']}{flag}")
+    return 0
+# --- end abstraction (B) ---
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="memcode", description="Inspect and control the memcode store.")
     ap.add_argument("--root", help="repo root (default: CLAUDE_PROJECT_DIR / git toplevel / cwd)")
@@ -312,6 +394,19 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
+    # --- scope (A) ---
+    sub.add_parser("rescope", help="recompute every memory's scope (repo/dir/file/symbol)")
+    sub.choices["list"].add_argument("--scope", metavar="DIR", help="only memories scoped at DIR or inside it ('.' = repo)")
+    # --- end scope (A) ---
+    # --- abstraction (B) ---
+    p = sub.add_parser("consolidate", help="group redundant agent notes under one lesson")
+    p.add_argument("--dry-run", action="store_true"); p.add_argument("--undo", action="store_true")
+    p = sub.add_parser("budget", help="evict down to N memories")
+    p.add_argument("cap", type=int, metavar="N"); p.add_argument("--dry-run", action="store_true")
+    p = sub.add_parser("label", help="show or edit a memory's labels: label ID +perf -style")
+    p.add_argument("id", type=int); p.add_argument("changes", nargs=argparse.REMAINDER)
+    sub.choices["list"].add_argument("--label", help="only memories with this topic label")
+    # --- end abstraction (B) ---
     if not (sys.argv[1:] if argv is None else argv):
         ap.print_help()                         # bare `memcode` / `/memcode:cli`: show what is available
         return 0
@@ -327,6 +422,18 @@ def main(argv: list[str] | None = None) -> int:
     root = store.resolve_root(a.root)
     con = store.connect(root)
     try:
+        # --- scope (A) ---
+        if a.cmd == "rescope":
+            return cmd_rescope(con, a, root)
+        if a.cmd == "list" and getattr(a, "scope", None) is not None:
+            return cmd_list_scope(con, a)
+        # --- end scope (A) ---
+        # --- abstraction (B) ---
+        if a.cmd in ("consolidate", "budget", "label"):
+            return {"consolidate": cmd_consolidate, "budget": cmd_budget, "label": cmd_label}[a.cmd](con, a)
+        if a.cmd == "list" and getattr(a, "label", None):
+            return cmd_list_label(con, a)
+        # --- end abstraction (B) ---
         if a.cmd == "add":
             return cmd_add(con, a, root)
         if a.cmd == "config":

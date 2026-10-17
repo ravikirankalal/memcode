@@ -71,12 +71,32 @@ def prompt(con, root: str, session: str, text: str) -> str:
     return ctx
 
 
-def tool_result(con, root: str, ev: dict) -> None:
-    """Feed one finished tool call (normalized shape above) to the triggers and the facts table."""
-    from . import facts
-    from .triggers import TriggerEngine
-    TriggerEngine(con, root).handle_batch([dict(ev, kind="tool_use"), dict(ev, kind="tool_result")])
-    _safely(con, lambda: facts.observe(con, root, ev))
+def tool_result(con, root: str, ev: dict) -> str:
+    """Feed one finished tool call (normalized shape above) to the triggers and the facts table. Returns context to
+    inject next to the tool result ('' unless MEMCODE_HIER: the scoped memories of a path touched for the first time).
+    Reads only feed that first touch: they never reach the triggers, whose correction logic counts agent actions."""
+    if str(ev.get("tool", "")).lower() not in READ_TOOLS:
+        from . import facts
+        from .triggers import TriggerEngine
+        TriggerEngine(con, root).handle_batch([dict(ev, kind="tool_use"), dict(ev, kind="tool_result")])
+        _safely(con, lambda: facts.observe(con, root, ev))
+    return touch(con, root, ev)
+
+
+READ_TOOLS = ("read", "read_file", "notebookread")
+
+
+def touch(con, root: str, ev: dict) -> str:
+    """MEMCODE_HIER: first read or edit of a path in this session -> its directory/file-scoped memories, once."""
+    from . import scope
+    if not scope.hier_enabled():
+        return ""
+    inp = ev.get("input") if isinstance(ev.get("input"), dict) else {}
+    path = ev.get("file_path") or inp.get("file_path") or inp.get("absolute_path") or inp.get("notebook_path")
+    if not path:
+        return ""
+    text, _ = scope.rules_for_path(con, ev.get("session", "unknown"), str(path), root)
+    return text
 
 
 def _safely(con, fn) -> None:

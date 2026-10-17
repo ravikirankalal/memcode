@@ -65,6 +65,32 @@ class Observe(unittest.TestCase):
         self.assertEqual(self.row("cmd:python3 -m py_compile x.py")["ok"], 1)
         self.assertIsNone(self.row("cmd:1"))
 
+    def test_piped_runs_use_the_summary_line(self):
+        def run(cmd, out):
+            ev = bash(cmd); ev["output"] = out
+            facts.observe(self.con, self.d, ev)
+        run("python3 -m unittest discover -s tests 2>&1 | tail -3", "Ran 290 tests in 41.2s\n\nOK")
+        run("python3 -m unittest discover -s tests 2>&1 | tail -3", "Ran 290 tests in 41.2s\n\nOK (skipped=2)")
+        run("python3 -m unittest discover -s tests 2>&1 | tail -3", "Ran 290 tests\n\nFAILED (failures=1)")
+        run("python3 -m unittest discover -s tests 2>&1 | tail -3", "Ran 290 tests")      # summary cut: unknown
+        r = self.row("cmd:python3 -m unittest discover -s tests")
+        self.assertEqual((r["runs"], r["ok"], r["fail"]), (4, 2, 1))
+        run("python3 -m pytest -q 2>&1 | head -5", "....\n5 passed in 0.12s")          # head may cut failures
+        run("python3 -m pytest -q | grep -v warn", "1 failed, 4 passed in 0.3s")       # failure seen through grep
+        run("python3 -m pytest -q | tail -1", "===== 5 passed, 1 skipped in 0.12s =====")
+        r = self.row("cmd:python3 -m pytest -q")
+        self.assertEqual((r["runs"], r["ok"], r["fail"]), (3, 1, 1))
+        run("go test ./... 2>&1 | tail", "ok  \texample.com/a\t0.1s\n--- FAIL: TestX (0.0s)\nFAIL")
+        self.assertEqual(self.row("cmd:go test ./...")["fail"], 1)
+        run("ruff check . | tail -2", "All checks passed!")
+        run("npm run build && npm test | tail", "Tests:       3 passed, 3 total")     # not a lone command
+        self.assertEqual(self.row("cmd:ruff check .")["ok"], 1)
+        self.assertEqual(self.row("cmd:npm test")["ok"], 0)
+        run("python3 -m unittest 2>&1 | tail -1", "OK" + "x" * 10 + "...")             # stored-event truncation
+        self.assertEqual(self.row("cmd:python3 -m unittest")["ok"], 0)
+        run("python3 -m ruff --version", "ruff 0.6.0")                               # probes are not facts
+        self.assertIsNone(self.row("cmd:python3 -m ruff --version"))
+
     def test_commands_outside_repo_and_unknown_exit(self):
         facts.observe(self.con, self.d, bash("cd /tmp/scratch && python3 prof.py"))
         facts.observe(self.con, self.d, bash("cd $S && python3 prof_wt.py"))

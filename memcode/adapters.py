@@ -84,6 +84,8 @@ def _gemini_tool(d: dict) -> list[dict]:
     out = _text(resp.get("llmContent"))
     if name in ("write_file", "replace"):
         return [_base(d, "Write" if name == "write_file" else "Edit", inp, 0, "")]
+    if name == "read_file":                             # feeds MEMCODE_HIER first touch only
+        return [_base(d, "Read", dict(inp, file_path=inp.get("file_path") or inp.get("absolute_path")), 0, "")]
     if name != "run_shell_command":
         return [_base(d, name, inp, 0, out)]
     m = _GEMINI_EXIT_RE.search(out)

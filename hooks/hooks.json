@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [{"hooks": [{"type": "command", "timeout": 30, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli SessionStart"}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli UserPromptSubmit"}]}],
-    "PostToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit", "hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli PostToolUse"}]}],
+    "PostToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|Read", "hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli PostToolUse"}]}],
     "PostToolUseFailure": [{"matcher": "Bash", "hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli PostToolUseFailure"}]}]
   }
 }
