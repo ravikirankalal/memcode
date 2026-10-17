@@ -206,7 +206,7 @@ _SCENARIOS = [
      "needed": N["edit_named"], "needed_scope": "reports/charts/",
      "later": ("Add a function to reports/charts/bars.py that turns a dict of label -> count into rows for a bar "
                "chart, largest count first."),
-     "trap_regex": r"def \w+\((?![^)]*\*[^)]*\bmax_bars\b)", "trap_on": "content",
+     "trap_regex": r"def (?!chart_scale\b|_)\w+\((?![^)]*\*[^)]*\bmax_bars\b)", "trap_on": "content",
      "trap_path": r"(^|/)reports/charts/bars\.py$", "key": r"max_bars"},
     {"name": "c2_remind_prefix", "token": "remind_", "shape": "no_path_in_prompt", "control": True,
      "needed": N["no_path"], "needed_scope": "booking/reminders/",
@@ -216,9 +216,9 @@ _SCENARIOS = [
      "key": r"remind_ prefix", "first_touch": True},
     {"name": "c2_shift_hours", "token": "_hours", "shape": "file_note", "control": True, "needed": N["file_note"],
      "needed_scope": "staff/rota/shifts.py",
-     "later": ("Add a function to staff/rota/shifts.py that returns the total night-shift time in a list of shifts, "
-               "each a dict with 'start_hour' and 'length'."),
-     "trap_regex": r"def (?!\w*_hours\()\w+\(", "trap_on": "content", "trap_path": r"(^|/)staff/rota/shifts\.py$",
+     "later": ("Add a function to staff/rota/shifts.py that sums how long the night shifts in a list last, each "
+               "shift a dict with 'start_hour' and 'length'."),
+     "trap_regex": r"def (?!_)(?!\w*_hours\()\w+\(", "trap_on": "content", "trap_path": r"(^|/)staff/rota/shifts\.py$",
      "key": r"end in _hours"},
 ]
 

@@ -19,13 +19,13 @@ SAMPLES = {
                        "# clinic: generated\ndef can_swap(shift_a, shift_b):\n    return True\n", False),
     "c2_lab_code": ("def result_title(patient_name, panel):\n    return ''\n",
                     "def result_title(patient_name, panel, *, lab_code):\n    return ''\n", False),
-    "c2_chart_rows": ("def to_rows(counts):\n    return sorted(counts.items(), key=lambda kv: -kv[1])\n",
+    "c2_chart_rows": ("def chart_scale(values, width=BAR_WIDTH):\n    return []\n\n\ndef to_rows(counts):\n    return sorted(counts.items(), key=lambda kv: -kv[1])\n",
                       "def to_rows(counts, *, max_bars=None):\n    return sorted(counts.items(), key=lambda kv: -kv[1])\n",
                       True),
     "c2_remind_prefix": ("def reminder_text(name, when):\n    return ''\n",
                          "def remind_text(name, when):\n    return ''\n", True),
     "c2_shift_hours": ("def night_total(shifts):\n    return 0\n",
-                       "def night_hours(shifts):\n    return 0\n", True),
+                       "def _overlap(a, b):\n    return 0\n\n\ndef night_hours(shifts):\n    return 0\n", True),
 }
 
 
@@ -68,6 +68,16 @@ class Hier2(unittest.TestCase):
                 self.assertIn(h.target_path(sc), h2.FILES, sc["name"])
             else:
                 self.assertNotIn(h.target_path(sc), h2.FILES, sc["name"])
+
+
+class Frozen(unittest.TestCase):
+    def test_hash_unchanged(self):
+        import hashlib
+        import json
+        from bench.live import hier2 as F
+        payload = json.loads(json.dumps(F.SCENARIOS, sort_keys=True))
+        self.assertEqual(hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(), F.FROZEN_SHA256,
+                         "hier2 changed after freezing: add a NEW set instead")
 
 
 if __name__ == "__main__":
