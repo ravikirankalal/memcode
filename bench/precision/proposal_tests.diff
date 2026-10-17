@@ -1,0 +1,22 @@
+--- a/tests/test_review_fixes.py
++++ b/tests/test_review_fixes.py
+@@ -276,7 +276,7 @@
+ 
+     def test_replay_does_not_touch_db_or_duplicate(self):
+         self.ev("tool_use", tool="Edit", input={"file_path": "src/a.py", "old_string": "x=1", "new_string": "x=2"})
+-        self.ev("prompt", text="no, that's wrong")
++        self.ev("prompt", text="no, use pathlib instead of os.path")
+         self.assertEqual(len(self.mems("correction")), 1)
+         calls = []
+         orig = store.upsert_path
+--- a/tests/test_triggers.py
++++ b/tests/test_triggers.py
+@@ -151,7 +151,7 @@
+ 
+     def test_fresh_correction(self):
+         self.fresh_edit()
+-        self.assertEqual(len(self.fresh("prompt", text="that's wrong, revert that")), 1)
++        self.assertEqual(len(self.fresh("prompt", text="that's wrong, use pathlib instead of os.path")), 1)
+         self.assertEqual(self.fresh("prompt", text="that's wrong again"), [])
+ 
+     def test_fresh_retry_once(self):

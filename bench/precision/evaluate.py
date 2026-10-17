@@ -27,6 +27,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(ROOT))
+if os.environ.get("PRECISION_MEMCODE_SRC"):     # a patched copy of the package (tests: proposal.diff applied)
+    sys.path.insert(0, os.environ["PRECISION_MEMCODE_SRC"])
 
 from memcode import engine, store, triggers  # noqa: E402
 
