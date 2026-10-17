@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 
+from . import store
+
 TOKEN_DIVISOR = 4
 LINE_MAX = 160
 
@@ -163,7 +165,7 @@ def _memory_rows_base(con, convention: bool):
     cond = "m.trigger='correction'" if convention else "m.trigger!='correction'"
     return con.execute(
         f"""SELECT m.* , (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq
-            FROM memories m WHERE m.stale=0 AND {cond}
+            FROM memories m WHERE m.stale=0 AND {cond}{store.injectable_sql("m")}
             ORDER BY freq DESC, m.updated_at DESC, m.id DESC""").fetchall()
 
 
@@ -230,6 +232,13 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
         conv = [f"- {_one_line(r['text'])}" + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
                 for r in _memory_rows(con, True)]
         section("## Conventions", conv, (cap_chars - used) // 2)
+
+    from . import facts                   # keyed, aggregated knowledge: commands, repo, env, inferences
+    try:
+        fact_lines = facts.lines(con)
+    except Exception:                     # noqa: BLE001  (facts never block the block)
+        fact_lines = []
+    section("## Facts", fact_lines, (cap_chars - used) // 3)
 
     mems = [f"- ({r['trigger']}) {_one_line(r['text'])}"
             + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")

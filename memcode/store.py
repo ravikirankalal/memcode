@@ -157,7 +157,41 @@ def _migrate(con) -> None:
                 con.execute(f"ALTER TABLE memories ADD COLUMN {col} TEXT")
             except sqlite3.OperationalError:
                 pass
+    # hierarchy (scope + abstraction) and labels; all additive with defaults, so older readers are unaffected
+    for col, decl in (("scope_path", "TEXT NOT NULL DEFAULT ''"),        # where it applies: '' repo, dir, or file
+                      ("scope_kind", "TEXT NOT NULL DEFAULT 'repo'"),    # repo | dir | file | symbol
+                      ("parent_id", "INTEGER"),                          # consolidated child -> lesson id
+                      ("level", "INTEGER NOT NULL DEFAULT 0"),           # 0 raw, 1 lesson
+                      ("labels", "TEXT NOT NULL DEFAULT ''"),            # comma-separated, sorted
+                      ("evidence_count", "INTEGER NOT NULL DEFAULT 1")): # lessons: number of children
+        if col not in mcols:
+            try:
+                con.execute(f"ALTER TABLE memories ADD COLUMN {col} {decl}")
+            except sqlite3.OperationalError:
+                pass
+    for idx, cols in (("idx_mem_scope", "scope_path"), ("idx_mem_parent", "parent_id")):
+        try:
+            con.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON memories({cols})")
+        except sqlite3.OperationalError:
+            pass
     con.commit()
+
+
+def scope_chain(path: str) -> list[str]:
+    """'billing/api/x.py' -> ['billing/api/x.py', 'billing/api', 'billing', ''] (nearest first; '' is the repo)."""
+    path = (path or "").strip("/")
+    out = []
+    while path:
+        out.append(path)
+        path = path.rsplit("/", 1)[0] if "/" in path else ""
+    out.append("")
+    return out
+
+
+def injectable_sql(alias: str = "m") -> str:
+    """Extra WHERE clause for memories that may be injected. With MEMCODE_CONSOLIDATE on, consolidated children are
+    hidden (their lesson is shown instead); off, nothing changes."""
+    return f" AND {alias}.parent_id IS NULL" if os.environ.get("MEMCODE_CONSOLIDATE") == "1" else ""
 
 
 def connect(repo_root: str | os.PathLike) -> sqlite3.Connection:

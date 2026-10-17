@@ -27,9 +27,10 @@ _DEP_NAMES = re.compile(
     r"uv\.lock|Pipfile|Pipfile\.lock|requirements[^/]*\.txt|Cargo\.toml|Cargo\.lock|go\.mod|go\.sum|"
     r"Gemfile|Gemfile\.lock|composer\.json|composer\.lock|setup\.cfg|tox\.ini)$", re.I)
 _CORRECTION = re.compile(
-    r"(?i)^\s*(no[,.!:]|no\s*[-\u2013\u2014]|no\s+(?:don't|do not|that|use|not)\b|nope\b|don'?t\b(?!\s+forget)|do not\b|stop\b)"
+    r"(?i)^\s*(no[,.!:]|no\s*[-\u2013\u2014]|no\s+(?:don't|do not|that|use|not)\b|nope\b|don'?t\b(?!\s+forget)|do not\b"
+    r"|stop\s+\w+ing\b)"         # "stop using X" opens a correction; "Stop, wait." / "Stop the job." do not
     r"|\bthat'?s (?:wrong|not (?:right|correct|what))\b|\binstead,? use\b|\buse\b.{1,60}\binstead\b"
-    r"|\brevert (?:that|this|it)\b|\bundo (?:that|this|it)\b|\byou (?:should not|shouldn'?t)\b"
+    r"|\byou (?:should not|shouldn'?t)\b"   # "revert/undo that" names the current change; real reverts have their own trigger
     r"|\b(?:never|always)\s+(?:use|run|call|put|write|add|commit)\b|\bremember (?:that|this)\b|\bfrom now on\b")
 # A rule stated as information rather than as a correction ("Heads up: this team prefers X").
 # Needs a normative word so that plain FYIs ("FYI the build is red") do not become rules.
@@ -43,7 +44,29 @@ _STATEMENT = re.compile(
 _STRONG = re.compile(
     r"(?i)\b(?:never|always)\s+(?:use|run|call|put|write|add|commit|name|start|end|indent|import|create|keep|make)\b"
     r"|\bremember (?:that|this)\b|\bfrom now on\b")
-_GIT_REVERT = re.compile(r"\bgit\s+(?:checkout|restore|revert|reset\s+--hard)\b")
+_GIT_REVERT = re.compile(r"git\s+(?:checkout|restore|revert|reset\s+--hard)\b")   # anchored: the segment's command
+
+
+def _segments(cmd: str) -> list[str]:
+    """Simple commands of a shell line, split on ; | & && || OUTSIDE quotes. The old regex split cut quoted text
+    (a grep pattern "a\\|git revert\\|b" yielded a fake `git revert` command and a false revert memory)."""
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=";&|")
+        lex.whitespace_split = True
+        lex.commenters = ""
+        out, cur = [], []
+        for tok in lex:
+            if tok and set(tok) <= set(";&|"):
+                if cur:
+                    out.append(" ".join(cur))
+                cur = []
+            else:
+                cur.append(tok)
+        if cur:
+            out.append(" ".join(cur))
+        return out
+    except ValueError:                       # unbalanced quotes: treat the whole line as one command
+        return [cmd.strip()]
 _STAGED_ONLY = re.compile(r"\bgit\s+restore\b(?=.*(?:--staged|\s-S\b))(?!.*(?:--worktree|\s-W\b))")
 _TRIVIAL = {"ls", "cd", "cat", "echo", "pwd", "head", "tail", "which", "clear", "git status",
             "git diff", "git log", "git show"}
@@ -76,6 +99,45 @@ def _imperative(text: str) -> str:
         t = t2
     t = t.strip(" ,;")
     return (t[:1].upper() + t[1:]) if t else text.strip()
+
+
+# A correction-shaped turn is not a standing rule when, with no explicit rule phrase (_STRONG/_STATEMENT), it
+# corrects the agent's reading of the REQUEST, is about now, reports status, points at the current change, or is
+# empty once the opener is removed. Measured on bench/precision (corpus + two held-out sets).
+_INTERPRET = re.compile(
+    r"(?i)\bI(?:'m|\s+am|\s+was)\s+(?:talking|asking|referring)\b|\bI\s+(?:meant|mean|asked|want|wanted)\b"
+    r"|\bnot what I\b|\bmisunderst\w*|\bthe other (?:one|file|pr|branch|function|module|test)\b"
+    r"|\bnot (?:just|only)\b|\bthe question (?:was|is)\b"
+    r"|\bwrong (?:repo|file|function|method|branch|pr|one|place|folder|directory|variable|module)\b")
+_ONE_OFF = re.compile(
+    r"(?i)\b(?:right now|for now|yet|this time|today|tonight|tomorrow|until|wait|for this|this one|in this pr"
+    r"|just (?:fix|commit|do|answer|show|tell|leave|change))\b|(?<![.\w])now\b(?!\s+on\b|\()")
+_STATUS = re.compile(r"(?i)\bstill\b|\bthe (?:bug|problem|issue|error|failure) is\b|\b(?:is )?fail(?:s|ing)? because\b")
+_DEICTIC = re.compile(
+    r"(?i)\bthere\b(?!\s*(?:is|are|was|were|'s)\b)|\b(?:it|that|this) back\b|\bback to\b"
+    r"|\b(?:this|that) (?:function|method|file|line|loop|variable|test|case|change|one)\b|\bline \d+|\byou (?:just )?added\b")
+_COMPLAINT = re.compile(r"(?i)\bthat'?s (?:wrong|not (?:right|correct))(?: at all)?\b")
+# a rule phrase inside a clause that describes the task is not an instruction ("add a hook so we never commit .env")
+_SUBORDINATE = re.compile(r"(?i)\b(?:that|so|so that|which|whether|ensures?|ensuring|checks?)\s+(?:we\s+|it\s+|you\s+|they\s+)?$")
+
+
+def _phrases(rx, text: str) -> bool:
+    return any(not _SUBORDINATE.search(text[max(0, m.start() - 30):m.start()]) for m in rx.finditer(text))
+
+
+def _not_a_rule(text: str) -> str | None:
+    """Why a turn that matched the capture patterns is still not a standing rule, or None."""
+    t = " ".join(text.split())
+    sents = [s for s in re.split(r"(?<=[.!?])\s+", t) if s.strip()]
+    if sents and all(s.rstrip().endswith("?") for s in sents):
+        return "question"
+    if _phrases(_STRONG, t) or _phrases(_STATEMENT, t):
+        return None
+    for name, rx in (("interpretation", _INTERPRET), ("one-off", _ONE_OFF), ("status", _STATUS), ("deictic", _DEICTIC)):
+        if rx.search(t):
+            return name
+    rest = re.sub(r"(?i)^\s*(?:stop|nope|no)\b", "", _COMPLAINT.sub("", _LEAD_ACK.sub("", t)))
+    return "bare" if len(re.findall(r"[A-Za-z0-9_./'`-]+", rest)) < 3 else None
 
 
 def _scrub(o):
@@ -149,9 +211,11 @@ class TriggerEngine:
         if not pp.is_absolute():
             pp = self.root / pp
         try:
-            return os.path.normpath(pp.resolve().relative_to(self.root)).replace(os.sep, "/")
+            rel = os.path.normpath(pp.resolve().relative_to(self.root)).replace(os.sep, "/")
         except ValueError:
             return None
+        from .tree import foreign
+        return None if foreign(rel) else rel           # edits in a nested worktree are another checkout's
 
     def _anchor(self, rel):
         """-> (anchor_path, anchor_hash). Registers existing files in `paths`."""
@@ -263,11 +327,12 @@ class TriggerEngine:
         # If only a text-only exchange came in between, the agent must have acted earlier in the session
         # and the prompt must carry an explicit rule ("never/always <verb>", "remember that", "from now
         # on", or a stated team rule). The first prompt of a session can never be a correction.
-        if had_edit or acted:
-            ok = _CORRECTION.search(text) or _STATEMENT.search(text)
+        # A rule phrase counts only outside a subordinate clause, and a match is dropped when _not_a_rule says why.
+        if had_edit or acted:            # _STRONG too: "Always keep X" after an edit was dropped before
+            ok = _phrases(_CORRECTION, text) or _phrases(_STATEMENT, text) or _phrases(_STRONG, text)
         else:
-            ok = st.acted_ever and (_STRONG.search(text) or _STATEMENT.search(text))
-        if not ok:
+            ok = st.acted_ever and (_phrases(_STRONG, text) or _phrases(_STATEMENT, text))
+        if not ok or _not_a_rule(text):
             return []
         if had_edit and st.edits:
             last = st.edits[-1]
@@ -322,8 +387,8 @@ class TriggerEngine:
             return []
         st.cmd_ev[cmd] = ev
         out = []
-        for seg in (x.strip() for x in re.split(r"&&|\|\||;|\|", cmd)):
-            if _GIT_REVERT.search(seg) and st.edits and not _STAGED_ONLY.search(seg):
+        for seg in _segments(cmd):
+            if _GIT_REVERT.match(seg) and st.edits and not _STAGED_ONLY.search(seg):
                 files = [r for r in (self._rel(t) for t in self._tokens(seg))
                          if r and any(e["path"] == r for e in st.edits)]
                 if files:

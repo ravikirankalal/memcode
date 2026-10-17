@@ -23,8 +23,11 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     tree.mark_stale(con, root)
     if prepare_only:
         return ""
-    from . import outcomes, pinned, salience
+    from . import facts, outcomes, pinned, salience
     outcomes.score_finished_sessions(con, root, current_session=session)
+    _safely(con, lambda: (facts.scan_repo(con, root), facts.infer(con)))
+    from . import maintenance
+    _safely(con, lambda: maintenance.run(con, root))      # scope, labels, consolidation, storage budget
     text = pinned.render_pinned(con, root)
     rules, notes = pinned.count_injected(text)
     store.bump(con, session, "rules_injected", rules)
@@ -69,6 +72,18 @@ def prompt(con, root: str, session: str, text: str) -> str:
 
 
 def tool_result(con, root: str, ev: dict) -> None:
-    """Feed one finished tool call (normalized shape above) to the triggers."""
+    """Feed one finished tool call (normalized shape above) to the triggers and the facts table."""
+    from . import facts
     from .triggers import TriggerEngine
     TriggerEngine(con, root).handle_batch([dict(ev, kind="tool_use"), dict(ev, kind="tool_result")])
+    _safely(con, lambda: facts.observe(con, root, ev))
+
+
+def _safely(con, fn) -> None:
+    """Facts are an extra: a failure there is rolled back and reported, and never blocks capture or the block."""
+    try:
+        fn()
+    except Exception as e:                    # noqa: BLE001
+        con.rollback()
+        import sys
+        print(f"memcode facts: {e}", file=sys.stderr)

@@ -12,6 +12,8 @@
   team                team memory dashboard: shared, imported, stale, worth sharing
   sync-rules [T...]   write the memory block into another agent's instruction file (default target: agents)
   setup AGENT         print the config that wires memcode into codex or gemini
+  facts [--backfill [--force]]  facts: commands, repo, environment, inferences (backfill from the event log)
+  fact set KEY VALUE | fact rm KEY   add or remove a fact by hand
   salience            shadow-mode scores per memory (logged each session start; not used for ranking)
   config [KEY on|off] show or set options (model-capture: opt-in model-based rule capture)
   export [FILE]       JSON dump (stdout if no FILE)
@@ -192,6 +194,45 @@ def cmd_sync_rules(con, a, root) -> int:
     return 0
 
 
+def cmd_facts(con, a, root) -> int:
+    from . import engine, facts
+    if a.backfill:
+        n = facts.backfill(con, root, force=a.force)
+        print(f"backfilled from the event log: {n} fact updates")
+    engine.session_start(con, root, "facts-cli", prepare_only=True)
+    facts.scan_repo(con, root)
+    facts.infer(con)
+    rows = facts.list_facts(con)
+    if not rows:
+        print("no facts yet")
+        return 0
+    cat = None
+    for r in rows:
+        if r["category"] != cat:
+            cat = r["category"]
+            print(f"\n[{cat}]")
+        stats = f"  runs {r['runs']} ok {r['ok']} fail {r['fail']}" if r["category"] in ("command", "env") else ""
+        role = f"{r['role']}: " if r["role"] else ""
+        print(f"  {role}{r['value']}  ({r['source']}){stats}")
+    print("\nshown at session start:")
+    for line in facts.lines(con):
+        print("  " + line)
+    return 0
+
+
+def cmd_fact(con, a) -> int:
+    from . import facts
+    if a.action == "set":
+        if not a.value:
+            print("usage: memcode fact set KEY VALUE", file=sys.stderr)
+            return 2
+        print(f"set {facts.set_user(con, a.key, ' '.join(a.value))}")
+        return 0
+    n = facts.remove(con, a.key)
+    print(f"removed {n}")
+    return 0 if n else 1
+
+
 def cmd_salience(con, a) -> int:
     rows = con.execute("""SELECT m.id, m.trigger, m.text,
           (SELECT COUNT(*) FROM injections i WHERE i.memory_id=m.id) AS shown,
@@ -265,6 +306,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("team")
     p = sub.add_parser("sync-rules"); p.add_argument("targets", nargs="*")
     p = sub.add_parser("setup"); p.add_argument("agent")
+    p = sub.add_parser("facts"); p.add_argument("--backfill", action="store_true"); p.add_argument("--force", action="store_true")
+    p = sub.add_parser("fact"); p.add_argument("action", choices=("set", "rm")); p.add_argument("key")
+    p.add_argument("value", nargs="*")
     p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
@@ -284,6 +328,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_add(con, a, root)
         if a.cmd == "config":
             return cmd_config(con, a, root)
+        if a.cmd == "facts":
+            return cmd_facts(con, a, root)
+        if a.cmd == "fact":
+            return cmd_fact(con, a)
         if a.cmd in ("share", "unshare", "team", "sync-rules"):
             return {"share": cmd_share, "unshare": cmd_unshare, "team": cmd_team,
                     "sync-rules": cmd_sync_rules}[a.cmd](con, a, root)

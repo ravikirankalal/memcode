@@ -142,7 +142,8 @@ def _doc_terms(con, rows: list[dict], body) -> dict[int, set[str]]:
 def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]:
     """[(score, memory row as dict)] for candidate memories, best first (only score >= MIN_SCORE)."""
     shown = {r[0] for r in con.execute("SELECT memory_id FROM injections WHERE session=?", (session,))}
-    rows = [dict(r) for r in con.execute("SELECT * FROM memories WHERE stale=0") if r["id"] not in shown]
+    rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0" + store.injectable_sql("m"))
+            if r["id"] not in shown]
     if not rows:
         return []
     pt = terms(prompt)

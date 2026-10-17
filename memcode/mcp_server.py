@@ -1,6 +1,6 @@
 """Minimal stdio MCP server (JSON-RPC 2.0, newline-delimited), stdlib only.
 
-Tools: memory_search, memory_add, memory_pinned.
+Tools: memory_search, memory_add, memory_pinned, memory_facts.
 """
 from __future__ import annotations
 
@@ -20,6 +20,10 @@ TOOLS = [
                      "path": {"type": "string"}}, "required": ["text"]}},
     {"name": "memory_pinned", "description": "Return the current pinned repo map and notes.",
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "memory_facts", "description": "Facts about this repo: build/test/lint/run commands that work here "
+     "(with how often they passed), commands declared in manifests, environment limitations, fragile areas.",
+     "inputSchema": {"type": "object", "properties": {"role": {"type": "string",
+                     "description": "optional filter, e.g. test, build, lint, run, env"}}}},
 ]
 
 
@@ -93,6 +97,15 @@ def _call_tool(con, root: str, name: str, args: dict) -> str:
         mid = store.add_memory(con, "manual", redact(text.strip())[:MAX_TEXT], redact(rel), h,
                                {"source": "mcp"}, confidence=0.6)
         return f"stored memory #{mid}"
+    if name == "memory_facts":
+        from . import facts
+        role = str(args.get("role") or "").strip().lower()
+        rows = [r for r in facts.list_facts(con)
+                if not role or r["role"] == role or r["category"] == role]
+        return "\n".join(
+            f"[{r['category']}] {r['role'] + ': ' if r['role'] else ''}{r['value']} ({r['source']}"
+            + (f", ran {r['runs']}x, {r['ok']} ok, {r['fail']} failed" if r["category"] == "command" else "") + ")"
+            for r in rows) or "no facts"
     if name == "memory_pinned":
         from . import pinned
         return pinned.render_pinned(con, root)
@@ -117,7 +130,7 @@ def handle(root: str, msg) -> dict | None:
             want = params.get("protocolVersion")
             ver = want if want in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0]
             res = {"protocolVersion": ver, "capabilities": {"tools": {}},
-                   "serverInfo": {"name": "memcode", "version": "0.5.0"}}
+                   "serverInfo": {"name": "memcode", "version": "0.6.0"}}
         elif method == "tools/list":
             res = {"tools": TOOLS}
         elif method == "tools/call":

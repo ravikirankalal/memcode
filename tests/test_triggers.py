@@ -151,7 +151,7 @@ class T(unittest.TestCase):
 
     def test_fresh_correction(self):
         self.fresh_edit()
-        self.assertEqual(len(self.fresh("prompt", text="that's wrong, revert that")), 1)
+        self.assertEqual(len(self.fresh("prompt", text="that's wrong, use pathlib instead of os.path")), 1)
         self.assertEqual(self.fresh("prompt", text="that's wrong again"), [])
 
     def test_fresh_retry_once(self):
@@ -163,3 +163,61 @@ class T(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RevertQuoting(unittest.TestCase):
+    """A grep pattern containing 'git revert' once produced a false revert memory (dogfooding, 2026-10-16)."""
+
+    def run_cmds(self, *cmds):
+        import tempfile
+        from pathlib import Path
+        from memcode import engine, store
+        d = tempfile.mkdtemp()
+        (Path(d) / "a.py").write_text("x = 1\n")
+        con = store.connect(d)
+        engine.prompt(con, d, "s", "change a.py")
+        engine.tool_result(con, d, {"kind": "tool_result", "session": "s", "tool": "Edit",
+                                    "input": {"file_path": "a.py", "old_string": "x = 1", "new_string": "x = 2"},
+                                    "command": None, "file_path": "a.py", "exit_code": 0, "output": ""})
+        for c in cmds:
+            engine.tool_result(con, d, {"kind": "tool_result", "session": "s", "tool": "Bash", "input": {"command": c},
+                                        "command": c, "file_path": None, "exit_code": 0, "output": ""})
+        out = [r[0] for r in con.execute("SELECT trigger FROM memories")]
+        con.close()
+        return out
+
+    def test_quoted_git_words_are_not_commands(self):
+        self.assertEqual(self.run_cmds('grep -n "def _revert\\|git revert\\|restore" triggers.py | head',
+                                       "echo 'git reset --hard'", 'git log --grep "git checkout"'), [])
+
+    def test_real_reverts_still_detected(self):
+        self.assertEqual(self.run_cmds("pytest -q && git checkout -- a.py"), ["revert"])
+        self.assertEqual(self.run_cmds("git reset --hard"), ["revert"])
+
+
+class ForeignWorktrees(unittest.TestCase):
+    """Agent worktrees under .claude/worktrees/ are other checkouts: never anchors, never indexed (dogfooding)."""
+
+    def test_worktree_edits_ignored_and_not_indexed(self):
+        import tempfile
+        from pathlib import Path
+        from memcode import engine, store, tree
+        d = tempfile.mkdtemp()
+        wt = Path(d, ".claude", "worktrees", "agent-x", "memcode")
+        wt.mkdir(parents=True)
+        (wt / "scope.py").write_text("x = 1\n")
+        (Path(d) / "a.py").write_text("y = 1\n")
+        con = store.connect(d)
+        tree.scan_repo(con, d)
+        self.assertEqual([r[0] for r in con.execute("SELECT path FROM paths WHERE kind='file'")], ["a.py"])
+        engine.prompt(con, d, "s", "fix it")
+        ev = {"kind": "tool_result", "session": "s", "tool": "Bash", "input": {"command": "pytest -q"},
+              "command": "pytest -q", "file_path": None, "exit_code": 1, "output": ""}
+        engine.tool_result(con, d, ev)
+        p = str(wt / "scope.py")
+        engine.tool_result(con, d, {"kind": "tool_result", "session": "s", "tool": "Edit",
+                                    "input": {"file_path": p, "old_string": "x = 1", "new_string": "x = 2"},
+                                    "command": None, "file_path": p, "exit_code": 0, "output": ""})
+        engine.tool_result(con, d, dict(ev, exit_code=0))
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM memories").fetchone()[0], 0)
+        con.close()
