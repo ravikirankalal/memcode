@@ -131,5 +131,16 @@ class Offline(unittest.TestCase):
             self.assertIn(sc["needed"], sc["oracle"])
 
 
+class Frozen(unittest.TestCase):
+    def test_hash_unchanged(self):
+        import hashlib
+        import json
+        from bench.live import hier1 as F
+        payload = json.loads(json.dumps(F.SCENARIOS, sort_keys=True))
+        self.assertEqual(hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(), F.FROZEN_SHA256,
+                         "hier1 changed after freezing: add a NEW set instead")
+        self.assertEqual(set(F.PREDICTIONS), {sc["name"] for sc in F.SCENARIOS})
+
+
 if __name__ == "__main__":
     unittest.main()

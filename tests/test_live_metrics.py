@@ -66,6 +66,21 @@ class TrapPath(unittest.TestCase):
         self.assertFalse(metrics.metrics(ev, rx, "content", trap_path=r"(^|/)billing/")["trap_hit"])  # only billing/ judged
 
 
+    def test_refused_writes_are_not_judged(self):
+        def write(i, content):
+            return {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": i, "name": "Write",
+                    "input": {"file_path": "/r/catalog/x.py", "content": content}}]}}
+        def result(i, err):
+            return {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": i, "is_error": err,
+                    "content": "PreToolUse:Write hook error: memcode: ..." if err else "File created"}]}}
+        ev = [write("a", "x = 1\n"), result("a", True), write("b", "EPOCH = 7\nx = 1\n"), result("b", False),
+              {"type": "result", "session_id": "s", "total_cost_usd": 0}]
+        rx = r"\A(?!.*\bEPOCH\s*=\s*7\b)"
+        self.assertFalse(metrics.metrics(ev, rx, "content")["trap_hit"])           # only the write that happened
+        self.assertTrue(metrics.metrics(ev[:2] + ev[4:], rx, "content")["trap_hit"] is False)  # refused alone: no file
+        self.assertEqual(metrics.edit_paths(ev), ["/r/catalog/x.py"])
+
+
 class ArmEnv(unittest.TestCase):
     def test_arms_do_not_inherit_memcode_flags(self):
         import os

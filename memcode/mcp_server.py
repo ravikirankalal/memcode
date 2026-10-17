@@ -137,7 +137,7 @@ def handle(root: str, msg) -> dict | None:
             want = params.get("protocolVersion")
             ver = want if want in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0]
             res = {"protocolVersion": ver, "capabilities": {"tools": {}},
-                   "serverInfo": {"name": "memcode", "version": "0.7.0"}}
+                   "serverInfo": {"name": "memcode", "version": "0.8.0"}}
         elif method == "tools/list":
             res = {"tools": TOOLS}
         elif method == "tools/call":
@@ -169,6 +169,8 @@ def handle_line(root: str, line: str):
 
 def main() -> None:
     root = store.resolve_root()
+    from . import scope
+    scope.apply_config(root)
     for line in sys.stdin:
         line = line.strip()
         if not line:

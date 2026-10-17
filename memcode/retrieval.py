@@ -146,9 +146,17 @@ def _doc_terms(con, rows: list[dict], body) -> dict[int, set[str]]:
 def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]:
     """[(score, memory row as dict)] for candidate memories, best first (only score >= MIN_SCORE). With MEMCODE_HIER
     the first TOP_K are the per-level allocation (scope.allocate), nearest scope first; the rest follow by score."""
-    shown = {r[0] for r in con.execute("SELECT memory_id FROM injections WHERE session=?", (session,))}
+    hier = scope.hier_enabled()
+    prompt_l = (prompt or "").lower()
+    src: dict[int, set] = {}
+    for mid, source in con.execute("SELECT memory_id, source FROM injections WHERE session=?", (session,)):
+        src.setdefault(mid, set()).add(source)
+    # MEMCODE_HIER (hier1 Run 14): a note on a file the prompt names is shown again next to the task even if the start
+    # block already listed it; a start-block mention among many was followed less often than one beside the request
+    again = lambda r: (hier and src.get(r["id"]) == {"pinned"} and bool(r["anchor_path"])
+                       and _mentions(prompt_l, r["anchor_path"], r["anchor_symbol"]))
     rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0" + store.injectable_sql("m"))
-            if r["id"] not in shown]
+            if r["id"] not in src or again(r)]
     if not rows:
         return []
     pt = terms(prompt)
@@ -163,11 +171,9 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     p_weight = sum(idf(t) for t in pt) or 1.0
     active = _active_files(con, session)
     rootp = os.path.realpath(root).replace(os.sep, "/") + "/"
-    prompt_l = (prompt or "").lower()
     prompt_paths = path_tokens(prompt)
     salience_rank = os.environ.get("MEMCODE_RANK") == "salience"
     sal_idx = None
-    hier = scope.hier_enabled()
     if hier:
         ws = scope.working_set(con, session, prompt, root, active=active)
         chain = scope.chains(ws)

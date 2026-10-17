@@ -147,12 +147,15 @@ class Hook(unittest.TestCase):
         Path(team.path(d)).write_text(json.dumps({"trigger": "correction", "text":
                                                   "Rule from user correction: Use tabs in billing/.",
                                                   "anchor_path": "", "id": "abc123"}) + "\n")
-        env = dict(os.environ, PYTHONPATH=str(ROOT))
+        env = dict(os.environ, PYTHONPATH=str(ROOT), MEMCODE_HIER="0")    # flat: the rule text is in the block
         env.pop("CLAUDE_PROJECT_DIR", None)
-        p = subprocess.run([sys.executable, "-m", "memcode.hook_cli", "SessionStart"], env=env, text=True,
-                           input=json.dumps({"session_id": "s1", "cwd": d}), capture_output=True)
-        ctx = json.loads(p.stdout)["hookSpecificOutput"]["additionalContext"]
+        run = lambda e: json.loads(subprocess.run(  # noqa: E731
+            [sys.executable, "-m", "memcode.hook_cli", "SessionStart"], env=e, text=True,
+            input=json.dumps({"session_id": "s1", "cwd": d}), capture_output=True).stdout)["hookSpecificOutput"]
+        ctx = run(env)["additionalContext"]
         self.assertIn("Use tabs in billing/.", ctx)
+        env.pop("MEMCODE_HIER")                                               # default: scoped, the map marks it
+        self.assertIn("billing/ [1 rule]", run(env)["additionalContext"])
 
 
 class Dashboard(unittest.TestCase):

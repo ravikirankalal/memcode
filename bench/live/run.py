@@ -35,6 +35,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -93,11 +94,12 @@ SCENARIOS = [
 ]
 
 
-def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None = None) -> list[dict]:
+def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None = None,
+           extra_env: dict | None = None, plugin_dir: Path | None = None) -> list[dict]:
     cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
            "--max-turns", "10", "--allowedTools", ALLOWED]
     if config in PLUGIN:
-        cmd += ["--plugin-dir", str(ROOT)]
+        cmd += ["--plugin-dir", str(plugin_dir or ROOT)]
     if resume:
         cmd += ["--resume", resume]
     else:
@@ -121,11 +123,32 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["MEMCODE_RANK"] = "relevance"
     if config == "memcode_salience":
         env["MEMCODE_RANK"] = "salience"
-    try:
-        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300, env=env)
-    except subprocess.TimeoutExpired:
-        return []
-    return metrics.parse_stream(p.stdout)
+    env["MEMCODE_HIER"] = "0"                   # arms predate the hierarchy default (0.8.0); hier arms set it
+    env.update(extra_env or {})                 # arm-specific switches on top (e.g. MEMCODE_HIER for hier1)
+    waited = 0
+    while True:
+        try:
+            p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=300, env=env)
+        except subprocess.TimeoutExpired:
+            return []
+        events = metrics.parse_stream(p.stdout)
+        if not rate_limited(events) or waited >= LIMIT_WAIT_S:
+            return events
+        # a usage limit answers instantly at $0 and would score as an agent that did nothing: wait, then retry
+        pause = min(900, 60 * 2 ** min(4, waited // 600))
+        print(f"[live] usage limit ({config}); retrying in {pause}s", file=sys.stderr, flush=True)
+        time.sleep(pause)
+        waited += pause
+
+
+LIMIT_WAIT_S = 4 * 3600
+
+
+def rate_limited(events: list[dict]) -> bool:
+    """The turn was refused by a usage/rate limit (429) before the model ran."""
+    final = next((e for e in reversed(events) if e.get("type") == "result"), {})
+    return bool(final.get("is_error")) and not final.get("total_cost_usd") and (
+        final.get("api_error_status") == 429 or "limit" in str(final.get("result", "")).lower())
 
 
 def make_repo(sc: dict) -> Path:

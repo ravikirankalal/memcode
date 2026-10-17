@@ -260,7 +260,7 @@ def cmd_salience(con, a) -> int:
 
 def cmd_config(con, a, root: str) -> int:
     from . import model_capture
-    keys = {"model-capture": "model_capture", "retrieval": "retrieval"}
+    keys = {"model-capture": "model_capture", "retrieval": "retrieval", "hierarchy": "hierarchy"}
     if a.key is None:
         cfg = model_capture.read_config(root)
         print(f"model-capture: {'on' if model_capture.enabled(root) else 'off'}"
@@ -269,9 +269,12 @@ def cmd_config(con, a, root: str) -> int:
         from . import retrieval
         print(f"retrieval: {'on' if retrieval.enabled(root) else 'off'}"
               f" (config {'on' if cfg.get('retrieval') else 'off'}; env MEMCODE_RETRIEVAL overrides)")
+        from . import scope
+        print(f"hierarchy: {'on' if scope.hier_enabled() else 'off'}"
+              f" (config {'off' if cfg.get('hierarchy') is False else 'on'}; env MEMCODE_HIER overrides)")
         return 0
     if a.key not in keys or a.value not in ("on", "off"):
-        print("usage: memcode config model-capture|retrieval on|off", file=sys.stderr)
+        print("usage: memcode config model-capture|retrieval|hierarchy on|off", file=sys.stderr)
         return 2
     model_capture.write_config(root, **{keys[a.key]: a.value == "on"})
     print(f"{a.key}: {a.value}")
@@ -420,6 +423,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return 0
     root = store.resolve_root(a.root)
+    from . import scope
+    scope.apply_config(root)
     con = store.connect(root)
     try:
         # --- scope (A) ---

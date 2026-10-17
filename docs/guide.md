@@ -84,15 +84,20 @@ convention, and stores it as a rule if so. The prompt is never delayed. **Off by
 text to the model and costs one call per classified prompt (about $0.02 on Opus 5.5; less on Haiku). The worker's model
 call runs with no tools, no settings or plugins (so memcode cannot recurse), and no saved session.
 
-### Experimental: hierarchical memory
+### Hierarchical memory
 
-Three opt-in pieces, each off until its own benchmark gate passes:
-
-- **Scope hierarchy** (`MEMCODE_HIER=1`, works with retrieval on). A rule naming directories applies to their deepest
+- **Scope hierarchy** (on by default since 0.8.0; `memcode config hierarchy off` or `MEMCODE_HIER=0` turns it off).
+  It passed two live gates (bench/live/RESULTS.md, Runs 14 and 15; on the untuned set mistakes fell from 24/54 to
+  0/53 with retrieval off and from 18/54 to 1/54 with retrieval on). A rule naming directories applies to their deepest
   common directory ("every module under billing/ ...": scope `billing/`); notes apply to their file or symbol. Retrieval
   only considers repo-wide memories and those on the path to the files in play, nearest scope first. The session-start
   block keeps repo-wide rules and marks map folders that hold scoped ones (`billing/ [3 rules]`); the first time the
-  agent reads or edits a file, that file's scoped rules are injected once. `memcode rescope`, `memcode list --scope DIR`.
+  agent reads a file, that file's scoped rules are injected once. If its first contact is a write, that write is refused
+  once with the rules as the reason (context added after a write would come too late) and the agent redoes it. Rules
+  arrive this way whether or not per-prompt retrieval is on. `memcode rescope`, `memcode list --scope DIR`.
+
+Still opt-in, each until its own gate passes:
+
 - **Consolidation** (`MEMCODE_CONSOLIDATE=1`). At session start, 3 or more agent notes that say the same thing (same
   trigger and anchor, text equal after numbers, paths and command flags are normalized) are grouped under one *lesson*
   ("4 similar fail_to_fix notes on api/x.py: ..."), which is shown instead of them. User rules and team memories are

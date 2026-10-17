@@ -1,4 +1,4 @@
-"""Scope hierarchy (MEMCODE_HIER=1): where a memory applies, and which memories a request may see.
+"""Scope hierarchy (on by default since 0.8.0; MEMCODE_HIER=0 turns it off): where a memory applies, and which memories a request may see.
 
 Every memory has a scope node (memories.scope_path, scope_kind):
   ''              repo    applies everywhere
@@ -50,26 +50,30 @@ _ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 _NAME_TAIL = r"/?(?![\w/-]|\.\w)"      # a standalone name: not followed by a deeper /component or more word
 
 
+OFF = ("0", "false", "off")
+
+
 def hier_enabled() -> bool:
-    return os.environ.get("MEMCODE_HIER") == "1"
+    """On by default (since 0.8.0, after hier1 and hier2): MEMCODE_HIER=0, or `memcode config hierarchy off` (applied
+    to the environment by apply_config at each entry point), turns it off."""
+    return os.environ.get("MEMCODE_HIER", "").lower() not in OFF
+
+
+def apply_config(root) -> None:
+    """Entry points (hooks, CLI, MCP server) call this once they know the repo: the repo's `config hierarchy off`
+    becomes MEMCODE_HIER=0 for this process unless the environment already sets MEMCODE_HIER."""
+    if "MEMCODE_HIER" in os.environ:
+        return
+    from .model_capture import read_config
+    if read_config(root).get("hierarchy") is False:
+        os.environ["MEMCODE_HIER"] = "0"
 
 
 def split_rules(root) -> bool:
-    """Should the start block hold back scoped rules? Only with the flag on AND retrieval on (else they never show)."""
-    if not hier_enabled():
-        return False
-    env = os.environ.get("MEMCODE_RETRIEVAL", "").lower()
-    if env in ("0", "false", "off"):
-        return False
-    if env in ("1", "true", "on"):
-        return True
-    if root is None:
-        return False
-    from . import retrieval
-    try:
-        return retrieval.enabled(root)
-    except Exception:          # noqa: BLE001  (an unreadable config means retrieval is off)
-        return False
+    """Should the start block hold back scoped rules? With the flag on, yes: they arrive when the agent works there,
+    by prompt retrieval (if on), first-touch injection on a read, or the first-write refusal (engine.before_write);
+    the map marks folders that hold them. (Before first touch existed this also required retrieval.)"""
+    return hier_enabled()
 
 
 def _fold(s: str) -> str:
@@ -297,6 +301,20 @@ def list_scoped(con, d: str, include_stale: bool = False) -> list:
     dl = _fold(d)
     return con.execute(f"""SELECT * FROM memories WHERE (lower(scope_path)=? OR substr(lower(scope_path),1,?)=?){live}
                            ORDER BY scope_path, updated_at DESC""", (dl, len(dl) + 1, dl + "/")).fetchall()
+
+
+def has_unseen_rules(con, session: str, path: str, root=None) -> bool:
+    """True when a user rule scoped on `path`'s chain (repo scope excluded) has not been shown this session."""
+    if not hier_enabled():
+        return False
+    rel = _rel(path, _root_prefixes(root)) if path else None
+    chain = [c for c in store.scope_chain(rel or "") if c]
+    if not chain:
+        return False
+    return con.execute(f"""SELECT 1 FROM memories m WHERE m.stale=0 AND m.trigger='correction'
+                           AND m.scope_path IN ({",".join("?" * len(chain))}){store.injectable_sql("m")}
+                           AND m.id NOT IN (SELECT memory_id FROM injections WHERE session=?) LIMIT 1""",
+                       (*chain, session)).fetchone() is not None
 
 
 def rules_for_path(con, session: str, path: str, root=None, token_cap: int = TOUCH_TOKEN_CAP) -> tuple[str, list[int]]:
