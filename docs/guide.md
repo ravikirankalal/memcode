@@ -177,7 +177,7 @@ hooks cannot inject context.
 | Nothing is injected | `python3 -m memcode stats` (any memories?). Rules come only from correction-style prompts that follow an agent action. |
 | A correction was not captured | Phrase it as a rule ("No - always X", "never Y"); see the trigger table. |
 | Hook errors | Failures never block the agent; they are logged to `<repo>/.memcode/error.log`. |
-| `python3 -m memcode` cannot import | Set `PYTHONPATH` to the plugin directory (the clone, or the installed plugin cache) or run from a checkout. |
+| `python3 -m memcode` cannot import | Use `/memcode:cli ...` inside Claude Code, or the plugin's `bin/memcode` (see the README alias); `python3 -m memcode` only works from a checkout or with `PYTHONPATH` set to the plugin directory. |
 | Wrong repo | The root is `CLAUDE_PROJECT_DIR`, else the git toplevel, else the working directory. Use `--root`. |
 | Stale or wrong memory | `python3 -m memcode show ID`, then `forget ID` or `prune-stale`. |
 

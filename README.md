@@ -10,17 +10,26 @@ A Claude Code plugin. Local-first, stdlib-only Python.
 
 ## Install
 
-Requires Claude Code and `python3` on your PATH (tested on Python 3.13; no third-party packages).
+You need **Claude Code** and **`python3`** 3.11 or newer (tested on 3.11, 3.12 and 3.13; no packages to install) on macOS or Linux.
+Native Windows is untested.
+
+In Claude Code, run:
 
 ```text
 /plugin marketplace add ravikirankalal/memcode
 /plugin install memcode@memcode
 ```
 
-Restart Claude Code. Memory is stored per repository in `<repo>/.memcode/memory.db`; memcode adds `.memcode/`
-to the repo's `.git/info/exclude`, so it is never committed.
+Restart Claude Code. That's it: memcode starts working in every repo you open. Memory is stored per repository in
+`<repo>/.memcode/`, which memcode keeps out of git (it adds itself to `.git/info/exclude`). Nothing leaves your
+machine unless you turn on the optional model capture.
 
-To try it from a checkout instead: `claude --plugin-dir /path/to/memcode`.
+Recommended: also turn on per-prompt retrieval (each prompt then gets the memories relevant to it) by running
+`/memcode:cli config retrieval on` in Claude Code.
+
+Update later with `/plugin marketplace update memcode` then `/plugin update memcode@memcode`; uninstall with
+`/plugin uninstall memcode@memcode`. To try a checkout instead: `claude --plugin-dir /path/to/memcode`.
+Codex CLI or Gemini CLI: see [Other agents](docs/guide.md#other-agents-codex-cli-and-gemini-cli).
 
 ## What it does
 
@@ -39,24 +48,27 @@ Nothing is sent anywhere: no network access, no extra model calls.
 In a repo, tell the agent something it could not infer: *"No - in this repo tests go in `checks/`, never `tests/`."*
 Start a new session and look at the injected rules, or ask the agent where tests go.
 
-Inspect and control what is stored:
+Inspect and control what is stored, from inside Claude Code:
 
 ```text
-python3 -m memcode list            # memories (add --all to include stale)
-python3 -m memcode show 3          # one memory with provenance
-python3 -m memcode forget 3        # delete it
-python3 -m memcode add "Deploys run from release/ branches" --path .github
-python3 -m memcode stats           # counts by trigger, stale, retrievals
-python3 -m memcode export mem.json
-python3 -m memcode prune-stale
-python3 -m memcode why 3           # salience: how costly this memory was to learn, and why
-python3 -m memcode team            # team memory: shared, imported, worth sharing
-python3 -m memcode share 3         # add memory #3 to .memcode-team.jsonl (then commit it)
+/memcode:status                  what is stored, per-session counters
+/memcode:list                    memories (add --all to include stale ones)
+/memcode:facts                   facts: build/test/run commands, environment limits, fragile areas
+/memcode:why 3                   why memory #3 ranks where it does
+/memcode:forget 3                delete memory #3
+/memcode:cli                     every other command: show, add, team, share, fact set, config, export...
 ```
 
-(run from your repo, with `PYTHONPATH` pointing at the plugin directory if you installed it as a plugin; see the guide).
+From a terminal, the same CLI is `bin/memcode` in the plugin directory. A shell alias that always points at the
+installed version:
 
-The agent also gets three MCP tools: `memory_search`, `memory_add`, `memory_pinned`.
+```bash
+alias memcode='python3 "$(ls -d ~/.claude/plugins/cache/memcode/memcode/*/ | sort -V | tail -1)bin/memcode"'
+memcode list          # run inside a repo
+```
+
+The agent also gets four MCP tools: `memory_search`, `memory_add`, `memory_pinned`, `memory_facts`, and can run
+`memcode` directly (the plugin's `bin/` is on its PATH).
 
 ## Docs
 

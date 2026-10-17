@@ -312,6 +312,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
     sub.add_parser("prune-stale")
+    if not (sys.argv[1:] if argv is None else argv):
+        ap.print_help()                         # bare `memcode` / `/memcode:cli`: show what is available
+        return 0
     a = ap.parse_args(argv)
     if a.cmd == "setup":                       # needs no store
         from . import setup
