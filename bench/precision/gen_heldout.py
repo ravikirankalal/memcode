@@ -2,6 +2,7 @@
 trigger patterns), AFTER the proposal in proposal.py was designed on corpus.jsonl. One call, about $0.02.
 
   python3 bench/precision/gen_heldout.py > /tmp/heldout_raw.jsonl     # then review labels -> heldout.jsonl
+  HELDOUT_DOMAIN="..." python3 bench/precision/gen_heldout.py         # heldout2.jsonl, generated after proposal v2
 
 The model's labels are reviewed by hand; every changed label is recorded in heldout.jsonl as `label_changed_from`.
 """
@@ -37,7 +38,10 @@ prior_agent_action: what the agent most plausibly did just before this message (
 
 
 def main() -> None:
-    cmd = ["claude", "-p", PROMPT, "--model", os.environ.get("HELDOUT_MODEL", "haiku"), "--setting-sources", "",
+    prompt = PROMPT
+    if os.environ.get("HELDOUT_DOMAIN"):     # heldout2: a different team and stack, so the set is not a near-copy
+        prompt += f"\n\nThe team works on: {os.environ['HELDOUT_DOMAIN']}. Use that domain's files, tools and jargon."
+    cmd = ["claude", "-p", prompt, "--model", os.environ.get("HELDOUT_MODEL", "haiku"), "--setting-sources", "",
            "--strict-mcp-config", "--tools", "", "--no-session-persistence", "--session-id", str(uuid.uuid4()),
            "--max-budget-usd", "0.30", "--output-format", "json"]
     with tempfile.TemporaryDirectory() as cwd:

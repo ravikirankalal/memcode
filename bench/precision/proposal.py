@@ -31,7 +31,7 @@ from memcode import triggers as T
 
 # 2. _CORRECTION without the revert/undo alternatives (otherwise identical to memcode.triggers._CORRECTION)
 CORRECTION = re.compile(
-    r"(?i)^\s*(no[,.!:]|no\s*[-–—]|no\s+(?:don't|do not|that|use|not)\b|nope\b|don'?t\b(?!\s+forget)|do not\b|stop\b)"
+    r"(?i)^\s*(no[,.!:]|no\s*[-–—]|no\s+(?:don't|do not|that|use|not)\b|nope\b|don'?t\b(?!\s+forget)|do not\b|stop\s+\w+ing\b)"
     r"|\bthat'?s (?:wrong|not (?:right|correct|what))\b|\binstead,? use\b|\buse\b.{1,60}\binstead\b"
     r"|\byou (?:should not|shouldn'?t)\b"
     r"|\b(?:never|always)\s+(?:use|run|call|put|write|add|commit)\b|\bremember (?:that|this)\b|\bfrom now on\b")
@@ -42,14 +42,14 @@ INTERPRET = re.compile(
     r"|\bnot (?:just|only)\b|\bthe question (?:was|is)\b"
     r"|\bwrong (?:repo|file|function|method|branch|pr|one|place|folder|directory|variable|module)\b")
 ONE_OFF = re.compile(
-    r"(?i)\b(?:right now|for now|yet|this time|today|tonight|tomorrow|until|wait|first|for this|this one|in this pr"
-    r"|just (?:fix|commit|do|answer|show|tell|leave|change))\b|\bnow\b(?!\s+on\b)")
+    r"(?i)\b(?:right now|for now|yet|this time|today|tonight|tomorrow|until|wait|for this|this one|in this pr"
+    r"|just (?:fix|commit|do|answer|show|tell|leave|change))\b|(?<![.\w])now\b(?!\s+on\b|\()")
 STATUS = re.compile(r"(?i)\bstill\b|\bthe (?:bug|problem|issue|error|failure) is\b|\b(?:is )?fail(?:s|ing)? because\b")
 DEICTIC = re.compile(
     r"(?i)\bthere\b(?!\s*(?:is|are|was|were|'s)\b)|\b(?:it|that|this) back\b|\bback to\b"
     r"|\b(?:this|that) (?:function|method|file|line|loop|variable|test|case|change|one)\b|\bline \d+|\byou (?:just )?added\b")
 COMPLAINT = re.compile(r"(?i)\bthat'?s (?:wrong|not (?:right|correct))(?: at all)?\b")
-SUBORDINATE = re.compile(r"(?i)\b(?:that|so|so that|to|which|whether|ensures?|ensuring|checks?)\s+(?:we\s+|it\s+|you\s+|they\s+)?$")
+SUBORDINATE = re.compile(r"(?i)\b(?:that|so|so that|which|whether|ensures?|ensuring|checks?)\s+(?:we\s+|it\s+|you\s+|they\s+)?$")
 
 
 def _phrases(rx, text):

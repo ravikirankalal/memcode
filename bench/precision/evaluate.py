@@ -179,7 +179,16 @@ def main() -> None:
     ap.add_argument("--corpus", default=str(HERE / "corpus.jsonl"))
     ap.add_argument("--proposal", action="store_true")
     ap.add_argument("--json")
+    ap.add_argument("--compare", action="store_true", help="list items whose capture differs current vs proposal")
     a = ap.parse_args()
+    if a.compare:
+        cur, new = capture(load(a.corpus)), capture(load(a.corpus), proposal=True)
+        for c, n in zip(cur, new):
+            if c["captured"] != n["captured"]:
+                good = n["captured"] == (n["label"] == "rule")
+                print(f"{'FIXED' if good else 'BROKE'} {'+' if n['captured'] else '-'} [{n['id']} {n['category']}, "
+                      f"after {n['prior_agent_action']}] {n['text'][:100]!r}")
+        return
     res = capture(load(a.corpus), proposal=a.proposal)
     s = summarize(res)
     print(report(s, f"{Path(a.corpus).name}: {'PROPOSED' if a.proposal else 'CURRENT'} triggers"))
