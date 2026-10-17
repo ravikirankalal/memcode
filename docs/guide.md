@@ -97,10 +97,14 @@ accumulates, and shown in a short `## Facts` section at session start.
 | inference | aggregated: fragile folders, commands that keep failing | `make deploy` has failed 3x and never passed here |
 | user | `memcode fact set KEY VALUE` | Deploys only from release/* branches |
 
-A command only counts as confirmed when its exit status is really its own: not piped (`| tail`), not followed by
-`|| fallback`, not one of several commands in a failing line. Commands run after `cd` to a place outside the repo,
-inline scripts (`python3 -c`, heredocs) and commands with shell variables are not recorded. Nothing is taken from
-command output.
+A command only counts as confirmed when its exit status is really its own: not followed by `|| fallback`, not one
+of several commands in a failing line. Agents usually pipe output (`python3 -m unittest 2>&1 | tail -3`), which hides
+the exit status; for a lone piped command the runner's summary line decides instead (`OK`, `FAILED (failures=1)`,
+`5 passed in 0.1s`, `test result: ok.`, `All checks passed!`, ...). A failure summary counts through any filter; a
+pass only through end-keeping ones (`tail`, `cat`, `tee`), since `head` or `grep` may have cut a failure off. Without
+a summary line the run stays "not confirmed". Commands run after `cd` to a place outside the repo, inline scripts
+(`python3 -c`, heredocs), probes (`--version`, `--help`) and commands with shell variables are not recorded. Nothing
+from command output is stored.
 
 ```
 python3 -m memcode facts                 # all facts, and what the session-start block shows

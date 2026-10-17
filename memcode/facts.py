@@ -12,7 +12,8 @@ A memory records one event ("the user corrected X"). A fact is keyed and updated
   user       set by the user (`memcode fact set KEY VALUE`)
 
 Only facts derived from the command itself are recorded, never text from command output (untrusted). Commands are
-redacted. Rendered in the session-start block as a compact "## Facts" section (inside the untrusted wrapper).
+redacted. The one use of output is a pass/fail verdict for a piped command (agents habitually run `cmd 2>&1 | tail`,
+which hides the exit status): a known test/lint/typecheck summary line decides it; nothing from it is stored. Rendered in the session-start block as a compact "## Facts" section (inside the untrusted wrapper).
 """
 from __future__ import annotations
 
@@ -68,6 +69,17 @@ _TRIVIAL = re.compile(r"^(?:cd|ls|ll|pwd|cat|head|tail|less|more|grep|rg|ag|find
                       r"date|basename|dirname|realpath|readlink|du|df|uptime|nproc|whoami|id|jq|tar|unzip|gzip|curl|wget)$")
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*$")
 _REDIRECT = re.compile(r"^(?:\d?>>?|&>|<)\S*$|^\d?>&\d$")
+# summary lines of common runners; a pipe hides the exit status, these restore it (see _piped_verdict)
+_OUT_FAIL = re.compile(r"^FAILED \((?:failures|errors)=|^=+ .*\b\d+ (?:failed|errors?)\b.* =+$|"
+                       r"^(?:\d+ failed|\d+ errors?)(?:, \d+ \w+)* in [\d.]+s|^Tests:.*\b\d+ failed\b|"
+                       r"^\s*Tests\s+\d+ failed\b|^FAIL\b|^--- FAIL:|^test result: FAILED\b|"
+                       r"^Found \d+ errors?\b|^error(?:\[E\d+\])?:|^make(?:\[\d+\])?: \*\*\*", re.M)
+_OUT_PASS = re.compile(r"^OK(?: \(.*\))?$|^=+ (?:\d+ (?:passed|skipped|deselected|xfailed|xpassed|warnings?)"
+                       r"(?:, )?)+ in [\d.]+s(?: \(.*\))? =+$|^(?:\d+ (?:passed|skipped|deselected|warnings?)(?:, )?)+"
+                       r" in [\d.]+s$|^Tests:\s+(?:\d+ (?:passed|skipped|todo)(?:, )?)+, \d+ total$|"
+                       r"^\s*Tests\s+\d+ passed\b|^ok\s+\S+|^test result: ok\.|^All checks passed!$|"
+                       r"^Success: no issues found\b", re.M)
+_TAIL_FILTERS = ("tail", "cat", "tee", "less", "more")   # keep the end of the output, where summaries are
 RECUR_MIN = 3                     # a non-role command becomes a fact after this many successful runs
 MAX_COMMAND_FACTS = 300
 
@@ -117,13 +129,15 @@ def normalize(seg: str, root: str | None = None) -> str | None:
     toks = [t for t in toks if not _REDIRECT.match(t)]
     if not toks or _TRIVIAL.match(toks[0]) or not _CMD_WORD.match(toks[0]) or toks[0].startswith("-"):
         return None
-    if any("$" in t or "`" in t or t in ("(", ")", "{", "}") or t.endswith("...") for t in toks):
+    if any("$" in t or "`" in t or t in ("(", ")", "{", "}") or (t.endswith("...") and not t.endswith("/...")) for t in toks):
         return None                                     # shell variables / subshells / clipped text: not reusable
     if toks[0] in ("python", "python3", "node", "deno", "bun", "ruby", "perl") and len(toks) > 1 \
             and toks[1] in ("-c", "-e", "-", "-p"):
         return None                                     # inline or stdin scripts are one-offs
     if toks[0] == "claude" and toks[1:2] == ["-p"]:
         return None
+    if toks[-1] in ("--version", "-V", "--help", "-h"):
+        return None                                     # `ruff --version` is a probe, not how the repo is linted
     rootp = os.path.realpath(root).rstrip("/") + "/" if root else None
     out = []
     for t in toks:
@@ -134,6 +148,19 @@ def normalize(seg: str, root: str | None = None) -> str | None:
         out.append(t)
     s = " ".join(out)
     return s if len(s) <= 200 else None
+
+
+def _piped_verdict(rest: list[str], output: str) -> bool | None:
+    """Outcome of a command piped into `rest` (the simple commands after it), read from summary lines in the
+    output; None when unknown. A failure summary anywhere decides; a pass needs only end-keeping filters after
+    the command (tail, cat, tee), untruncated output and no failure line, since head/grep may cut a failure off."""
+    out = output or ""
+    if _OUT_FAIL.search(out):
+        return False
+    words = [r.split()[0] for r in rest if r.split()]
+    if not words or any(w not in _TAIL_FILTERS for w in words) or out.endswith("..."):
+        return None
+    return True if _OUT_PASS.search(out[-4000:]) else None
 
 
 def role_of(cmd: str) -> str | None:
@@ -191,8 +218,17 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
             touched += 1
     if code == 0:
         for _, op, n in useful:
-            proven = op not in ("|", "&")                # a pipe or background job hides the exit status
-            _upsert(con, f"cmd:{n}", "command", role_of(n), n, "observed", runs=1, ok=1 if proven else 0, ts=ts)
+            ok, fail = (1, 0) if op not in ("|", "&") else (0, 0)   # a pipe or background job hides the exit status
+            if op == "|" and len(useful) == 1:           # `cmd 2>&1 | tail -3`: the output's summary line decides
+                j = next(k for k, sg in enumerate(segs) if sg[2] == n)
+                rest = []
+                for s2, op2, _ in segs[j + 1:]:
+                    rest.append(s2)
+                    if op2 != "|":
+                        break
+                verdict = _piped_verdict(rest, str(ev.get("output") or ""))
+                ok, fail = (1, 0) if verdict else (0, 1) if verdict is False else (0, 0)
+            _upsert(con, f"cmd:{n}", "command", role_of(n), n, "observed", runs=1, ok=ok, fail=fail, ts=ts)
             touched += 1
     elif len(useful) == 1 and len(segs) == 1:           # a failure is attributable only to a lone command
         n = useful[0][2]
