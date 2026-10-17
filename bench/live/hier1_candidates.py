@@ -327,7 +327,7 @@ def oracle_all(sc: dict) -> str:
 # Everything the hierarchy feature adds is reached through this section. Update here once impl-scope posts the final
 # names on the bulletin; nothing else in this file needs to change.
 HIER_ENV = {"MEMCODE_HIER": "1"}
-FLAT_ENV = {"MEMCODE_RETRIEVAL": "1"}
+FLAT_ENV = {"MEMCODE_RETRIEVAL": "1", "MEMCODE_HIER": "0"}   # hierarchy is on by default since 0.8.0
 
 
 def hier_flag_present() -> bool:

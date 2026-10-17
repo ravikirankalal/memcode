@@ -161,7 +161,7 @@ def arm_env(flags: dict):
     saved = {k: v for k, v in os.environ.items() if k.startswith("MEMCODE_") or k == "CLAUDE_PROJECT_DIR"}
     for k in saved:
         os.environ.pop(k)
-    os.environ.update({"MEMCODE_RETRIEVAL": "1", **flags})
+    os.environ.update({"MEMCODE_RETRIEVAL": "1", "MEMCODE_HIER": "0", **flags})   # flat unless an arm says so
     try:
         yield
     finally:

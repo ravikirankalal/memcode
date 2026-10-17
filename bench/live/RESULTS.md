@@ -465,3 +465,41 @@ Hier arm only, same frozen set, plugin with the fix (re-show a start-block file 
 Not a gate (hier1 is tuned on now): hier 2/54 mistakes; c_avatar_prefix 0/6 (was 2/6, needed note now also arrives
 at prompt time 6/6); c_auth_audit 2/6 (was 0/6; flat 2/6, oracle pilot 1/4: this scenario is noisy even with the rule
 in the prompt); everything else 0/6. Adoption as default waits for an untuned set (hier2). $0.35.
+
+---
+
+# Run 15 (2026-10-17): hier2, untuned confirmation — gate passed; scope hierarchy becomes the default (0.8.0)
+
+Frozen `hier2` (bench/live/hier2.py): a different project (clinic), 9 scenarios, written after hier1 was tuned on.
+Pilots: nomem 6/6 traps in 8 scenarios, 5/6 in one; oracle 0/4 everywhere. Four arms, since retrieval is off by
+default: flat (retrieval on) vs hier (+MEMCODE_HIER=1), and default (0.7.0 defaults, retrieval off) vs hier_noret
+(MEMCODE_HIER=1, retrieval off). Plugin e66dcac. Haiku, 6 runs per cell, $1.33; one session failed to run (excluded).
+
+| scenario | shape | flat | hier | default | hier_noret |
+|---|---|---|---|---|---|
+| h2_slots_version | nearest_crowded | 6/6 | 0/6 | 6/6 | 0/6 |
+| h2_claims_ledger | parent_rule | 0/6 | 0/6 | 6/6 | 0/6 |
+| h2_exports_phi | grandparent_rule | 6/6 | 0/6 | 6/6 | 0/5 |
+| h2_repo_license | repo_wide_old | 6/6 | 0/6 | 6/6 | 0/6 |
+| c2_repo_header | repo_wide_recent (control) | 0/6 | 0/6 | 0/6 | 0/6 |
+| c2_lab_code | two_dirs (control) | 0/6 | 0/6 | 0/6 | 0/6 |
+| c2_chart_rows | edit_named_file (control) | 0/6 | 0/6 | 0/6 | 0/6 |
+| c2_remind_prefix | no_path_in_prompt (control) | 0/6 | 0/6 | 0/6 | 0/6 |
+| c2_shift_hours | file_note (control) | 0/6 | 1/6 | 0/6 | 0/6 |
+| **total** | | 18/54 [0.22, 0.47] | **1/54** [0.00, 0.10] | 24/54 [0.32, 0.58] | **0/53** [0.00, 0.07] |
+
+## Against the predictions
+- Surfacing predicted every cell: flat missed 3 (6/6 mistakes each), default missed 4, hier and hier_noret 0.
+- Gate (1), lower totals with non-overlapping Wilson intervals: **passed** in both pairs.
+- Gate (2), no control worse by more than 1/6: **passed** (worst: c2_shift_hours 0/6 -> 1/6 with retrieval on).
+- With retrieval off, every scoped rule arrived by first touch or by the refused first write (touch column 5-6/6).
+
+## Decision
+MEMCODE_HIER is on by default from 0.8.0 (`memcode config hierarchy off` / `MEMCODE_HIER=0` to opt out). Earlier
+frozen sets keep measuring the behaviour they were frozen against: every benchmark arm now sets MEMCODE_HIER=0 unless
+it is a hierarchy arm.
+
+## Caveats
+Constructed stores (dense directory-scoped rules), one model, 6 runs per cell. The first-write refusal costs one extra
+tool call per folder with unseen rules per session; it is wired for Claude Code (PreToolUse) only, Codex and Gemini get
+the read-time injection.

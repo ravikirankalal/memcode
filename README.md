@@ -40,13 +40,14 @@ Codex CLI or Gemini CLI: see [Other agents](docs/guide.md#other-agents-codex-cli
 3. **Expires** memories tied to code that changed (staleness), and re-anchors them across renames.
 4. **Shares** what you choose with your team: `memcode share ID` writes it to `.memcode-team.jsonl`, which you commit
    and review like any change; teammates' agents pick it up after the merge. Nothing is shared automatically.
-
-5. **Keeps facts** about the repo: the test/build/lint commands that actually work here (confirmed from exit codes, or
+5. **Scopes** memories to where they apply (since 0.8.0): a rule about `billing/` reaches the agent when it works in
+   `billing/`, instead of crowding every session. On a crowded store this took live benchmark mistakes from 24/54 to
+   0/53 (bench/live/RESULTS.md, Run 15). `memcode config hierarchy off` (or `MEMCODE_HIER=0`) restores flat memory.
+6. **Keeps facts** about the repo: the test/build/lint commands that actually work here (confirmed from exit codes, or
    from the runner's summary line when the agent pipes output), missing tools, fragile folders.
 
-Experimental, opt-in (see [docs/guide.md](docs/guide.md)): scoped memory (`MEMCODE_HIER=1`: folder rules arrive when the
-agent works there), consolidation of repeated notes into lessons (`MEMCODE_CONSOLIDATE=1`), a storage budget
-(`MEMCODE_STORE_BUDGET=N`), and topic labels for filtering.
+Experimental, opt-in (see [docs/guide.md](docs/guide.md)): consolidation of repeated notes into lessons
+(`MEMCODE_CONSOLIDATE=1`), a storage budget (`MEMCODE_STORE_BUDGET=N`), and topic labels for filtering.
 
 In a simulated developer week (bench/live/RESULTS.md, Run 13) memcode cut convention mistakes from 19/24 to 5/24
 without any effort from the user.

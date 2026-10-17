@@ -123,6 +123,7 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["MEMCODE_RANK"] = "relevance"
     if config == "memcode_salience":
         env["MEMCODE_RANK"] = "salience"
+    env["MEMCODE_HIER"] = "0"                   # arms predate the hierarchy default (0.8.0); hier arms set it
     env.update(extra_env or {})                 # arm-specific switches on top (e.g. MEMCODE_HIER for hier1)
     waited = 0
     while True:

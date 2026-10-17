@@ -3,7 +3,7 @@
 
 Reads the hook JSON from stdin, translates it with adapters.normalize, runs the engine, and prints any context as
 {"hookSpecificOutput": {"hookEventName", "additionalContext"}} (session start and per-prompt retrieval).
-PreToolUse (MEMCODE_HIER only) may refuse a first write into a scope with unseen rules (engine.before_write).
+PreToolUse (scope hierarchy, on unless MEMCODE_HIER=0) may refuse a first write into a scope with unseen rules (engine.before_write).
 Pre-compaction events only refresh the tree. Never raises: a memory failure must not break the agent; failures are
 appended to .memcode/error.log.
 """
@@ -41,12 +41,17 @@ def main(argv: list[str]) -> int:
             d = {}
     except Exception:
         d = {}
-    if str(d.get("tool_name", "")).lower() in ("read", "read_file", "notebookread") \
-            and os.environ.get("MEMCODE_HIER") != "1":
-        return 0                                   # reads only matter for MEMCODE_HIER's first touch: stay cheap
-    if name == "PreToolUse" and os.environ.get("MEMCODE_HIER") != "1":
-        return 0                                   # only MEMCODE_HIER refuses a first write (engine.before_write)
+    hier_only = name == "PreToolUse" or str(d.get("tool_name", "")).lower() in ("read", "read_file", "notebookread")
+    if hier_only and os.environ.get("MEMCODE_HIER", "").lower() in ("0", "false", "off"):
+        return 0                                   # reads and PreToolUse only serve the scope hierarchy: stay cheap
     root = store.resolve_root(d.get("cwd"))
+    try:
+        from . import scope
+        scope.apply_config(root)                   # `memcode config hierarchy off`
+        if hier_only and not scope.hier_enabled():
+            return 0
+    except Exception:  # noqa: BLE001  never break the agent
+        pass
     try:
         con = store.connect(root)
         try:

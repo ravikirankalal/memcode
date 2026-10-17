@@ -65,6 +65,7 @@ def load_spec(name: str) -> dict:
 
 def env_for(arm: str) -> dict:
     env = {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_")}
+    env["MEMCODE_HIER"] = "0"            # e2e1 was frozen against 0.7.0 behaviour (hierarchy off)
     if arm in ("nomem", "oracle"):
         env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
     if arm == "memcode":

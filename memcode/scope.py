@@ -1,4 +1,4 @@
-"""Scope hierarchy (MEMCODE_HIER=1): where a memory applies, and which memories a request may see.
+"""Scope hierarchy (on by default since 0.8.0; MEMCODE_HIER=0 turns it off): where a memory applies, and which memories a request may see.
 
 Every memory has a scope node (memories.scope_path, scope_kind):
   ''              repo    applies everywhere
@@ -50,8 +50,23 @@ _ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 _NAME_TAIL = r"/?(?![\w/-]|\.\w)"      # a standalone name: not followed by a deeper /component or more word
 
 
+OFF = ("0", "false", "off")
+
+
 def hier_enabled() -> bool:
-    return os.environ.get("MEMCODE_HIER") == "1"
+    """On by default (since 0.8.0, after hier1 and hier2): MEMCODE_HIER=0, or `memcode config hierarchy off` (applied
+    to the environment by apply_config at each entry point), turns it off."""
+    return os.environ.get("MEMCODE_HIER", "").lower() not in OFF
+
+
+def apply_config(root) -> None:
+    """Entry points (hooks, CLI, MCP server) call this once they know the repo: the repo's `config hierarchy off`
+    becomes MEMCODE_HIER=0 for this process unless the environment already sets MEMCODE_HIER."""
+    if "MEMCODE_HIER" in os.environ:
+        return
+    from .model_capture import read_config
+    if read_config(root).get("hierarchy") is False:
+        os.environ["MEMCODE_HIER"] = "0"
 
 
 def split_rules(root) -> bool:

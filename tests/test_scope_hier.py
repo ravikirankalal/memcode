@@ -22,6 +22,7 @@ def repo(files=("billing/invoice.py", "billing/api/refunds.py", "web/views.py", 
 
 def env(**kw):
     base = {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_")}
+    base["MEMCODE_HIER"] = "0"                      # "flag off" = explicitly off (on by default since 0.8.0)
     base.update(kw)
     return mock.patch.dict(os.environ, base, clear=True)
 
@@ -149,7 +150,8 @@ class FirstTouchHook(unittest.TestCase):
         import json, subprocess, sys
         root = str(Path(__file__).resolve().parent.parent)
         e = {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_") and k != "CLAUDE_PROJECT_DIR"}
-        e.update(PYTHONPATH=root, **flags)
+        e.update(PYTHONPATH=root, MEMCODE_HIER="0")
+        e.update(flags)
         p = subprocess.run([sys.executable, "-m", "memcode.hook_cli", _event], env=e, text=True,
                            capture_output=True, input=json.dumps(dict(payload, cwd=d)))
         return json.loads(p.stdout) if p.stdout.strip() else None
