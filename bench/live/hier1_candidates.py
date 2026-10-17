@@ -1,34 +1,51 @@
-"""Candidates for the hier1 set: does SCOPE HIERARCHY (repo -> directory -> file) put the needed memory in front of
-the agent where today's flat ranking does not, and what does it cost in injected tokens?
+"""Candidates for the hier1 set: does SCOPE HIERARCHY (MEMCODE_HIER: repo -> directory -> file) put the needed memory
+in front of the agent where today's flat ranking does not, does it lose anything flat had, and what does it cost in
+injected tokens?
 
-One project ("shopfront"): six top-level areas, each with sub-directories (one three levels deep), 76 user rules
-(5 repo-wide, the rest naming the directory they apply to, "Every new module under checkout/ ...") and 11 file notes.
-Every scenario seeds the SAME store; scenarios differ only in the task (the later prompt) and in which memory the
-judged trap needs. Today every captured rule is anchored repo-wide (anchor_path=''), so flat ranking sees a rule's
-scope only through the path it names (retrieval SCOPE_W, plus term overlap); the pinned block shows the newest
-MAX_RULES=20 rules whatever directory they name.
+One project ("shopfront"): six top-level areas with sub-directories (one three levels deep), 76 user rules (5 repo-wide,
+the rest naming the directory they apply to, "Every new module under checkout/ ...") and 29 file notes. Every scenario
+seeds the SAME store; scenarios differ only in the task (the later prompt) and in which memory the judged trap needs.
+Today every captured rule is stored repo-wide (anchor_path=''), so flat ranking sees a rule's scope only through the
+path it names (retrieval SCOPE_W, term overlap); the session-start block shows the newest MAX_RULES=20 rules, whatever
+directory they name. With MEMCODE_HIER (impl-scope's semantics, bulletin 2026-10-16): rules get scope_path = the dir
+they name (a named file maps to its dir); the start block lists only repo-scope rules; retrieval keeps repo memories
+and memories on the scope chain of the prompt's paths (or named by it), gives each level ONE slot nearest first, then
+fills the rest of TOP_K=5 by score.
 
-Shapes (needed memory -> why flat misses or hits -> what hierarchy should do):
-  nearest_crowded   rule of the task's own directory (catalog/pricing/), worded with few task words; ten in-scope rules,
-                    the parent's are worded with the task's domain words, so flat's top 5 is full of them -> miss.
-                    Hier: nearest directory first -> hit.
-  parent_rule       rule of the PARENT directory (checkout/) while working in checkout/payments/, which has six rules of
-                    its own; nearer rules share more path words -> flat miss. Hier: hit only if the budget is allocated
-                    per level (nearest first but every level gets room), not if the nearest level can take it all.
-  grandparent_rule  rule of insights/ while working in insights/dashboards/widgets/ (two levels deeper) -> flat miss.
-  repo_wide_recent  CONTROL: a repo-wide rule, recent enough to be in flat's pinned block -> flat hit. Hier must keep it.
-  repo_wide_old     a repo-wide rule older than the newest 20 rules, sharing no words with the task -> flat miss
-                    (pinned cap, no retrieval signal). Hier: hit if repo-wide rules no longer compete with directory
-                    rules for the session-start slots.
-  two_dirs          CONTROL: the task names two directories (the other one first); needed rule of the target's
-                    directory -> flat hit. Hier must build the scope chain for every path the task names.
-  file_note         CONTROL: a note anchored to the target file (memory_add style) -> flat hit (anchor named in the
-                    prompt, PATH_W). Hier: file level is the nearest level -> hit.
+Shapes (needed memory -> flat -> hier, predicted from the mechanism; the frozen PREDICTIONS come from the code):
+  nearest_crowded          rule of the task's own dir (catalog/pricing/), sharing few task words; the parent's rules
+                           share the task's domain words -> flat miss. Hier: one slot per level, then score -> miss too.
+  parent_rule              rule of the PARENT dir (checkout/) while working in checkout/payments/ (six rules of its
+                           own, all outranking it on path words) -> flat miss. Hier: parent level gets a slot, and the
+                           needed rule is the newest of its three -> hit. (Sensitivity, offline only: as the oldest of
+                           its level it would miss under hier too.)
+  grandparent_rule         rule of insights/ while working in insights/dashboards/widgets/ -> flat miss; hier hit.
+  repo_wide_old            repo-wide rule older than the newest 20 rules, no shared words -> flat miss (start-block
+                           cap, no retrieval signal). Hier: start block lists only the 5 repo rules -> hit.
+  repo_wide_recent         CONTROL: repo-wide rule among the newest 20 -> flat hit. Hier must keep it.
+  two_dirs                 CONTROL: task names two dirs (the other one first); needed rule of the target's dir ->
+                           flat hit (retrieval). Hier pools both chains -> should keep it.
+  rule_names_sibling_file  CONTROL: a recent rule naming members/auth/sessions.py that applies to the modules reading
+                           it; task creates members/auth/lockout.py -> flat hit (start block). Hier: scope = dir
+                           members/auth -> must arrive by retrieval.
+  no_path_in_prompt        CONTROL, where hier is most likely to LOSE: the prompt names no path or dir word ("the module
+                           that defines CHANNELS"); needed rule of ops/alerts/, recent -> flat hit (start block). Hier:
+                           not in the start block, not eligible at prompt time -> offline: NOT surfaced. Live depends on
+                           the planned first-touch injection (rules of a dir injected when the agent first touches it);
+                           extra_context() simulates it once a function exists (the agent reads channels.py first).
+  file_note                CONTROL: note anchored to the target file (memory_add style), cut from the start block by
+                           newer notes -> flat hit (anchor named in the prompt). Hier: file level comes first -> hit.
+
+Design history (honesty): the set was designed from the posted PLAN; making the parent/grandparent needed rules the
+newest of their level was decided from the plan's "allocate by level" wording (favourable to hier); two_dirs ties and
+the no_path_in_prompt control were set after impl-scope described the exact allocation (no_path_in_prompt is
+unfavourable to hier). The set is frozen before the implementation lands.
 
 Arms (offline_check): "flat" = memcode defaults with retrieval on (MEMCODE_RETRIEVAL=1, MEMCODE_RANK unset = split);
-"hier" = flat + HIER_ENV. Until the hierarchy code exists in this checkout, "hier" equals "flat" and every result
-carries hier_flag_present=False so that is visible, never silently wrong. Everything the hierarchy feature adds is
-reached through the adapter functions in the ADAPTER section, so a renamed flag or function is a one-place change.
+"hier" = flat + HIER_ENV. Until the hierarchy code exists in the measured checkout, "hier" equals "flat" and every
+result carries hier_flag_present=False so that is visible, never silently wrong. Everything the hierarchy feature adds
+is reached through the ADAPTER section, so a renamed flag or function is a one-place change. HIER1_MEMCODE_SRC=<dir>
+measures another checkout's memcode package (for example an exported copy of the merged branch).
 """
 from __future__ import annotations
 
@@ -84,6 +101,7 @@ N = {  # the needed memories, by scenario
     "two_dirs": "Every function in ops/jobs/ takes a parameter named run_id.",
     "file_note": ("Avatar templates find helpers in members/profiles/avatar.py only by the av_ name prefix; get_url "
                   "stayed invisible until it was renamed av_get_url."),
+    "no_path": "Functions in ops/alerts/ are named with an alert_ prefix, for example alert_route.",
     "sibling_file": "Modules that read the session store in members/auth/sessions.py define AUDIT_TAG = 'auth' at module level.",
 }
 # Ground-truth scope of each needed memory where the text alone would mislead (the sibling-file rule names
@@ -168,7 +186,7 @@ RULES = [
     ("ops/jobs/", "Jobs in ops/jobs/ are idempotent: a second run changes nothing.", 15.5),
     ("ops/jobs/", "Functions in ops/jobs/ log their start and end through the logging module.", 12),
     ("ops/alerts/", "Alert messages in ops/alerts/ are at most 120 characters.", 1.6),
-    ("ops/alerts/", "Functions in ops/alerts/ take the channel name as their first argument.", 1.5),
+    ("ops/alerts/", N["no_path"], 1.5),
     ("ops/alerts/", "Pager alerts in ops/alerts/ are only sent for severity 'critical'.", 1.4),
 ]
 
@@ -215,43 +233,49 @@ NOTES = [
 # ---------------------------------------------------------------------------------------------- scenarios
 # key: regex over INJECTED TEXT that shows the needed memory reached the agent (fallback when a feature re-renders lines)
 SCENARIOS = [
-    {"name": "h_pricing_epoch", "shape": "nearest_crowded", "needed": N["nearest"], "needed_scope": "catalog/pricing/",
+    {"name": "h_pricing_epoch", "token": "EPOCH", "shape": "nearest_crowded", "needed": N["nearest"], "needed_scope": "catalog/pricing/",
      "later": ("Create catalog/pricing/tiers.py with a function tier_for(quantity) that returns the name of the price "
                "tier for an order quantity: 'single' below 10, 'pack' below 100, otherwise 'bulk'."),
      "trap_regex": r"\A(?!.*\bEPOCH\s*=\s*7\b)", "trap_on": "content", "trap_path": r"(^|/)catalog/pricing/tiers\.py$",
      "key": r"EPOCH = 7"},
-    {"name": "h_checkout_footer", "shape": "parent_rule", "needed": N["parent"], "needed_scope": "checkout/",
+    {"name": "h_checkout_footer", "token": "checkout-core", "shape": "parent_rule", "needed": N["parent"], "needed_scope": "checkout/",
      "later": ("Create checkout/payments/wallet.py with a function wallet_balance(entries) that returns the balance in "
                "cents of a list of wallet entries, each a dict with 'cents' and 'kind' ('credit' or 'debit')."),
      "trap_regex": r"\A(?!.*# owner: checkout-core\s*\Z)", "trap_on": "content",
      "trap_path": r"(^|/)checkout/payments/wallet\.py$", "key": r"# owner: checkout-core"},
-    {"name": "h_insights_schema", "shape": "grandparent_rule", "needed": N["grandparent"], "needed_scope": "insights/",
+    {"name": "h_insights_schema", "token": "ins-3", "shape": "grandparent_rule", "needed": N["grandparent"], "needed_scope": "insights/",
      "later": ("Create insights/dashboards/widgets/sparkline.py with a function sparkline(values, width) that scales a "
                "list of numbers to integer bar heights between 0 and width."),
      "trap_regex": r"\A(?!.*\bSCHEMA\s*=\s*[\"']ins-3[\"'])", "trap_on": "content",
      "trap_path": r"(^|/)insights/dashboards/widgets/sparkline\.py$", "key": r"SCHEMA = 'ins-3'"},
-    {"name": "c_repo_header", "shape": "repo_wide_recent", "control": True, "needed": N["repo_recent"], "needed_scope": "",
+    {"name": "c_repo_header", "token": "shopfront: managed", "shape": "repo_wide_recent", "control": True, "needed": N["repo_recent"], "needed_scope": "",
      "later": ("Create members/auth/otp.py with a function make_code(digits) that returns a random numeric one-time "
                "code with the given number of digits."),
      "trap_regex": r"\A(?!# shopfront: managed)", "trap_on": "content", "trap_path": r"(^|/)members/auth/otp\.py$",
      "key": r"# shopfront: managed"},
-    {"name": "h_repo_reviewed", "shape": "repo_wide_old", "needed": N["repo_old"], "needed_scope": "",
+    {"name": "h_repo_reviewed", "token": "REVIEWED", "shape": "repo_wide_old", "needed": N["repo_old"], "needed_scope": "",
      "later": ("Create fulfil/labels/zpl.py with a function label(lines) that returns a ZPL label string that prints "
                "each address line on its own row."),
      "trap_regex": r"\A(?!.*\bREVIEWED\s*=\s*False\b)", "trap_on": "content", "trap_path": r"(^|/)fulfil/labels/zpl\.py$",
      "key": r"REVIEWED = False"},
-    {"name": "c_jobs_run_id", "shape": "two_dirs", "control": True, "needed": N["two_dirs"], "needed_scope": "ops/jobs/",
+    {"name": "c_jobs_run_id", "token": "run_id", "shape": "two_dirs", "control": True, "needed": N["two_dirs"], "needed_scope": "ops/jobs/",
      "later": ("Using quote() from fulfil/carriers/rates.py, create ops/jobs/rate_refresh.py with a function "
                "refresh_rates(carriers, weight_g) that returns a list with one quote per carrier."),
      "trap_regex": r"def \w+\((?![^)]*\brun_id\b)", "trap_on": "content", "trap_path": r"(^|/)ops/jobs/rate_refresh\.py$",
      "key": r"run_id"},
-    {"name": "c_auth_audit", "shape": "rule_names_sibling_file", "control": True, "needed": N["sibling_file"],
+    {"name": "c_auth_audit", "token": "AUDIT_TAG", "shape": "rule_names_sibling_file", "control": True, "needed": N["sibling_file"],
      "needed_scope": "members/auth/",
      "later": ("Create members/auth/lockout.py with a function is_locked(member_id, failures) that reads the member's "
                "session from the session store and says whether they are locked out after 5 failed logins."),
      "trap_regex": r"\A(?!.*\bAUDIT_TAG\s*=\s*[\"']auth[\"'])", "trap_on": "content",
      "trap_path": r"(^|/)members/auth/lockout\.py$", "key": r"AUDIT_TAG = 'auth'"},
-    {"name": "c_avatar_prefix", "shape": "file_note", "control": True, "needed": N["file_note"],
+    {"name": "c_alerts_prefix", "token": "alert_", "shape": "no_path_in_prompt", "control": True, "needed": N["no_path"],
+     "needed_scope": "ops/alerts/",
+     "later": ("A pager message needs a formatter: add a function to the module that defines CHANNELS which builds the "
+               "message text from a severity and a description."),
+     "trap_regex": r"def (?!alert_)\w+\(", "trap_on": "content", "trap_path": r"(^|/)ops/alerts/channels\.py$",
+     "key": r"alert_ prefix", "first_touch": True},
+    {"name": "c_avatar_prefix", "token": "av_", "shape": "file_note", "control": True, "needed": N["file_note"],
      "needed_scope": "members/profiles/avatar.py",
      "later": ("Add a function to members/profiles/avatar.py that returns the largest avatar size that is not above a "
                "given pixel limit."),
@@ -333,10 +357,22 @@ def scope_of(con, mid: int) -> str | None:
     return r[0] if r else None
 
 
+FIRST_TOUCH = (("engine", "first_touch"), ("scope", "first_touch"), ("engine", "file_context"),
+               ("scope", "file_context"), ("scope", "touch_context"))
+
+
+def first_touch_fn():
+    """The planned first-touch injection (rules of a dir injected when the agent first Reads/Edits a file in it), if
+    the measured memcode has one. Called as f(con, root, session, rel_path) -> context text."""
+    return next((f for f in (_optional(m, n) for m, n in FIRST_TOUCH) if f), None)
+
+
 def extra_context(con, root: str, session: str, sc: dict) -> str:
-    """Text a NEW injection point would add (e.g. on the agent's first Read/Write of the target file). '' until the
-    feature defines one; counted separately as extra_tokens."""
-    f = _optional("engine", "file_context") or _optional("scope", "file_context")
+    """Text a NEW injection point adds when the agent first touches the target file (simulated: the agent reads or
+    writes exactly the target file after the prompt). '' when the measured memcode has no such point. Counted
+    separately (extra_tokens) and reported apart from prompt-time surfacing. Only meaningful on the hier arm; it is
+    called on both arms so a flag-off no-op is visible too."""
+    f = first_touch_fn()
     return (f(con, root, session, target_path(sc)) or "") if f else ""
 
 
@@ -419,9 +455,11 @@ def measure(sc: dict, env: dict, session: str = "hier1-later") -> dict:
                 pinned_ids = {r[0] for r in con.execute(
                     "SELECT memory_id FROM injections WHERE session=? AND source='pinned'", (session,))}
                 ctx = engine.prompt(con, str(d), session, sc["later"])
-                extra = extra_context(con, str(d), session, sc)
                 prompt_ids = {r[0] for r in con.execute(
                     "SELECT memory_id FROM injections WHERE session=? AND source!='pinned'", (session,))}
+                extra = extra_context(con, str(d), session, sc)
+                touch_ids = {r[0] for r in con.execute(
+                    "SELECT memory_id FROM injections WHERE session=? AND source!='pinned'", (session,))} - prompt_ids
                 rows = {r["id"]: dict(r) for r in con.execute("SELECT id, text FROM memories")}
             finally:
                 con.close()
@@ -435,15 +473,18 @@ def measure(sc: dict, env: dict, session: str = "hier1-later") -> dict:
         t = rows[mid]["text"].replace("Rule from user correction: ", "", 1)
         return text_to_h.get(t)
 
-    shown = pinned_ids | prompt_ids
+    shown = pinned_ids | prompt_ids | touch_ids
     rel_shown = sum(1 for i in shown if h_of(i) and in_chain(h_of(i)["scope"], p))
     all_text = "\n".join((pinned_text, ctx, extra))
     key = re.compile(re.escape(sc["key"]) if not sc["key"].startswith("re:") else sc["key"][3:])
     return {
         "needed_pinned": nid in pinned_ids,
         "needed_retrieved": nid in prompt_ids,
+        "needed_first_touch": nid in touch_ids or bool(extra and key.search(extra)),
+        "surfaced_at_prompt": nid in pinned_ids | prompt_ids or bool(key.search(pinned_text + "\n" + ctx)),
         "surfaced_by_id": nid in shown,
         "surfaced_by_text": bool(key.search(all_text)),
+        "first_touch_present": first_touch_fn() is not None,
         "pinned_tokens": round(len(pinned_text) / TOKEN_DIVISOR),
         "retrieval_tokens": round(len(ctx) / TOKEN_DIVISOR),
         "extra_tokens": round(len(extra) / TOKEN_DIVISOR),
@@ -507,7 +548,7 @@ if __name__ == "__main__":
         o = offline_check(sc)
         print(f"{sc['name']:18s} {sc['shape']:24s} flat={o['flat_surfaced']!s:5s} (pin={o['flat_needed_pinned']!s:5s} "
               f"ret={o['flat_needed_retrieved']!s:5s}) hier={o['hier_surfaced']!s:5s} (pin={o['hier_needed_pinned']!s:5s} "
-              f"ret={o['hier_needed_retrieved']!s:5s}) tokens flat/hier={o['flat_total_tokens']}/{o['hier_total_tokens']} "
+              f"ret={o['hier_needed_retrieved']!s:5s} touch={o['hier_needed_first_touch']!s:5s}) tokens flat/hier={o['flat_total_tokens']}/{o['hier_total_tokens']} "
               f"shown rel/irrel flat {o['flat_shown_relevant']}/{o['flat_shown_irrelevant']} "
               f"hier {o['hier_shown_relevant']}/{o['hier_shown_irrelevant']} of {o['flat_relevant_total']} relevant")
         if "-v" in sys.argv:
