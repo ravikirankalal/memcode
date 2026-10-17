@@ -103,14 +103,11 @@ def claude(cwd: Path, prompt: str, model: str, arm: str, plugin_dir: Path, resum
     return metrics.parse_stream(out), time.perf_counter() - t0
 
 
-LIMIT_WAIT_S = 4 * 3600
+LIMIT_WAIT_S = run.LIMIT_WAIT_S
 
 
 def _rate_limited(out: str) -> bool:
-    """The turn was refused by a usage/rate limit (429) before the model ran."""
-    final = next((e for e in reversed(metrics.parse_stream(out)) if e.get("type") == "result"), {})
-    return bool(final.get("is_error")) and not final.get("total_cost_usd") and (
-        final.get("api_error_status") == 429 or "limit" in str(final.get("result", "")).lower())
+    return run.rate_limited(metrics.parse_stream(out))
 
 
 # ---------------------------------------------------------------- transcript metrics
