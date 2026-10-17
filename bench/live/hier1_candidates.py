@@ -364,6 +364,9 @@ FIRST_TOUCH = (("engine", "first_touch"), ("scope", "first_touch"), ("engine", "
 def first_touch_fn():
     """The planned first-touch injection (rules of a dir injected when the agent first Reads/Edits a file in it), if
     the measured memcode has one. Called as f(con, root, session, rel_path) -> context text."""
+    rfp = _optional("scope", "rules_for_path")           # landed name: (con, session, path, root) -> (text, ids)
+    if rfp:
+        return lambda con, root, session, rel: rfp(con, session, rel, root)[0]
     return next((f for f in (_optional(m, n) for m, n in FIRST_TOUCH) if f), None)
 
 
