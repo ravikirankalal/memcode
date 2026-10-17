@@ -55,21 +55,10 @@ def hier_enabled() -> bool:
 
 
 def split_rules(root) -> bool:
-    """Should the start block hold back scoped rules? Only with the flag on AND retrieval on (else they never show)."""
-    if not hier_enabled():
-        return False
-    env = os.environ.get("MEMCODE_RETRIEVAL", "").lower()
-    if env in ("0", "false", "off"):
-        return False
-    if env in ("1", "true", "on"):
-        return True
-    if root is None:
-        return False
-    from . import retrieval
-    try:
-        return retrieval.enabled(root)
-    except Exception:          # noqa: BLE001  (an unreadable config means retrieval is off)
-        return False
+    """Should the start block hold back scoped rules? With the flag on, yes: they arrive when the agent works there,
+    by prompt retrieval (if on), first-touch injection on a read, or the first-write refusal (engine.before_write);
+    the map marks folders that hold them. (Before first touch existed this also required retrieval.)"""
+    return hier_enabled()
 
 
 def _fold(s: str) -> str:

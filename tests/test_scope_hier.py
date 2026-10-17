@@ -106,8 +106,8 @@ class Seeded(unittest.TestCase):
         self.assertIn(pinned.MAP_TITLE_MARKED, text)
         self.assertIn(self.repo_rule, pinned.shown_ids(self.con, text))
         self.assertNotIn(self.billing_rule, pinned.shown_ids(self.con, text))
-        with env(MEMCODE_HIER="1", MEMCODE_RETRIEVAL="0"):         # retrieval off: never hide scoped rules
-            self.assertIn("PCI-SCOPE", pinned.render_pinned(self.con, self.d).split(pinned.NOTES_OPEN)[0])
+        with env(MEMCODE_HIER="1", MEMCODE_RETRIEVAL="0"):         # retrieval off: still split (first touch delivers)
+            self.assertNotIn("PCI-SCOPE", pinned.render_pinned(self.con, self.d).split(pinned.NOTES_OPEN)[0])
 
     def test_rules_for_path_once_nearest_first_and_flag_off(self):
         with env():

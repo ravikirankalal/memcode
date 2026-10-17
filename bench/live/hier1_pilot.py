@@ -25,8 +25,13 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--oracle", action="store_true")
     ap.add_argument("--scenarios", default="", help="comma-separated names (default: all)")
+    ap.add_argument("--set", default="hier1", choices=("hier1", "hier2"))
     a = ap.parse_args()
-    pool = hier1_candidates.pilot_pool()
+    if a.set == "hier2":
+        from bench.live import hier2_candidates
+        pool = hier2_candidates.pilot_pool()
+    else:
+        pool = hier1_candidates.pilot_pool()
     if a.scenarios:
         pool = [c for c in pool if c["name"] in a.scenarios.split(",")]
     pilot.ORACLE = a.oracle
@@ -48,7 +53,7 @@ def main() -> None:
     res_dir = ROOT / "bench" / "live" / "results"
     res_dir.mkdir(parents=True, exist_ok=True)
     tag = ("_" + a.scenarios.replace(",", "+") if a.scenarios else "") + ("_oracle" if a.oracle else "")
-    (res_dir / f"pilotH1{tag}.json").write_text(json.dumps(out, indent=1))
+    (res_dir / f"pilot{a.set.upper()}{tag}.json").write_text(json.dumps(out, indent=1))
 
 
 if __name__ == "__main__":
