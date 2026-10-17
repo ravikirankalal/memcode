@@ -418,3 +418,44 @@ capture recall on descriptive phrasing (C2), already measured offline. Model cap
 ## Caveats
 One constructed project, one model, 3 weeks per arm (Wilson intervals are wide: memcode 5/24 = [0.09, 0.40], nomem
 19/24 = [0.60, 0.91]); simulated user; the claudemd arm's user is unusually disciplined.
+
+---
+
+# Run 14 (2026-10-17): hier1, scope hierarchy live gate — mistakes 26/54 -> 3/54, but one control regressed
+
+Frozen `hier1` (bench/live/hier1.py; pilots: nomem 6/6 traps everywhere, oracle 0/4 except c_auth_audit 1/4). One
+seeded store (76 user rules, most naming a directory, 29 file notes), one later session per unit. Arms: flat =
+memcode defaults with retrieval on; hier = flat + MEMCODE_HIER=1. Haiku, 6 runs per cell, $0.65.
+
+| scenario | shape | flat | hier | hier delivered the needed memory via |
+|---|---|---|---|---|
+| h_pricing_epoch | nearest_crowded | 6/6 | **0/6** | first write refused with the folder's rules (6) |
+| h_checkout_footer | parent_rule | 6/6 | **1/6** | prompt retrieval (6) |
+| h_insights_schema | grandparent_rule | 6/6 | **0/6** | prompt retrieval (6) |
+| h_repo_reviewed | repo_wide_old | 6/6 | **0/6** | start block (6) |
+| c_repo_header | repo_wide_recent (control) | 0/6 | 0/6 | start block |
+| c_jobs_run_id | two_dirs (control) | 0/6 | 0/6 | prompt retrieval |
+| c_auth_audit | rule_names_sibling_file (control) | 2/6 | 0/6 | prompt retrieval |
+| c_alerts_prefix | no_path_in_prompt (control) | 0/6 | 0/6 | first write refused with the rules (6) |
+| c_avatar_prefix | file_note (control) | 0/6 | **2/6** | start block (6) |
+| **total** | | **26/54** [0.35, 0.61] | **3/54** [0.02, 0.15] | |
+
+## Against the predictions
+- Surfacing predicted every cell's direction: flat's 4 unsurfaced scenarios failed 6/6; hier surfaced all 9.
+- Gate criterion 1 (hier total below flat, Wilson intervals): **passed** (disjoint intervals).
+- Gate criterion 2 (no control worse than flat by more than 1/6): **failed** on c_avatar_prefix (2/6 vs 0/6).
+  Mechanism: with only repo-wide rules in it, the start block has room for the file note, so it is shown there at
+  session start; retrieval then skips it as already shown. Flat's start block was full, so the note arrived by
+  retrieval, next to the task, and was followed 6/6. Same memory, weaker position.
+- Disclosed change after freezing: the refuse-first-write delivery (memcode/engine.before_write) was added after a
+  1-unit smoke run showed PostToolUse first-touch arriving after a new file was written. It implements the delivery
+  the predictions assumed. The live judge was also fixed to ignore refused writes (they never reach disk).
+- h_checkout_footer's 1/6: the rule was delivered; the agent put the footer line at the top instead of the end.
+
+## Reading
+Scope hierarchy turns a crowded store from mostly-missed to mostly-followed (26 -> 3 mistakes in 54). It is not yet
+adopted as default: the control failure needs a fix (re-surface a memory at prompt time when the prompt names its
+anchor file, even if the start block showed it) and a fresh set, since hier1 is now tuned on.
+
+## Caveats
+One constructed store, one model, 6 runs per cell; the refusal costs one extra tool call on the first write per folder.
