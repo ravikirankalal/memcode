@@ -119,5 +119,16 @@ class Judges(unittest.TestCase):
             self.assertTrue(self.judged(later, message="add recent command")["P3_mistake"], later["name"])
 
 
+class Frozen(unittest.TestCase):
+    def test_hash_unchanged(self):
+        import hashlib
+        from bench.live import e2e1 as F
+        payload = {k: getattr(S, k) for k in ("CONVENTIONS", "FACTS", "TEACH", "LATER", "JUDGE", "ORACLE", "KEYS")}
+        payload["files_by_day"] = {d: P.files_for_day(d) for d in range(1, 7)}
+        payload = json.loads(json.dumps(payload, sort_keys=True))
+        h = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(h, F.FROZEN_SHA256, "e2e1 changed after freezing: add a NEW set instead")
+
+
 if __name__ == "__main__":
     unittest.main()
