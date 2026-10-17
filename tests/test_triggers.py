@@ -193,3 +193,31 @@ class RevertQuoting(unittest.TestCase):
     def test_real_reverts_still_detected(self):
         self.assertEqual(self.run_cmds("pytest -q && git checkout -- a.py"), ["revert"])
         self.assertEqual(self.run_cmds("git reset --hard"), ["revert"])
+
+
+class ForeignWorktrees(unittest.TestCase):
+    """Agent worktrees under .claude/worktrees/ are other checkouts: never anchors, never indexed (dogfooding)."""
+
+    def test_worktree_edits_ignored_and_not_indexed(self):
+        import tempfile
+        from pathlib import Path
+        from memcode import engine, store, tree
+        d = tempfile.mkdtemp()
+        wt = Path(d, ".claude", "worktrees", "agent-x", "memcode")
+        wt.mkdir(parents=True)
+        (wt / "scope.py").write_text("x = 1\n")
+        (Path(d) / "a.py").write_text("y = 1\n")
+        con = store.connect(d)
+        tree.scan_repo(con, d)
+        self.assertEqual([r[0] for r in con.execute("SELECT path FROM paths WHERE kind='file'")], ["a.py"])
+        engine.prompt(con, d, "s", "fix it")
+        ev = {"kind": "tool_result", "session": "s", "tool": "Bash", "input": {"command": "pytest -q"},
+              "command": "pytest -q", "file_path": None, "exit_code": 1, "output": ""}
+        engine.tool_result(con, d, ev)
+        p = str(wt / "scope.py")
+        engine.tool_result(con, d, {"kind": "tool_result", "session": "s", "tool": "Edit",
+                                    "input": {"file_path": p, "old_string": "x = 1", "new_string": "x = 2"},
+                                    "command": None, "file_path": p, "exit_code": 0, "output": ""})
+        engine.tool_result(con, d, dict(ev, exit_code=0))
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM memories").fetchone()[0], 0)
+        con.close()

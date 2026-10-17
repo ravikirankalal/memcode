@@ -171,9 +171,11 @@ class TriggerEngine:
         if not pp.is_absolute():
             pp = self.root / pp
         try:
-            return os.path.normpath(pp.resolve().relative_to(self.root)).replace(os.sep, "/")
+            rel = os.path.normpath(pp.resolve().relative_to(self.root)).replace(os.sep, "/")
         except ValueError:
             return None
+        from .tree import foreign
+        return None if foreign(rel) else rel           # edits in a nested worktree are another checkout's
 
     def _anchor(self, rel):
         """-> (anchor_path, anchor_hash). Registers existing files in `paths`."""

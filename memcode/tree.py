@@ -23,8 +23,16 @@ def _git(repo_root, *args) -> str | None:
     return r.stdout.decode("utf-8", "surrogateescape")
 
 
+# Other checkouts living inside the repo (agent / git worktrees): their files are not this repo's code.
+FOREIGN_PREFIXES = (".claude/worktrees/",)
+
+
+def foreign(rel: str) -> bool:
+    return (rel or "").replace("\\", "/").startswith(FOREIGN_PREFIXES)
+
+
 def _skipped(rel: str) -> bool:
-    return any(p in SKIP_DIRS for p in rel.split("/"))
+    return foreign(rel) or any(p in SKIP_DIRS for p in rel.split("/"))
 
 
 def list_files(repo_root) -> list[str]:
@@ -40,7 +48,9 @@ def list_files(repo_root) -> list[str]:
         dns[:] = sorted(d for d in dns if d not in SKIP_DIRS)
         rel_dir = os.path.relpath(dp, root).replace(os.sep, "/")
         for fn in sorted(fns):
-            files.append(fn if rel_dir == "." else f"{rel_dir}/{fn}")
+            rel = fn if rel_dir == "." else f"{rel_dir}/{fn}"
+            if not foreign(rel):
+                files.append(rel)
     return files
 
 
