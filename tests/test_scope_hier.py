@@ -123,6 +123,14 @@ class Seeded(unittest.TestCase):
             self.assertEqual(ids2, [self.note])                       # rules already shown; the file note is new
             self.assertIn(pinned.NOTES_OPEN, t2)
 
+    def test_pinned_file_note_resurfaces_when_prompt_names_its_file(self):
+        with env(MEMCODE_RETRIEVAL="1", MEMCODE_HIER="1"):
+            self.con.execute("INSERT INTO injections(session,memory_id,ts,source) VALUES('s',?,0,'pinned')", (self.note,))
+            self.assertIn(self.note, self.ids("Fix rounding in billing/invoice.py"))        # named: shown again
+            self.assertNotIn(self.note, self.ids("change billing totals"))                 # not named: stays shown
+        with env(MEMCODE_RETRIEVAL="1"):
+            self.assertNotIn(self.note, self.ids("Fix rounding in billing/invoice.py"))    # flag off: unchanged
+
     def test_touch_cap(self):
         for i in range(40):
             store.add_memory(self.con, "correction", RULE + f"Rule {i}: modules under web/ follow convention {i} "
