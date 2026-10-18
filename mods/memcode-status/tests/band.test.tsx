@@ -24,6 +24,9 @@ test('parses the feed and rejects junk', async () => {
   expect(ago(125_000)).toBe('2m ago')
   expect(latest(FEED, T * 1000)?.kind).toBe('saved')
   expect(latest(FEED, (T + 3600) * 1000)).toBeNull() // stale events fade to counts only
+  const recalledAfter: Feed = { ...FEED, events: [...FEED.events, { ts: T - 2, kind: 'recalled', text: '1 memory', n: 1 }] }
+  expect(latest(recalledAfter, T * 1000)?.kind).toBe('saved') // a fresh save holds the bar over a later recall
+  expect(latest(recalledAfter, (T + 120) * 1000)?.kind).toBe('recalled')
 })
 
 // the world beneath the mod: the repo root, its activity file (or none), an engine-drawn empty band
@@ -66,9 +69,20 @@ test('a new memory shows up on the next poll', async ($, on) => {
   await ui.unmount()
 })
 
+test('says why when memcode is active but writes no feed (older memcode)', async ($, on) => {
+  mock.clock(on, { now: T * 1000 })
+  world(on, null)
+  on('fs.exists', (_$, e) => ({ value: e.path === '/repo/.memcode/memory.db' }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /update memcode to 0\.8\.1/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('nothing of its own when memcode is not active in the repo', async ($, on) => {
   mock.clock(on, { now: T * 1000 })
   world(on, null)
+  on('fs.exists', () => ({ value: false }))
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: /memcode/ })).toBeUndefined()

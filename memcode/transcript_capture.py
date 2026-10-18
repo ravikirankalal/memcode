@@ -37,6 +37,8 @@ MIN_NEW_CHARS = 400          # a scan needs at least this much new condensed tex
 MAX_CHARS = 24_000           # condensed text sent per scan (the newest part wins)
 DUP_OVERLAP = 0.6            # term overlap with an existing memory or fact that counts as a repeat
 MAX_ATTEMPTS = 2
+MAX_SESSION_USD = float(os.environ.get("MEMCODE_CAPTURE_BUDGET_USD", "0.10") or 0.10)  # per session; then it stops
+MAX_ENV_FACTS = 12           # observed environment limits kept (newest win)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS transcript_scans (
@@ -395,6 +397,8 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             facts.ensure(con)
             facts._set_derived(con, f"env:obs:{hashlib.sha1(text.lower().encode()).hexdigest()[:10]}", "env",
                                "observed", text, "transcript")
+            con.execute("""DELETE FROM facts WHERE key LIKE 'env:obs:%' AND key NOT IN (SELECT key FROM facts
+                           WHERE key LIKE 'env:obs:%' ORDER BY last_seen DESC LIMIT ?)""", (MAX_ENV_FACTS,))
             activity.note(con, "saved", f"env fact: {text}")
             continue
         if kind == "rule":
@@ -443,6 +447,9 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=ex
             lines = fh.read().splitlines()
     except OSError:
         return offset, [], 0.0
+    spent = con.execute("SELECT cost_usd FROM transcript_scans WHERE session=?", (session,)).fetchone()
+    if spent and spent[0] >= MAX_SESSION_USD:
+        return len(lines), [], 0.0                      # this session's budget is spent: skip, never queue up
     new = lines[offset:]
     condensed = condense(new)
     if len(condensed) < MIN_NEW_CHARS and "[user] " not in condensed:
