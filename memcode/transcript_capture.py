@@ -12,7 +12,7 @@ output tail, files written), asks a model for durable, repo-specific knowledge, 
   new        it does not repeat a live memory or fact (term overlap)
   few        at most MAX_ITEMS per scan
 
-Enable with `memcode config transcript-capture on` or MEMCODE_TRANSCRIPT_CAPTURE=1. Model: MEMCODE_CAPTURE_MODEL
+On by default since 0.9.0; off with `memcode config transcript-capture off` or MEMCODE_TRANSCRIPT_CAPTURE=0. Model: MEMCODE_CAPTURE_MODEL
 (default claude-haiku-5-5 here: one call per scanned turn). The call uses the `claude` CLI (the user's login) with
 no tools, settings or plugins. Privacy: the condensed, redacted transcript text is sent to the model.
 """
@@ -77,11 +77,16 @@ _SELF = re.compile(r"(?i)\b(?:memcode|memory_(?:add|search|pinned|facts)|(?:agen
 
 
 def enabled(root) -> bool:
+    """On by default since 0.9.0 (tc2 gate, bench/live/RESULTS.md Run 17). Off with MEMCODE_TRANSCRIPT_CAPTURE=0 or
+    `memcode config transcript-capture off`, and wherever the `claude` CLI it calls is not installed."""
     env = os.environ.get("MEMCODE_TRANSCRIPT_CAPTURE", "").lower()
     if env in ("0", "false", "off"):
         return False
     from .model_capture import read_config
-    return env in ("1", "true", "on") or bool(read_config(root).get("transcript_capture"))
+    if env not in ("1", "true", "on") and read_config(root).get("transcript_capture") is False:
+        return False
+    import shutil
+    return shutil.which("claude") is not None
 
 
 def ensure(con) -> None:

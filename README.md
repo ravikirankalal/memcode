@@ -1,11 +1,11 @@
 # memcode
 
 Memory for coding agents: when you correct the agent, it remembers the rule in the next session.
-A Claude Code plugin. Local-first, stdlib-only Python.
+A Claude Code plugin. Stdlib-only Python; the store is local (see "What leaves your machine" below).
 
 > **Status: early.** On frozen held-out benchmarks (one model, Haiku, small N), captured rules are followed as reliably as
 > a hand-maintained `CLAUDE.md`, and per-prompt retrieval keeps context cost flat as the store grows; rules stated in
-> plain descriptive language are still missed unless opt-in model capture is on. Read
+> plain descriptive language are caught by the transcript scanner (on by default since 0.9.0). Read
 > [`bench/live/RESULTS.md`](bench/live/RESULTS.md) before relying on it.
 
 ## Install
@@ -43,7 +43,11 @@ Codex CLI or Gemini CLI: see [Other agents](docs/guide.md#other-agents-codex-cli
 5. **Scopes** memories to where they apply (since 0.8.0): a rule about `billing/` reaches the agent when it works in
    `billing/`, instead of crowding every session. On a crowded store this took live benchmark mistakes from 24/54 to
    0/53 (bench/live/RESULTS.md, Run 15). `memcode config hierarchy off` (or `MEMCODE_HIER=0`) restores flat memory.
-6. **Keeps facts** about the repo: the test/build/lint commands that actually work here (confirmed from exit codes, or
+6. **Scans each finished turn** (since 0.9.0) for things the triggers miss: rules you state only as description ("every
+   public function here starts with qx_") and pitfalls the agent discovers ("the checks only run through
+   tools/ci/verify.sh"). Each item needs quoted evidence from the transcript; only your own words become rules. On an
+   untuned benchmark this cut mistakes from 25/30 to 3/30, with every stored memory correct (Run 17).
+7. **Keeps facts** about the repo: the test/build/lint commands that actually work here (confirmed from exit codes, or
    from the runner's summary line when the agent pipes output), missing tools, fragile folders.
 
 Experimental, opt-in (see [docs/guide.md](docs/guide.md)): consolidation of repeated notes into lessons
@@ -52,7 +56,12 @@ Experimental, opt-in (see [docs/guide.md](docs/guide.md)): consolidation of repe
 In a simulated developer week (bench/live/RESULTS.md, Run 13) memcode cut convention mistakes from 19/24 to 5/24
 without any effort from the user.
 
-Nothing is sent anywhere: no network access, no extra model calls.
+**What leaves your machine.** One thing, on by default since 0.9.0: after each turn, memcode's transcript scanner sends
+a condensed, redacted summary of that turn (your messages, the agent's replies, commands with their result and output
+tail, files written) to a model through your own `claude` login, to find conventions and pitfalls the triggers miss
+(Haiku by default, about $0.001 per turn). Everything else stays local in `.memcode/`. Turn the scanner off with
+`memcode config transcript-capture off` (per repo) or `MEMCODE_TRANSCRIPT_CAPTURE=0`; it is also off wherever the
+`claude` CLI is not installed. Review what it saved with `/memcode:list` and remove anything with `/memcode:forget`.
 
 ## Try it
 

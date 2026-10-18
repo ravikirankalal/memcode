@@ -280,7 +280,8 @@ def cmd_config(con, a, root: str) -> int:
               f" (config {'off' if cfg.get('hierarchy') is False else 'on'}; env MEMCODE_HIER overrides)")
         from . import transcript_capture
         print(f"transcript-capture: {'on' if transcript_capture.enabled(root) else 'off'}"
-              f" (config {'on' if cfg.get('transcript_capture') else 'off'}; env MEMCODE_TRANSCRIPT_CAPTURE overrides)")
+              f" (config {'off' if cfg.get('transcript_capture') is False else 'on'}; env MEMCODE_TRANSCRIPT_CAPTURE"
+              " overrides; needs the claude CLI)")
         return 0
     if a.key not in keys or a.value not in ("on", "off"):
         print("usage: memcode config model-capture|retrieval|hierarchy|transcript-capture on|off", file=sys.stderr)

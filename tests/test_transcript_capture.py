@@ -189,10 +189,10 @@ class Hook(unittest.TestCase):
         return subprocess.run([sys.executable, "-m", "memcode.hook_cli", "Stop"], env=e, text=True,
                               capture_output=True, input=json.dumps(dict(payload, cwd=d)))
 
-    def test_off_by_default_and_queues_when_on(self):
+    def test_opt_out_and_on_by_default(self):
         d = tempfile.mkdtemp()
         missing = os.path.join(d, "no-such-transcript.jsonl")         # the worker finds nothing: no model call
-        self.run_hook(d, {"session_id": "s1", "transcript_path": missing})
+        self.run_hook(d, {"session_id": "s1", "transcript_path": missing}, MEMCODE_TRANSCRIPT_CAPTURE="0")
         self.assertFalse(os.path.exists(os.path.join(d, ".memcode")))   # off: the store is not even opened
         self.run_hook(d, {"session_id": "s1", "transcript_path": missing}, MEMCODE_TRANSCRIPT_CAPTURE="1")
         con = store.connect(d)
@@ -203,16 +203,23 @@ class Hook(unittest.TestCase):
         self.assertEqual(con.execute("SELECT session, status FROM transcript_scans").fetchall()[0][:], ("s1", "idle"))
         con.close()
 
-    def test_config_switch(self):
+    def test_default_on_config_off_and_needs_claude(self):
         d = tempfile.mkdtemp()
-        with mock.patch.dict(os.environ, {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_")},
-                             clear=True):
-            self.assertFalse(tc.enabled(d))
-            from memcode.model_capture import write_config
+        clean = {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_")}
+        with mock.patch.dict(os.environ, clean, clear=True):
+            with mock.patch("shutil.which", lambda name: "/usr/bin/" + name):
+                self.assertTrue(tc.enabled(d))                          # default since 0.9.0
+                from memcode.model_capture import write_config
+                write_config(d, transcript_capture=False)
+                self.assertFalse(tc.enabled(d))                         # `memcode config transcript-capture off`
+                os.environ["MEMCODE_TRANSCRIPT_CAPTURE"] = "1"
+                self.assertTrue(tc.enabled(d))                          # env beats config
+                os.environ["MEMCODE_TRANSCRIPT_CAPTURE"] = "0"
+                self.assertFalse(tc.enabled(d))
+            os.environ.pop("MEMCODE_TRANSCRIPT_CAPTURE")
             write_config(d, transcript_capture=True)
-            self.assertTrue(tc.enabled(d))
-            os.environ["MEMCODE_TRANSCRIPT_CAPTURE"] = "0"
-            self.assertFalse(tc.enabled(d))
+            with mock.patch("shutil.which", lambda name: None):
+                self.assertFalse(tc.enabled(d))                         # no claude CLI: nothing to call
 
 
 if __name__ == "__main__":

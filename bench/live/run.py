@@ -109,6 +109,8 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
     # Never inherit memcode switches from the launching shell (a project that enables memcode, e.g. this repo's
     # .claude/settings.json, exports MEMCODE_RETRIEVAL=1); each arm sets exactly the flags it is defined by.
     env = {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_")}
+    env["MEMCODE_HIER"] = "0"                   # arms predate the hierarchy default (0.8.0); hier arms set it
+    env["MEMCODE_TRANSCRIPT_CAPTURE"] = "0"     # and the transcript capture default (0.9.0); memcode_tc sets it
     if config == "nomem":
         env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
     if config == "memcode_legacy":
@@ -125,7 +127,6 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["MEMCODE_RANK"] = "salience"
     if config == "memcode_tc":                  # + opt-in transcript capture (memcode/transcript_capture.py)
         env.update(MEMCODE_RETRIEVAL="1", MEMCODE_TRANSCRIPT_CAPTURE="1", MEMCODE_CAPTURE_MODEL="claude-haiku-5-5")
-    env["MEMCODE_HIER"] = "0"                   # arms predate the hierarchy default (0.8.0); hier arms set it
     env.update(extra_env or {})                 # arm-specific switches on top (e.g. MEMCODE_HIER for hier1)
     waited = 0
     while True:
