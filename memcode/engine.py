@@ -7,6 +7,7 @@ returned context into their agent's output format. Tool events use one normalize
 """
 from __future__ import annotations
 
+import os
 import time
 
 from . import store
@@ -36,6 +37,9 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     con.executemany("INSERT INTO injections(session,memory_id,ts) VALUES(?,?,?)",
                     [(session, i, now) for i in pinned.shown_ids(con, text)])
     con.commit()
+    from . import activity
+    activity.note(con, "start", f"{rules} rule{'s' * (rules != 1)}, {notes} note{'s' * (notes != 1)} at session start",
+                  rules + notes)
     salience.log_all(con)                          # shadow log
     store.prune_salience_log(con)
     return text
@@ -99,8 +103,13 @@ def before_write(con, root: str, session: str, tool: str, tool_input: dict) -> s
     path = tool_input.get("file_path") or tool_input.get("notebook_path")
     if not path or not scope.has_unseen_rules(con, session, str(path), root):
         return ""
-    text, _ = scope.rules_for_path(con, session, str(path), root)
-    return DENY_PREFIX + text if text else ""
+    text, ids = scope.rules_for_path(con, session, str(path), root)
+    if not text:
+        return ""
+    from . import activity
+    activity.note(con, "held", f"first write to {os.path.relpath(str(path), root) if os.path.isabs(str(path)) else path} "
+                  f"held: {len(ids)} folder memor{'y' if len(ids) == 1 else 'ies'} shown first", len(ids))
+    return DENY_PREFIX + text
 
 
 READ_TOOLS = ("read", "read_file", "notebookread")
@@ -115,7 +124,11 @@ def touch(con, root: str, ev: dict) -> str:
     path = ev.get("file_path") or inp.get("file_path") or inp.get("absolute_path") or inp.get("notebook_path")
     if not path:
         return ""
-    text, _ = scope.rules_for_path(con, ev.get("session", "unknown"), str(path), root)
+    text, ids = scope.rules_for_path(con, ev.get("session", "unknown"), str(path), root)
+    if text:
+        from . import activity
+        rel = os.path.relpath(str(path), root) if os.path.isabs(str(path)) else str(path)
+        activity.note(con, "touch", f"{len(ids)} memor{'y' if len(ids) == 1 else 'ies'} for {rel}", len(ids))
     return text
 
 

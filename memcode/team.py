@@ -146,6 +146,9 @@ def sync(con, root: str) -> dict:
             p = _prov(m); p.pop("team_id", None)
             con.execute("UPDATE memories SET provenance=? WHERE id=?", (json.dumps(p), mid))
     con.commit()
+    if added:
+        from . import activity
+        activity.note(con, "saved", f"{added} team memor{'y' if added == 1 else 'ies'} imported", added)
     return {"records": len(records), "added": added, "removed": removed}
 
 

@@ -104,6 +104,8 @@ def cmd_add(con, a, root: str) -> int:
         with open(f, "rb") as fh:
             h = store.sha1(fh.read())
     mid = store.add_memory(con, "manual", redact(a.text.strip())[:2000], redact(rel), h, {"source": "cli"}, confidence=0.6)
+    from . import activity
+    activity.saved(con, "manual", a.text, rel)
     print(f"stored memory #{mid}")
     return 0
 

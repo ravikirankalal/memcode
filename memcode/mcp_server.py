@@ -103,6 +103,8 @@ def _call_tool(con, root: str, name: str, args: dict) -> str:
                 h = store.sha1(fh.read())
         mid = store.add_memory(con, "manual", redact(text.strip())[:MAX_TEXT], redact(rel), h,
                                {"source": "mcp"}, confidence=0.6)
+        from . import activity
+        activity.saved(con, "manual", text, rel)
         return f"stored memory #{mid}"
     if name == "memory_facts":
         from . import facts
@@ -137,7 +139,7 @@ def handle(root: str, msg) -> dict | None:
             want = params.get("protocolVersion")
             ver = want if want in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0]
             res = {"protocolVersion": ver, "capabilities": {"tools": {}},
-                   "serverInfo": {"name": "memcode", "version": "0.8.0"}}
+                   "serverInfo": {"name": "memcode", "version": "0.8.1"}}
         elif method == "tools/list":
             res = {"tools": TOOLS}
         elif method == "tools/call":

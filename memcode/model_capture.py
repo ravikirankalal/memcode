@@ -156,6 +156,8 @@ def run_worker(root: str, classify_fn=classify) -> int:
                                            {"session": sess, "source": "model", "model": res.get("model"),
                                             "ts": time.time()}, 0.6, commit=False)
                     store.bump(con, sess, "captured", commit=False)
+                    from . import activity
+                    activity.saved(con, "correction", body)
                     stored += 1
             con.execute("UPDATE capture_queue SET status='done', result=?, memory_id=? WHERE id=?",
                         (json.dumps(res), mid, qid))

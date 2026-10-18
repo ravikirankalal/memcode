@@ -262,6 +262,8 @@ class TriggerEngine:
         except Exception:                # noqa: BLE001  (scope is an extra: rescope_new retries at session start)
             pass
         store.bump(self.con, sess, "captured", commit=False)
+        from . import activity
+        activity.saved(self.con, trig, text, a)
         return mid
 
     # ---- entry point
