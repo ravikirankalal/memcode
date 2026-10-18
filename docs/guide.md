@@ -17,7 +17,7 @@ Each hook is a fresh process. Trigger state is rebuilt from the last 400 recorde
 
 | Trigger | Fires when | Stored as |
 |---|---|---|
-| correction | your prompt reads as a correction ("No - ...", "never/always ...", "don't ...", "remember that ...") or a stated team rule ("Heads up: we prefer X", "our convention is ...", needs a normative word) right after the agent acted (or, after a text-only exchange, an explicit rule such as "never/always <verb>" or "remember that") | `Rule from user correction: <the bare rule>`, repo-wide |
+| correction | your prompt reads as a correction ("No - ...", "never/always ...", "don't ...", "remember that ...") or a stated rule ("Heads up: we prefer X", "our convention is ...", needs a normative word) right after the agent acted (or, after a text-only exchange, an explicit rule such as "never/always <verb>" or "remember that") | `Rule from user correction: <the bare rule>`, repo-wide |
 | revert | the agent's edit is undone (git checkout/restore/revert, or an edit that reverses it) | note anchored to the file |
 | fail_to_fix | a command fails, files are edited, the same command passes | note anchored to the edited file (and the edited Python function) |
 | retry | the same command is retried with different flags after a failure | repo-wide note |
@@ -100,11 +100,11 @@ Still opt-in, each until its own gate passes:
 
 - **Consolidation** (`MEMCODE_CONSOLIDATE=1`). At session start, 3 or more agent notes that say the same thing (same
   trigger and anchor, text equal after numbers, paths and command flags are normalized) are grouped under one *lesson*
-  ("4 similar fail_to_fix notes on api/x.py: ..."), which is shown instead of them. User rules and team memories are
-  never grouped. `memcode consolidate [--dry-run|--undo]`.
+  ("4 similar fail_to_fix notes on api/x.py: ..."), which is shown instead of them. User rules are never
+  grouped. `memcode consolidate [--dry-run|--undo]`.
 - **Storage budget** (`MEMCODE_STORE_BUDGET=N`). At session start, evicts down to N memories: stale notes first, then
   consolidated notes (their lesson keeps counting them), then retry / dependency notes, then other agent notes by
-  lowest salience. User rules, team memories and lessons are never evicted. `memcode budget N [--dry-run]`.
+  lowest salience. User rules and lessons are never evicted. `memcode budget N [--dry-run]`.
 
 Every memory also gets topic **labels** (testing, build, style, naming, git, deps, security, env, perf, api, data, docs,
 ci) for filtering only: `memcode list --label testing`, `memory_search(label=...)`, `memcode label ID +perf -style`.
@@ -157,26 +157,6 @@ python3 -m memcode fact rm deploy
 
 The agent can also ask with the MCP tool `memory_facts` (optionally filtered by role, e.g. `test`).
 
-### Team memory
-
-Your local store (`.memcode/`) is never committed. To give teammates a memory, share it:
-
-```
-python3 -m memcode team            # what is shared, imported, stale, and worth sharing
-python3 -m memcode share 12 15     # copy memories #12 and #15 into .memcode-team.jsonl
-git add .memcode-team.jsonl && git commit -m "Share billing rules with the team"
-```
-
-`.memcode-team.jsonl` holds one memory per line, so a PR diff shows exactly which rules and notes are being shared,
-and your team reviews them like any other change. After the PR merges, each teammate's next session imports the file
-(no server; git is the sync). Deleting a line and merging removes it from everyone's agent; `memcode unshare ID`
-does that for you. Shared memories behave like local ones: rules appear as rules, notes as untrusted data, and a note
-goes stale for a teammate whose copy of its file differs.
-
-Trust: the file is repo content, as trusted as CLAUDE.md, which is why sharing always goes through review. On import,
-memcode skips malformed lines, accepts only known memory kinds, confines paths to the repo, redacts secrets and caps
-the file at 500 memories. Session ids and other provenance never leave your machine. `MEMCODE_TEAM=0` disables the import.
-
 ### Other agents: Codex CLI and Gemini CLI
 
 memcode's core is agent-neutral; small adapters translate each agent's hook payloads. Print the config for your
@@ -201,8 +181,8 @@ source and Gemini's hook reference (2026-10-16); hooks APIs change, so report br
 **Agents without hooks** (or to see the block in a plain file): `memcode sync-rules` writes the same block into
 `AGENTS.md`, between `<!-- memcode:start -->` and `<!-- memcode:end -->` markers; text outside them is never touched.
 Re-run it to refresh. If `AGENTS.md` is committed, the block is shared when you commit it, and the command says so.
-Memcode never writes `AGENTS.override.md`: Codex reads that file *instead of* `AGENTS.md`, which would hide your
-team's instructions. Cursor is not supported yet: its hook docs could not be verified, and users report that its
+Memcode never writes `AGENTS.override.md`: Codex reads that file *instead of* `AGENTS.md`, which would hide the
+repo's instructions. Cursor is not supported yet: its hook docs could not be verified, and users report that its
 hooks cannot inject context.
 
 ## What is stored, and privacy

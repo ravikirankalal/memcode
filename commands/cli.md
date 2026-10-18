@@ -1,5 +1,5 @@
 ---
-description: "memcode: run any memcode command (help, show, add, team, share, fact, config, export...)"
+description: "memcode: run any memcode command (help, show, add, history, fact, config, export...)"
 argument-hint: "<command> [args]"
 allowed-tools: Bash(python3:*)
 ---

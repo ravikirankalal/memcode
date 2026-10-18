@@ -4,8 +4,8 @@ Runs at session start (maintenance.run) only when MEMCODE_CONSOLIDATE=1, which i
 lesson instead of its children (store.injectable_sql hides rows with a parent_id). Deterministic, idempotent and
 incremental: every run recomputes the grouping from the live store in O(n) and writes only what changed.
 
-Candidates: level-0, non-stale memories that are NOT user rules (trigger 'correction' / 'manual'), NOT team memories
-(provenance source 'team', or any team_id: shared through review) and not lessons. Grouping key:
+Candidates: level-0, non-stale memories that are NOT user rules (trigger 'correction' / 'manual') and not lessons.
+Grouping key:
   (trigger, anchor_path, anchor_symbol, signature(text))
 signature(): lowercased, whitespace collapsed, and
   `backticked commands`  -> triggers._cmd_key (flags and their values dropped: the retry trigger's own "same
@@ -59,15 +59,6 @@ def prov(row) -> dict:
         return {}
 
 
-def is_team(row) -> bool:
-    """Imported from or shared through the reviewed team file (team.py): never consolidated, never evicted."""
-    raw = row["provenance"] or ""
-    if "team" not in raw:                      # cheap pre-check: most rows never mention it
-        return False
-    p = prov(row)
-    return p.get("source") == "team" or bool(p.get("team_id"))
-
-
 def is_lesson(row) -> bool:
     return row["trigger"] == LESSON
 
@@ -77,8 +68,8 @@ def is_own_lesson(row) -> bool:
 
 
 def protected(row) -> bool:
-    """User rules, team memories and lessons: never grouped under a lesson, never evicted."""
-    return row["trigger"] in PROTECTED_TRIGGERS or is_lesson(row) or is_team(row)
+    """User rules and lessons: never grouped under a lesson, never evicted."""
+    return row["trigger"] in PROTECTED_TRIGGERS or is_lesson(row)
 
 
 def _norm_cmd(cmd: str) -> str:

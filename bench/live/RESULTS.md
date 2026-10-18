@@ -358,6 +358,8 @@ is still unmeasured (this repo's store had no memories yet).
 
 # Run 12 (2026-10-12): team transfer (Phase 3 technical proxy) — shared memory reaches a teammate as well as CLAUDE.md
 
+> Historical: team memory was removed from memcode and from the plan in 0.10.0 (2026-10-18). Kept as a record.
+
 Developer A's session learns the rule (frozen `heldout2`, 5 scenarios); developer B's later sessions run in a fresh
 clone that gets only what A committed, never A's local store or per-machine auto-memory. Predictions were posted on
 #19 before the run (commit 3b127a9). Haiku, 2 repeats x 2 later sessions = 4 runs per cell, $0.30 for later sessions.
