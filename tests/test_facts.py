@@ -104,6 +104,17 @@ class Observe(unittest.TestCase):
         keys = [r[0] for r in self.con.execute("SELECT key FROM facts WHERE category='env'")]
         self.assertEqual(keys, ["env:missing:sqlite3-nonexistent-xyz"])
 
+    def test_missing_tool_fact_clears_once_installed(self):
+        facts.observe(self.con, self.d, bash("sqlite3-nonexistent-xyz db 'select 1'", 127))
+        self.assertIsNotNone(self.row("env:missing:sqlite3-nonexistent-xyz"))
+        facts.observe(self.con, self.d, bash("sqlite3-nonexistent-xyz db 'select 1'"))     # ran fine this time
+        self.assertIsNone(self.row("env:missing:sqlite3-nonexistent-xyz"))
+        facts.observe(self.con, self.d, bash("sqlite3-nonexistent-xyz db", 127))
+        from unittest import mock
+        with mock.patch.object(facts.shutil, "which", lambda w: "/usr/bin/" + w):          # installed meanwhile
+            facts.infer(self.con)
+        self.assertIsNone(self.row("env:missing:sqlite3-nonexistent-xyz"))
+
     def test_redaction(self):
         facts.observe(self.con, self.d, bash("deploy --token=abcd1234secret9876 --env prod"))
         for (v,) in self.con.execute("SELECT value FROM facts"):

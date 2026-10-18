@@ -216,7 +216,11 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
             _upsert(con, f"env:missing:{w}", "env", "missing", f"`{w}` is not installed in this environment",
                     "observed", runs=1, fail=1, ts=ts)
             touched += 1
-    if code == 0:
+    if code == 0:                                       # it ran, so whatever it names is installed now
+        for s, _, _ in segs:
+            w = s.split()[0] if s.split() else ""
+            if w and con.execute("DELETE FROM facts WHERE key=?", (f"env:missing:{w}",)).rowcount:
+                touched += 1
         for _, op, n in useful:
             ok, fail = (1, 0) if op not in ("|", "&") else (0, 0)   # a pipe or background job hides the exit status
             if op == "|" and len(useful) == 1:           # `cmd 2>&1 | tail -3`: the output's summary line decides
@@ -369,6 +373,9 @@ def infer(con) -> None:
     """Facts aggregated from memories and command stats; recomputed each session start."""
     ensure(con)
     con.execute("DELETE FROM facts WHERE category='inference'")
+    for (key,) in con.execute("SELECT key FROM facts WHERE key LIKE 'env:missing:%'").fetchall():
+        if shutil.which(key[len("env:missing:"):]):       # installed since: the limitation is gone
+            con.execute("DELETE FROM facts WHERE key=?", (key,))
     from . import salience
     roll = salience.rollup(con, fail_weight=0.5)
     fragile = sorted(((p, v) for p, v in roll.items() if p and v >= FRAGILE_MIN), key=lambda x: -x[1])
