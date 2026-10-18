@@ -36,7 +36,11 @@ export function parseFeed(text: string): Feed | null {
   try {
     const d = JSON.parse(text)
     if (!d || typeof d !== 'object' || !d.counts || !Array.isArray(d.events)) return null
-    return { updated: Number(d.updated) || 0, counts: d.counts, events: d.events }
+    const problems: Record<string, string> = {}
+    if (d.problems && typeof d.problems === 'object') {
+      for (const [k, v] of Object.entries(d.problems)) if (typeof v === 'string' && v) problems[k] = v
+    }
+    return { updated: Number(d.updated) || 0, counts: d.counts, events: d.events, problems }
   } catch {
     return null
   }
@@ -59,27 +63,36 @@ export function latest(f: Feed, nowMs: number): FeedEvent | null {
 }
 
 // module state: a reload starts it over, which only costs one extra read
-let path = ''
+let paths: string[] = [] // the session root's feed, then the repository root's (the main working tree in a worktree)
+let path = '' // the feed shown: the newest of `paths`
 let lastUpdated = -1
 let lastTick = 0
 const renders: Record<string, number> = {} // surface -> times the band was asked for (shown by /memcode-status)
 
 async function refresh($: EngineInterface): Promise<void> {
-  if (!path) return
+  if (!paths.length) return
   const t = await $.clock.now()
   let f: Feed | null = null
-  try {
-    f = parseFeed(await $.fs.read(path))
-  } catch {
-    f = null
+  for (const p of paths) {
+    let g: Feed | null = null
+    try {
+      g = parseFeed(await $.fs.read(p))
+    } catch {
+      g = null
+    }
+    if (g && (!f || g.updated > f.updated)) {
+      f = g
+      path = p
+    }
   }
   // no feed: say why instead of hiding, when memcode's store is there (an older memcode writes no feed)
   let why: string | null = null
   if (f === null) {
-    const store = path.replace(/activity\.json$/, 'memory.db')
-    why = (await $.fs.exists(store).catch(() => false))
-      ? 'memcode is active but writes no status feed: update memcode to 0.8.1 or later'
-      : null
+    for (const p of paths) {
+      if (await $.fs.exists(p.replace(/activity\.json$/, 'memory.db')).catch(() => false)) {
+        why = 'memcode is active but writes no status feed: update memcode to 0.8.1 or later'
+      }
+    }
   }
   if (why !== (await read($, hint))) await update($, hint, () => why)
   const changed = (f?.updated ?? 0) !== lastUpdated
@@ -95,7 +108,10 @@ async function refresh($: EngineInterface): Promise<void> {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    path = `${await $.session.root()}/.memcode/activity.json`
+    // a worktree session: hooks may keep the store in the main working tree (#32), so look in both roots
+    const roots = [await $.session.root(), (await $.session.repo().catch(() => null))?.root]
+    paths = [...new Set(roots.filter((r): r is string => !!r))].map(r => `${r}/.memcode/activity.json`)
+    path = paths[0] ?? ''
     await refresh($).catch(() => undefined)
     $.clock.every(POLL_MS, () => void refresh($).catch(() => undefined))
     // last, and on its own: a host without commands still gets the bar
@@ -126,6 +142,7 @@ export const register: Register = on => {
     const lines = [
       f ? `memcode: ${f.counts.memories} memories, ${f.counts.rules} rules, ${f.counts.facts} facts`
         : 'memcode: no activity feed in this repo yet (.memcode/activity.json)',
+      ...Object.values(f?.problems ?? {}).map(p => `  PROBLEM: ${p}`),
       ...(f ? f.events.slice(-5).map(ev => `  ${ev.kind}: ${ev.text} (${ago(t - ev.ts * 1000)})`) : []),
       `feed: ${path || '(not resolved yet)'}${f ? '' : ' (missing)'}`,
       ...(f ? [] : [`  ${(await read($, hint)) || 'no .memcode store here: memcode is not used in this repo'}`]),
@@ -153,6 +170,9 @@ export const register: Register = on => {
     const fresh = !!ev && t - ev.ts * 1000 < FRESH_BOLD_MS
     const width = Math.max(20, e.props.bodyColumns - 70)
     const text = ev && ev.text.length > width ? `${ev.text.slice(0, width - 1)}…` : ev?.text
+    // a standing problem (#34: the memory agent's model calls fail) holds the bar until memcode clears it
+    const problem = Object.values(f.problems ?? {})[0]
+    const ptext = problem && problem.length > width ? `${problem.slice(0, width - 1)}…` : problem
 
     return (
       <Box flexDirection="row">
@@ -163,7 +183,14 @@ export const register: Register = on => {
         <Text dimColor>notes  </Text>
         <Text color="planMode">⚙ {c.facts} </Text>
         <Text dimColor>facts</Text>
-        {ev && lk && (
+        {ptext && (
+          <Text>
+            <Text dimColor>  ┃ </Text>
+            <Text backgroundColor="error" color="inverseText" bold> ⚠ PROBLEM </Text>
+            <Text color="error"> {ptext}</Text>
+          </Text>
+        )}
+        {!ptext && ev && lk && (
           <Text>
             <Text dimColor>  ┃ </Text>
             <Text backgroundColor={lk.color} color="inverseText" bold> {lk.icon} {lk.tag} </Text>

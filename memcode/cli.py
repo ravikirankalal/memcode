@@ -22,7 +22,8 @@
   budget N [--dry-run]  evict down to N memories (MEMCODE_STORE_BUDGET=N does it at session start)
   label ID [+x] [-y]  show or edit a memory's topic labels; `list --label X` filters by label
 
-Root resolution matches the hooks (CLAUDE_PROJECT_DIR, else git toplevel, else cwd).
+Root resolution matches the hooks (CLAUDE_PROJECT_DIR, else git toplevel, else cwd; a linked worktree maps to
+the main working tree).
 """
 from __future__ import annotations
 
@@ -121,6 +122,10 @@ def cmd_stats(con, a) -> int:
     q = dict(con.execute("SELECT status, COUNT(*) FROM capture_queue GROUP BY status").fetchall())
     if q:
         print("model capture queue: " + ", ".join(f"{k} {v}" for k, v in sorted(q.items())))
+    from . import transcript_capture
+    h = transcript_capture.health(con)
+    if h:
+        print(h)
     rep = one("SELECT COALESCE(SUM(repeated_corrections),0) FROM session_stats")
     print(f"repeated corrections: {rep}")
     print(f"retrievals: {one('SELECT COUNT(*) FROM retrievals')}  events: {one('SELECT COUNT(*) FROM events')}  "

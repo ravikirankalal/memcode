@@ -58,6 +58,21 @@ class ModelCapture(unittest.TestCase):
         self.assertEqual(json.loads(rules[0]["provenance"])["source"], "model")
         self.assertEqual(mc.pending(self.con), 0)
 
+    def test_task_request_is_never_a_rule(self):
+        # issue #33: neither queued nor stored, whatever the model says
+        self.act()
+        msg = ("Park G16. Start a review subagent on multitenant main, it should keep the backwork compatibility in "
+               "mind with rest of the review points. keep in mind develop is still running in a different cluster "
+               "and we can not touch it yet.")
+        self.assertFalse(mc.should_queue(self.con, "s", msg))
+        mc.enqueue(self.con, "s", msg)
+        mc.enqueue(self.con, "s", "the reviewers here like small PRs")
+        fake = lambda t: {"is_rule": True, "model": "fake",
+                          "rule": "Park G16 and start a review subagent." if "G16" in t else "Start every task on main."}
+        self.assertEqual(mc.run_worker(self.root, classify_fn=fake), 1)
+        rules = [r["text"] for r in store.list_memories(self.con) if r["trigger"] == "correction"]
+        self.assertEqual(rules, ["Rule from user correction: Start every task on main."])
+
     def test_failures_retry_then_error_and_never_raise(self):
         self.act(); mc.enqueue(self.con, "s", "we indent with tabs here")
         self.assertEqual(mc.run_worker(self.root, classify_fn=lambda t: None), 0)

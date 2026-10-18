@@ -3,6 +3,7 @@ export type Feed = {
   updated: number
   counts: { memories: number; rules: number; notes: number; facts: number }
   events: FeedEvent[]
+  problems: Record<string, string> // what is broken right now (memcode/activity.py), e.g. a failing memory agent
 }
 
 declare module 'claude-code' {

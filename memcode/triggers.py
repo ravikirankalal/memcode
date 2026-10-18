@@ -140,6 +140,34 @@ def _not_a_rule(text: str) -> str | None:
     return "bare" if len(re.findall(r"[A-Za-z0-9_./'`-]+", rest)) < 3 else None
 
 
+# The LLM capture paths (model_capture, transcript_capture) read descriptive rules the patterns miss, so they skip
+# _not_a_rule's broad vetoes ("until", "wait"); this narrower check keeps them from storing a request for NOW as a
+# standing rule (#33: "Park G16. Start a review subagent on main ... we can not touch develop yet.").
+_NOW = re.compile(
+    r"(?i)\b(?:right now|for now|yet|this time|today|tonight|tomorrow|for this (?:change|pr|task|one|session|run)"
+    r"|this one|in this pr|just for now)\b")
+_TASK_OPEN = re.compile(
+    r"(?i)^\W*(?:(?:please|ok(?:ay)?|now|then|next|also|and)\W+)*(?:park|start|spin up|kick off|launch|run|open|"
+    r"create|review|merge|deploy|push|pull|check|look into|look at|investigate|fix|implement|build|release|ship|"
+    r"continue|resume|pause|finish|close|rebase|revert|undo|add|remove|delete|rename|move|update|draft|send|post|"
+    r"go ahead|let'?s)\b")
+_STANDING = re.compile(
+    r"(?i)\b(?:always|never|every|whenever|from now on|going forward|by default|as a rule|conventions?"
+    r"|in (?:this|our|the) (?:repo|repository|project|codebase)|in (?:the )?future)\b")
+
+
+def one_off(text: str) -> str | None:
+    """'one-off' / 'task' when `text` (a user turn, or a rule restated from one) asks for something now rather than
+    stating a standing rule, else None."""
+    t = re.sub(r"^\[user\]\s*", "", " ".join(str(text).split()), flags=re.IGNORECASE)
+    if not t:
+        return None
+    if _NOW.search(t):
+        return "one-off"
+    first = re.split(r"(?<=[.!?])\s+", t, maxsplit=1)[0]
+    return "task" if _TASK_OPEN.match(first) and not _STANDING.search(t) else None
+
+
 def _scrub(o):
     if isinstance(o, str):
         return redact(o)

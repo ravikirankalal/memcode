@@ -14,6 +14,7 @@ const FEED: Feed = {
     { ts: T - 30, kind: 'start', text: '12 rules, 8 notes at session start', n: 20 },
     { ts: T - 5, kind: 'saved', text: 'rule: Always use tabs for indentation in this repo.', n: 1 },
   ],
+  problems: {},
 }
 
 test('parses the feed and rejects junk', async () => {
@@ -89,5 +90,34 @@ test('nothing of its own when memcode is not active in the repo', async ($, on) 
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: /memcode/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a worktree session finds the feed in the main working tree', async ($, on) => {
+  // issue #32: hooks keep the store under the main checkout; the session root is the worktree
+  mock.clock(on, { now: T * 1000 })
+  on('session.root', () => ({ value: '/repo/.claude/worktrees/w1' }))
+  on('session.repo', () => ({ value: { root: '/repo', remote: null, internal: false, name: null } }))
+  on('fs.read', (_$, e) => (e.path === '/repo/.memcode/activity.json' ? { value: JSON.stringify(FEED) } : { deny: 'ENOENT' }))
+  on('ui.render', ($, e) => { const { Box } = $.ui.resolve(e); return <Box /> })
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/repo/.claude/worktrees/w1', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /📜 12/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /🧠 SAVED/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a failing memory agent holds the bar with its reason', async ($, on) => {
+  // issue #34: capture failures were silent
+  mock.clock(on, { now: T * 1000 })
+  const why = 'memory agent: the claude CLI is not logged in (or its login expired): run `claude` in a terminal and /login'
+  world(on, JSON.stringify({ ...FEED, problems: { capture: why } }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /⚠ PROBLEM/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /not logged in/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /🧠 SAVED/ })).toBeUndefined()
+  expect(parseFeed(JSON.stringify(FEED))?.problems).toEqual({})
   await ui.unmount()
 })

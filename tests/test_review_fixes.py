@@ -103,6 +103,23 @@ class TestStore(Repo):
         with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": self.root}):
             self.assertEqual(store.resolve_root("/tmp"), self.root)
 
+    def test_worktree_resolves_to_main_tree(self):
+        # issue #32: hooks, slash commands and the MCP server share one store from any checkout of the repo
+        with tempfile.TemporaryDirectory() as d:
+            main = os.path.realpath(os.path.join(d, "main"))
+            os.makedirs(main)
+            git(main, "init", "-q")
+            git(main, "commit", "-q", "--allow-empty", "-m", "i")
+            nested, outside = os.path.join(main, ".claude", "worktrees", "w1"), os.path.join(d, "outside")
+            git(main, "worktree", "add", "-q", nested, "-b", "w1")
+            git(main, "worktree", "add", "-q", outside, "-b", "w2")
+            env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(store.resolve_root(nested), main)
+                self.assertEqual(store.resolve_root(outside), main)
+            with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": outside}):
+                self.assertEqual(store.resolve_root(), main)
+
 
 class TestScan(Repo):
     def test_single_transaction_and_skip_unchanged(self):
