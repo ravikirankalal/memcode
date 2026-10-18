@@ -73,6 +73,8 @@ SYSTEM = (
     "- add: something a future session must know to avoid a mistake or wasted time, that it could not easily see from "
     "the code: a convention the user stated or confirmed (also when phrased as description, e.g. 'every module has "
     "X'), how to build, test, lint or run things here when the obvious way fails, a pitfall that was discovered.\n"
+    "Write a pitfall as its fix, with the exact command, value or file that worked (e.g. 'Start the server "
+    "with APP_ENV=dev python3 -m app.server', not 'the server fails without APP_ENV').\n"
     "- update: a numbered memory is incomplete or partly wrong given the transcript; give its number as target and the "
     "corrected full text.\n"
     "- retire: a numbered memory is no longer true or the user withdrew it; give its number as target.\n"
