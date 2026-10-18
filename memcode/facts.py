@@ -68,6 +68,10 @@ _TRIVIAL = re.compile(r"^(?:cd|ls|ll|pwd|cat|head|tail|less|more|grep|rg|ag|find
                       r"mkdir|rm|cp|mv|touch|chmod|ln|stat|file|which|type|env|clear|diff|git|history|exit|wait|kill|ps|"
                       r"date|basename|dirname|realpath|readlink|du|df|uptime|nproc|whoami|id|jq|tar|unzip|gzip|curl|wget)$")
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*$")
+# env prefixes that change only how output looks: dropped from a fact. Any other VAR=value prefix is kept, because the
+# command may only work with it (TALLY_DATA=ledger python3 -m tally ...; tc2, Run 17).
+_COSMETIC_ENV = re.compile(r"^(?:NO_COLOR|FORCE_COLOR|CLICOLOR(?:_FORCE)?|TERM|COLUMNS|LINES|PAGER|GIT_PAGER|LESS|"
+                           r"LANG|LC_\w+|TZ|PYTHONUNBUFFERED|PYTHONDONTWRITEBYTECODE|CI|MEMCODE_\w+)=")
 _REDIRECT = re.compile(r"^(?:\d?>>?|&>|<)\S*$|^\d?>&\d$")
 # summary lines of common runners; a pipe hides the exit status, these restore it (see _piped_verdict)
 _OUT_FAIL = re.compile(r"^FAILED \((?:failures|errors)=|^=+ .*\b\d+ (?:failed|errors?)\b.* =+$|"
@@ -116,11 +120,15 @@ def split_ops(cmd: str) -> list[tuple[str, str]]:
 
 
 def normalize(seg: str, root: str | None = None) -> str | None:
-    """A simple command as worth remembering, or None: env assignments and redirects dropped, repo root made
-    relative; commands naming absolute paths outside the repo (scratch dirs, temp files) are not reusable."""
+    """A simple command as worth remembering, or None: wrappers, redirects and cosmetic env prefixes dropped, other
+    env prefixes kept (the command may need them), repo root made relative; commands naming absolute paths outside
+    the repo (scratch dirs, temp files) or carrying a redacted value are not reusable."""
     toks = seg.split()
-    while True:                                         # FOO=1 timeout 60 npm test -> npm test
+    env: list[str] = []
+    while True:                                         # FOO=1 timeout 60 npm test -> FOO=1 npm test
         while toks and _ASSIGN.match(toks[0]):
+            if not _COSMETIC_ENV.match(toks[0]):
+                env.append(toks[0])
             toks = toks[1:]
         stripped = _WRAPPERS.sub("", " ".join(toks)).split()
         if stripped == toks:
@@ -136,16 +144,20 @@ def normalize(seg: str, root: str | None = None) -> str | None:
         return None                                     # inline or stdin scripts are one-offs
     if toks[0] == "claude" and toks[1:2] == ["-p"]:
         return None
+    if any("$" in a or "`" in a or "[REDACTED]" in a for a in env):
+        return None                                     # a variable or a secret in the prefix: not a reusable command
+    toks = env + toks
     if toks[-1] in ("--version", "-V", "--help", "-h"):
         return None                                     # `ruff --version` is a probe, not how the repo is linted
     rootp = os.path.realpath(root).rstrip("/") + "/" if root else None
     out = []
     for t in toks:
-        if rootp and t.startswith(rootp):
-            t = t[len(rootp):] or "."
-        if t.startswith("/") and not t.startswith(("/dev/null",)) and not re.match(r"^/usr/(?:local/)?bin/", t):
+        name, eq, val = t.partition("=") if _ASSIGN.match(t) else ("", "", t)
+        if rootp and val.startswith(rootp):
+            val = val[len(rootp):] or "."
+        if val.startswith("/") and not val.startswith(("/dev/null",)) and not re.match(r"^/usr/(?:local/)?bin/", val):
             return None
-        out.append(t)
+        out.append(name + eq + val)
     s = " ".join(out)
     return s if len(s) <= 200 else None
 
@@ -164,6 +176,7 @@ def _piped_verdict(rest: list[str], output: str) -> bool | None:
 
 
 def role_of(cmd: str) -> str | None:
+    cmd = re.sub(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+", "", cmd)    # TALLY_DATA=ledger python3 -m x: role of the rest
     for role, rx in _ROLES:
         if rx.search(cmd):
             return role

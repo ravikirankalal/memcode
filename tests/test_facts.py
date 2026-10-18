@@ -25,7 +25,12 @@ class Splitting(unittest.TestCase):
         for seg in ("1", "-d $S/x", "python3 -c 'print(1)'", "python3 -", "ls -la", "git status",
                     "python3 /tmp/x/prof.py", "echo $HOME", "for x in a b", "git..."):
             self.assertIsNone(facts.normalize(seg), seg)
-        self.assertEqual(facts.normalize("FOO=1 timeout 60 npm test >out.txt"), "npm test")
+        self.assertEqual(facts.normalize("FOO=1 timeout 60 npm test >out.txt"), "FOO=1 npm test")
+        self.assertEqual(facts.normalize("NO_COLOR=1 CI=true npm test"), "npm test")          # cosmetic: dropped
+        self.assertIsNone(facts.normalize("API_TOKEN=[REDACTED] npm test"))                   # secret: not reusable
+        self.assertIsNone(facts.normalize("DATA=$HOME/x npm test"))
+        self.assertEqual(facts.normalize("TALLY_DATA=/r/ledger python3 -m tally", "/r"), "TALLY_DATA=ledger python3 -m tally")
+        self.assertIsNone(facts.normalize("TALLY_DATA=/tmp/x python3 -m tally", "/r"))       # outside the repo
 
     def test_roles(self):
         cases = {"python3 -m pytest -q": "test", "python3 -m unittest discover -s tests": "test", "npm test": "test",
@@ -114,6 +119,13 @@ class Observe(unittest.TestCase):
         with mock.patch.object(facts.shutil, "which", lambda w: "/usr/bin/" + w):          # installed meanwhile
             facts.infer(self.con)
         self.assertIsNone(self.row("env:missing:sqlite3-nonexistent-xyz"))
+
+    def test_required_env_prefix_is_kept_in_the_shown_command(self):     # tc2 d_tally_env (Run 17)
+        facts.observe(self.con, self.d, bash("python3 -m tally report 2026-02", 1))
+        facts.observe(self.con, self.d, bash("TALLY_DATA=ledger python3 -m tally report 2026-02"))
+        r = self.row("cmd:TALLY_DATA=ledger python3 -m tally report 2026-02")
+        self.assertEqual((r["role"], r["ok"]), ("run", 1))
+        self.assertIn("run: `TALLY_DATA=ledger python3 -m tally report 2026-02`", "\n".join(facts.lines(self.con)))
 
     def test_redaction(self):
         facts.observe(self.con, self.d, bash("deploy --token=abcd1234secret9876 --env prod"))
