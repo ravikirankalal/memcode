@@ -97,7 +97,9 @@ SYSTEM = (
     "with APP_ENV=dev python3 -m app.server', not 'the server fails without APP_ENV').\n"
     "- update: a numbered memory is incomplete or partly wrong given the transcript; give its number as target and the "
     "corrected full text.\n"
-    "- retire: a numbered memory is no longer true or the user withdrew it; give its number as target.\n"
+    "- retire: a numbered memory is no longer true or the user withdrew it; give its number as target. When the "
+    "user's words that withdraw it also state the standing rule that replaces it (e.g. they say not to do what the "
+    "memory recommends), retire it AND add that rule, with the same quote as evidence.\n"
     "Rules of the job: a user rule is added, changed or retired only because of the user's own words. Skip details of "
     "the current task, one-off requests ('for this change only'), guesses the agent did not verify, general "
     "programming knowledge, anything soon stale, anything about the agent's own memory or tools, and anything the "
@@ -317,7 +319,8 @@ def why_failed(output: str, model: str) -> str:
 # ---- checks ----
 
 def _norm(s: str) -> str:
-    return " ".join(str(s).lower().split())
+    """For matching quotes: case, spacing and markdown emphasis/code marks ignored (the model quotes `**X**` as X)."""
+    return " ".join(re.sub(r"[*`]", "", str(s)).lower().split())
 
 
 def _terms(s: str) -> set:
