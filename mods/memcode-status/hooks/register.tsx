@@ -44,6 +44,7 @@ export function latest(f: Feed, nowMs: number): FeedEvent | null {
 let path = ''
 let lastUpdated = -1
 let lastTick = 0
+const renders: Record<string, number> = {} // surface -> times the band was asked for (shown by /memcode-status)
 
 async function refresh($: EngineInterface): Promise<void> {
   if (!path) return
@@ -70,6 +71,10 @@ export const register: Register = on => {
     path = `${await $.session.root()}/.memcode/activity.json`
     await refresh($).catch(() => undefined)
     $.clock.every(POLL_MS, () => void refresh($).catch(() => undefined))
+    // last, and on its own: a host without commands still gets the bar
+    await $.command
+      .register({ name: 'memcode-status', description: 'memcode: counts, recent memory events, where the status bar draws' })
+      .catch(() => undefined)
     return result
   })
 
@@ -85,7 +90,24 @@ export const register: Register = on => {
     return result
   })
 
+  on('command.run', { command: 'memcode-status' }, async $ => {
+    await refresh($).catch(() => undefined)
+    const f = await read($, feed)
+    const t = await $.clock.now()
+    const surfaces = await $.session.surfaces()
+    const drawn = Object.entries(renders).map(([k, v]) => `${k} ${v}x`).join(', ') || 'not asked by any surface yet'
+    const lines = [
+      f ? `memcode: ${f.counts.memories} memories, ${f.counts.rules} rules, ${f.counts.facts} facts`
+        : 'memcode: no activity feed in this repo yet (.memcode/activity.json)',
+      ...(f ? f.events.slice(-5).map(ev => `  ${ev.kind}: ${ev.text} (${ago(t - ev.ts * 1000)})`) : []),
+      `surfaces in this session: ${surfaces.join(', ') || 'none'}`,
+      `status bar asked for by: ${drawn}`,
+    ]
+    return { text: lines.join('\n') }
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    renders[e.surface] = (renders[e.surface] ?? 0) + 1
     const f = await read($, feed)
     if (e.props.hasSurvey || f === null) return next(e)
     const t = (await read($, now)) || (await $.clock.now())
