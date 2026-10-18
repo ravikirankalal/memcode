@@ -106,6 +106,17 @@ class Store(unittest.TestCase):
         again = tc.store_items(self.con, self.d, "s2", self.items(), self.condensed, "m")
         self.assertEqual(again, [])                                     # repeats of live memories are skipped
 
+    def test_short_fact_is_not_a_repeat(self):                          # tc1 (Run 16): a fact "shelf" ate a rule
+        from memcode import facts
+        facts.ensure(self.con)
+        self.con.execute("INSERT INTO facts(key,category,role,value,source,runs,ok,fail,first_seen,last_seen) "
+                         "VALUES('repo:pkg','repo','pkg','shelf','f',0,0,0,0,0)")
+        self.assertFalse(tc.is_repeat(self.con, "Errors that reach the user are ShelfError from shelf/errors.py, "
+                                                "never ValueError."))
+        store.add_memory(self.con, "transcript", "Errors that reach the user are ShelfError from shelf/errors.py.",
+                         "", None, {})
+        self.assertTrue(tc.is_repeat(self.con, "Errors reaching the user are ShelfError (shelf/errors.py)."))
+
     def test_worker_scans_only_new_lines(self):
         path = write_transcript(SESSION)
         calls = []

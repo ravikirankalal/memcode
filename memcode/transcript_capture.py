@@ -215,7 +215,8 @@ def is_repeat(con, text: str) -> bool:
         pass
     for other in rows:
         o = _terms(other)
-        if o and len(t & o) / min(len(t), len(o)) >= DUP_OVERLAP:
+        # most of the NEW item's terms already in one memory; a short fact ("shelf") never swallows a long item
+        if len(o) >= 3 and len(t & o) / len(t) >= DUP_OVERLAP:
             return True
     return False
 

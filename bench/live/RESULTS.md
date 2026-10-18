@@ -503,3 +503,41 @@ it is a hierarchy arm.
 Constructed stores (dense directory-scoped rules), one model, 6 runs per cell. The first-write refusal costs one extra
 tool call per folder with unseen rules per session; it is wired for Claude Code (PreToolUse) only, Codex and Gemini get
 the read-time injection.
+
+---
+
+# Run 16 (2026-10-18): tc1, transcript capture gate — FAILED (criteria 1 and 3); a dedupe bug found
+
+Pre-registered in bench/live/tc1_gate.md. Frozen e2e1, memcode vs memcode_tc (+ transcript capture, Haiku), same
+plugin commit (4e2bd33), hierarchy pinned off, Haiku, 4 simulated weeks per arm, $2.63.
+
+| task | arm | C1 | C2 | C3 | C4 | P1 | P2 | P3 | E1 | E2 | lesson mistakes | bash failed / session |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| thu_recent | memcode | 0/4 | 1/4 | 0/4 | 0/4 | 0/4 | 0/4 | 2/4 | 0/4 | 0/4 | 3/36 | 7.5 |
+| thu_recent | memcode_tc | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 1/4 | 0/4 | 0/4 | 1/36 | 2.2 |
+| fri_markdown | memcode | 0/4 | 4/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 4/36 | 3.2 |
+| fri_markdown | memcode_tc | 0/4 | 4/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 4/36 | 1.5 |
+
+Primary cells: memcode 6/32, memcode_tc 5/32. Capture cost $0.013 per week; checks passed 8/8 in both arms.
+
+## Gate
+1. Lower primary total AND lower Friday C2: **failed** (5 vs 6, but Friday C2 4/4 in both).
+2. No cell worse by more than 1/4: passed.
+3. Precision (>= 80% correct, none contradicting the spec): **failed**. 24 transcript memories over 4 weeks:
+   13 correct repo knowledge (CHANGES.md Unreleased section x4, duplicate detection on title+author x2, __pycache__
+   left out of commits x4, ruff config, clock module, no .gitignore); 9 true but about the benchmark's tool
+   permissions, not the repo ("chained shell commands need approval", "rm -rf needs approval"); 2 wrong:
+   "writing rules to memcode memory was declined, keep rules in session instructions" (false), and "storage.load
+   raises a built-in ValueError ... left unchanged" (records a violation of C2 as the accepted state).
+4. Cost and checks: passed.
+
+## Why C2 was missed: a bug, not the model
+Replaying the extractor on the C2 turn of a memcode_tc week returned the ShelfError rule as a rule 3/3, with
+verified evidence. The dedupe check divided term overlap by the SMALLER set, so the repo fact "shelf" (one term)
+"matched" the rule at 100% and it was dropped as a repeat. Fixed (overlap measured on the new item's terms; existing
+text needs >= 3 terms) with a regression test. e2e1 is now tuned for transcript capture: a new gate needs a new set.
+
+## Side effect worth noting
+memcode_tc sessions had far fewer failed shell calls (2.2 vs 7.5 on Thursday) and fewer tokens (730k vs 991k):
+the permission notes taught later sessions to avoid commands the environment refuses. True and useful, but about the
+agent's environment, so they belong with facts (env), not repo memories.
