@@ -103,23 +103,36 @@ class TestStore(Repo):
         with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": self.root}):
             self.assertEqual(store.resolve_root("/tmp"), self.root)
 
-    def test_worktree_resolves_to_main_tree(self):
-        # issue #32: hooks, slash commands and the MCP server share one store from any checkout of the repo
+    def test_worktree_shares_the_store_but_reads_its_own_files(self):
+        # #32: one store per repository from any checkout; #37: files (staleness, repo map) come from the session's
+        # own checkout, not the main checkout's branch
+        from memcode import engine
         with tempfile.TemporaryDirectory() as d:
             main = os.path.realpath(os.path.join(d, "main"))
             os.makedirs(main)
             git(main, "init", "-q")
-            git(main, "commit", "-q", "--allow-empty", "-m", "i")
+            Path(main, "a.py").write_text("x = 1\n")
+            git(main, "add", "a.py")
+            git(main, "commit", "-q", "-m", "i")
             nested, outside = os.path.join(main, ".claude", "worktrees", "w1"), os.path.join(d, "outside")
             git(main, "worktree", "add", "-q", nested, "-b", "w1")
             git(main, "worktree", "add", "-q", outside, "-b", "w2")
+            Path(outside, "newfile.py").write_text("def f():\n    return 1\n")
             env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
             with mock.patch.dict(os.environ, env, clear=True):
-                self.assertEqual(store.resolve_root(nested), main)
-                self.assertEqual(store.resolve_root(outside), main)
-            with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": outside}):
-                self.assertEqual(store.resolve_root(), main)
-
+                self.assertEqual(store.resolve_root(nested), os.path.realpath(nested))
+                self.assertEqual(store.resolve_root(outside), os.path.realpath(outside))
+            for wt in (nested, outside):
+                self.assertEqual(store.db_path(wt), Path(main, ".memcode", "memory.db"))
+            con = store.connect(outside)
+            mid = store.add_memory(con, "manual", "f returns 1 on purpose", "newfile.py",
+                                   store.sha1(Path(outside, "newfile.py").read_bytes()), {})
+            engine.session_start(con, outside, "s")
+            self.assertEqual(con.execute("SELECT stale FROM memories WHERE id=?", (mid,)).fetchone()[0], 0)
+            files = {r[0] for r in con.execute("SELECT path FROM paths WHERE kind='file'")}
+            self.assertIn("newfile.py", files)                         # the worktree's tree, not main's
+            con.close()
+            self.assertFalse(Path(outside, ".memcode").exists())
 
 class TestScan(Repo):
     def test_single_transaction_and_skip_unchanged(self):

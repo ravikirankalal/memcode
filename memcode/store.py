@@ -5,6 +5,7 @@ signatures without updating callers.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -86,8 +87,14 @@ def sha1(data: bytes | str) -> str:
     return hashlib.sha1(data).hexdigest()
 
 
+def memdir(repo_root: str | os.PathLike) -> Path:
+    """Where the store lives: <main working tree>/.memcode, shared by every checkout of the repository (#32). Files
+    are still read from `repo_root`, the session's own checkout (#37)."""
+    return Path(main_tree(os.path.abspath(str(repo_root)))) / ".memcode"
+
+
 def db_path(repo_root: str | os.PathLike) -> Path:
-    return Path(repo_root) / ".memcode" / "memory.db"
+    return memdir(repo_root) / "memory.db"
 
 
 BUSY_TIMEOUT_MS = 5000
@@ -96,23 +103,25 @@ EVENT_MAX_AGE_S = 30 * 86400
 
 
 def resolve_root(hint: str | os.PathLike | None = None) -> str:
-    """Repo root used by hooks, slash commands and the MCP server alike: CLAUDE_PROJECT_DIR, else
-    `git rev-parse --show-toplevel` from `hint` (or cwd), else `hint`/cwd itself. A linked git worktree resolves to
-    the main working tree, so every checkout of a repository shares one store (#32)."""
+    """The session's working tree, used by hooks, slash commands and the MCP server alike: CLAUDE_PROJECT_DIR, else
+    `git rev-parse --show-toplevel` from `hint` (or cwd), else `hint`/cwd itself. Files (anchors, staleness, the repo
+    map, scoping) resolve against it; the store itself lives in the main working tree (memdir), so a linked worktree
+    shares its repository's store without reading the main checkout's branch (#32, #37)."""
     env = os.environ.get("CLAUDE_PROJECT_DIR")
     if env and os.path.isdir(env):
-        return main_tree(os.path.abspath(env))
+        return os.path.abspath(env)
     start = str(hint) if hint and os.path.isdir(str(hint)) else os.getcwd()
     try:
         r = subprocess.run(["git", "-C", start, "rev-parse", "--show-toplevel"],
                            capture_output=True, check=False, timeout=5)
         if r.returncode == 0 and r.stdout.strip():
-            return main_tree(os.path.abspath(r.stdout.decode("utf-8", "surrogateescape").strip()))
+            return os.path.abspath(r.stdout.decode("utf-8", "surrogateescape").strip())
     except (OSError, ValueError, subprocess.SubprocessError):
         pass
     return os.path.abspath(start)
 
 
+@functools.lru_cache(maxsize=32)
 def main_tree(top: str) -> str:
     """The main working tree when `top` is a linked worktree (its git common dir is <main>/.git), else `top`."""
     try:

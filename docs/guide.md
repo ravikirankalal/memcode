@@ -213,7 +213,7 @@ hooks cannot inject context.
 | A correction was not captured | Phrase it as a rule ("No - always X", "never Y"); see the trigger table. |
 | Hook errors | Failures never block the agent; they are logged to `<repo>/.memcode/error.log`. |
 | `python3 -m memcode` cannot import | Use `/memcode:cli ...` inside Claude Code, or the plugin's `bin/memcode` (see the README alias); `python3 -m memcode` only works from a checkout or with `PYTHONPATH` set to the plugin directory. |
-| Wrong repo | The root is `CLAUDE_PROJECT_DIR`, else the git toplevel, else the working directory. Use `--root`. |
+| Wrong repo | The root is `CLAUDE_PROJECT_DIR`, else the git toplevel, else the working directory. Use `--root`. In a linked git worktree the store is the main checkout's `.memcode/` (one per repository), while files (staleness, the repo map) are read from the worktree itself. |
 | Stale or wrong memory | `python3 -m memcode show ID`, then `forget ID` or `prune-stale`. |
 
 ## Disable or uninstall
@@ -230,4 +230,6 @@ rm -rf <repo>/.memcode          # delete a repository's memory
 - Staleness is per symbol for Python (`file.py::function`, hashed on the AST, so comments and formatting do not
   count) and falls back to the whole file for other languages or files that do not parse.
 - Plain `mv` of a whole directory is not re-anchored.
+- Checkouts of one repository share the store, so staleness and the repo map follow whichever checkout last started
+  a session; two sessions open at once in checkouts on different branches can flip a note between fresh and stale.
 - The benefit over a hand-written `CLAUDE.md` is unproven; see the benchmark results.
