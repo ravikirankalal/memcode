@@ -123,6 +123,8 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["MEMCODE_RANK"] = "relevance"
     if config == "memcode_salience":
         env["MEMCODE_RANK"] = "salience"
+    if config == "memcode_tc":                  # + opt-in transcript capture (memcode/transcript_capture.py)
+        env.update(MEMCODE_RETRIEVAL="1", MEMCODE_TRANSCRIPT_CAPTURE="1", MEMCODE_CAPTURE_MODEL="claude-haiku-5-5")
     env["MEMCODE_HIER"] = "0"                   # arms predate the hierarchy default (0.8.0); hier arms set it
     env.update(extra_env or {})                 # arm-specific switches on top (e.g. MEMCODE_HIER for hier1)
     waited = 0
@@ -261,13 +263,34 @@ def run_unit(args: tuple) -> dict:
     teach(repo, sc, model, config)
     if config == "memcode_model":
         wait_for_capture_queue(repo)
+    audit = None
+    if config == "memcode_tc":                  # the scan worker runs after each turn: wait, then record what it kept
+        from bench.live.e2e_run import wait_capture
+        audit = {"capture": wait_capture(repo), **memory_audit(repo)}
     shared = share_all_rules(repo) if config == "memcode_team" else None
     stored = memcode_memories(repo) if config in PLUGIN else None
     builtin = builtin_memory_written(repo) if config != "nomem" else None
     later = [metrics.metrics(claude(fresh_with_memory(sc, repo, config), sc["later"], model, config),
                              sc["trap_regex"], sc.get("trap_on", "cmd_path")) for _ in (2, 3)]
     return {"scenario": sc["name"], "tuned_on": sc["tuned_on"], "config": config,
-            "stored": stored, "builtin_written": builtin, "shared": shared, "later": later}
+            "stored": stored, "builtin_written": builtin, "shared": shared, "later": later, "audit": audit}
+
+
+def memory_audit(repo: Path) -> dict:
+    """Every memory and env fact in the store after session 1, for the precision audit."""
+    db = repo / ".memcode" / "memory.db"
+    if not db.exists():
+        return {"memories": [], "env_facts": []}
+    con = sqlite3.connect(db)
+    try:
+        mems = [f"({r[0]}) {r[1]}" for r in con.execute("SELECT trigger, text FROM memories ORDER BY id")]
+        try:
+            env = [r[0] for r in con.execute("SELECT value FROM facts WHERE category='env' ORDER BY key")]
+        except sqlite3.Error:
+            env = []
+        return {"memories": mems, "env_facts": env}
+    finally:
+        con.close()
 
 
 def share_all_rules(repo: Path) -> int:
@@ -307,7 +330,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--scenarios", default="", help="comma-separated scenario names (default: all)")
-    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3", "heldout4", "pressure1", "pressure2", "salience1", "salience2"), help="scenario set")
+    ap.add_argument("--set", default="dev", choices=("dev", "heldout", "heldout2", "heldout3", "heldout4", "pressure1", "pressure2", "salience1", "salience2", "tc2"), help="scenario set")
     ap.add_argument("--configs", default="", help="comma-separated configs (default: all but memcode_legacy)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default=str(HERE / "results" / "raw.json"))
@@ -328,6 +351,9 @@ def main() -> None:
     elif a.set == "pressure1":
         from bench.live.pressure1 import PRESSURE1
         pool = PRESSURE1
+    elif a.set == "tc2":
+        from bench.live.tc2 import TC2
+        pool = TC2
     elif a.set == "heldout4":
         from bench.live.heldout4 import HELDOUT4
         pool = HELDOUT4

@@ -25,9 +25,12 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--oracle", action="store_true")
     ap.add_argument("--scenarios", default="", help="comma-separated names (default: all)")
-    ap.add_argument("--set", default="hier1", choices=("hier1", "hier2"))
+    ap.add_argument("--set", default="hier1", choices=("hier1", "hier2", "tc2"))
     a = ap.parse_args()
-    if a.set == "hier2":
+    if a.set == "tc2":
+        from bench.live import tc2_candidates
+        pool = list(tc2_candidates.CANDIDATES)
+    elif a.set == "hier2":
         from bench.live import hier2_candidates
         pool = hier2_candidates.pilot_pool()
     else:
