@@ -541,3 +541,45 @@ text needs >= 3 terms) with a regression test. e2e1 is now tuned for transcript 
 memcode_tc sessions had far fewer failed shell calls (2.2 vs 7.5 on Thursday) and fewer tokens (730k vs 991k):
 the permission notes taught later sessions to avoid commands the environment refuses. True and useful, but about the
 agent's environment, so they belong with facts (env), not repo memories.
+
+---
+
+# Run 17 (2026-10-18): tc2, transcript capture confirmation — gate PASSED
+
+Frozen `tc2` (bench/live/tc2.py, untuned; written after the Run 16 fixes). Session 1 teaches, two fresh later
+sessions are judged. memcode (MEMCODE_RETRIEVAL=1) vs memcode_tc (+ transcript capture, Haiku), plugin ce0be9c,
+hierarchy pinned off, Haiku, 3 units x 2 later sessions per cell.
+
+| scenario | shape | memcode | memcode_tc |
+|---|---|---|---|
+| g_prefix | rule stated as description | 6/6 | **0/6** |
+| g_result_tuple | rule stated as description | 6/6 | **0/6** |
+| g_owner_line | rule stated as description | 6/6 | **0/6** |
+| d_qa_runner | pitfall discovered in session 1 | 1/6 | 1/6 |
+| d_tally_env | pitfall discovered in session 1 | 6/6 | **2/6** |
+| k_pattern_rule | control: pattern-captured rule | 0/6 | 0/6 |
+| k_one_off | harm control: one-off instruction | 0/6 | 0/6 |
+| **gain total** | | 25/30 [0.66, 0.93] | **3/30** [0.03, 0.26] |
+
+## Gate
+1. Gain scenarios lower with non-overlapping Wilson intervals: **passed**.
+2. Controls: k_pattern_rule 0/6 vs 0/6, k_one_off 0/6 (no one-off memory was stored): **passed**.
+3. Precision: transcript capture stored 22 memories in 21 teaching sessions: 9 rules (each the user's descriptive
+   convention, restated correctly) and 13 notes, all true of the repo, none contradicting a rule. Low-value but true:
+   "run Python with -B to avoid __pycache__", "a grep found no existing Owner: lines". Correct: 22/22. **Passed.**
+   Environment observations (sandbox refusals of compound commands, variables, `sh tools/ci/verify.sh`) went to env
+   facts, not memories (21 facts, all true of this sandbox).
+4. Capture cost $0.0006-0.0019 per teaching session (limit $0.01): **passed**.
+
+## Against the predictions
+- g_*: as predicted (memcode 6/6, memcode_tc 0/6).
+- d_qa_runner: predicted memcode ~nomem; it was 1/6. The facts table had recorded the unittest command that worked
+  in session 1 and showed it as the test command, so plain memcode already avoided pytest. Not a transcript-capture
+  gain on this set.
+- d_tally_env: memcode 6/6 as predicted (the facts table keeps the working command without its TALLY_DATA= prefix);
+  memcode_tc 2/6, from notes saying TALLY_DATA must be set.
+
+## Decision
+Transcript capture passes; it stays opt-in (`memcode config transcript-capture on`) because it sends condensed
+transcript text to a model, and is now the recommended setting for anyone who accepts that. Follow-up: the facts table
+should keep a required environment prefix (TALLY_DATA=) instead of dropping it.

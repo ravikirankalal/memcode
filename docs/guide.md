@@ -110,6 +110,18 @@ Every memory also gets topic **labels** (testing, build, style, naming, git, dep
 ci) for filtering only: `memcode list --label testing`, `memory_search(label=...)`, `memcode label ID +perf -style`.
 Labels never change ranking or injected text.
 
+### Opt-in transcript capture
+
+Pattern triggers miss rules you state only as description ("every public function here starts with qx_") and
+things the agent finds out on its own ("the checks only run through tools/ci/verify.sh"). With
+`python3 -m memcode config transcript-capture on` (or `MEMCODE_TRANSCRIPT_CAPTURE=1`), each finished turn queues the
+session transcript; a detached worker sends the part not scanned yet, condensed and redacted, to a model
+(`MEMCODE_CAPTURE_MODEL`, default Haiku, about $0.001 per turn) and keeps an item only if its quoted evidence is in the
+transcript. Rules come only from your own words; everything else is a note; limits of the agent's environment become
+env facts; items that contradict or weaken your rules, repeat a memory, or talk about the agent's own memory are
+dropped. On the untuned tc2 set (bench/live/RESULTS.md, Run 17) mistakes fell from 25/30 to 3/30 with 22/22 stored
+memories correct. **Off by default**: it sends transcript text to the model.
+
 ### Facts
 
 Besides memories (one event each), memcode keeps **facts**: keyed knowledge that is updated in place as evidence
