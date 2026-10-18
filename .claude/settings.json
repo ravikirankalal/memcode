@@ -3,7 +3,8 @@
     "MEMCODE_RETRIEVAL": "1"
   },
   "enabledPlugins": {
-    "memcode@memcode": true
+    "memcode@memcode": true,
+    "memcode-status@memcode": true
   },
   "extraKnownMarketplaces": {
     "memcode": {
