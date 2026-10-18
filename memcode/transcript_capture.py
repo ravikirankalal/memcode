@@ -49,28 +49,50 @@ CREATE TABLE IF NOT EXISTS transcript_scans (
   cost_usd REAL NOT NULL DEFAULT 0,
   result TEXT
 );
+CREATE TABLE IF NOT EXISTS memory_log (     -- every change the memory agent made, for review and undo
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts REAL NOT NULL,
+  session TEXT,
+  op TEXT NOT NULL,                       -- add | update | retire
+  memory_id INTEGER,
+  before TEXT,                            -- the memory row as JSON before the change (update, retire)
+  after TEXT,                             -- the new text (add, update)
+  evidence TEXT
+);
 """
 
 SYSTEM = (
-    "You read a condensed transcript of a coding agent's session in one repository, and the rules the user already "
-    "gave. List what a FUTURE session in this repository must know to avoid a mistake or wasted time, and that it "
-    "could not easily see from the code: conventions the user stated or confirmed (also when phrased as description, "
-    "e.g. 'every module has X'), how to build, test, lint or run things here when the obvious way fails, and pitfalls "
-    "that were discovered. Skip: details of the current task, one-off requests, anything the agent merely guessed or "
-    "did not verify, general programming knowledge, anything that will be stale soon, statements about the agent's "
-    "own memory, instructions or tools, and anything already in the rules. Never record a place where the code still "
-    "breaks one of the user's rules as if that were the accepted way. For each item give: kind 'rule' for a convention "
-    "the USER stated, 'env' for a limit of the agent's environment rather than the repository (a command or tool that "
-    "is refused, needs approval or is not installed), else 'note'; text, one short imperative or factual sentence; "
-    "evidence, an EXACT quote of 8-200 characters copied from the transcript that shows it; path, a repo-relative file "
-    "or folder it applies to, or ''; conflicts, true when the item contradicts or weakens one of the user's rules. "
-    "Return at most 5 items, and an empty list when nothing qualifies (the usual case).")
+    "You are memcode's memory agent for one software repository. memcode gives coding agents a memory that carries "
+    "across sessions: user rules (conventions the user stated; shown to every future session as instructions), notes "
+    "(facts about the repository; shown as information) and facts (commands and environment limits). Your only job "
+    "is to keep THIS repository's memory correct and useful. You never talk to the user or edit code.\n\n"
+    "Each time, you get a briefing (the repository, the session, the memory as it stands, each item numbered) and the "
+    "condensed transcript of the latest turn(s): [user] lines are the user's own words, [agent] lines the coding "
+    "agent's, [ran] a shell command with its result and output tail, [wrote] a file it changed. Decide what the memory "
+    "needs, as a list of operations (usually none):\n"
+    "- add: something a future session must know to avoid a mistake or wasted time, that it could not easily see from "
+    "the code: a convention the user stated or confirmed (also when phrased as description, e.g. 'every module has "
+    "X'), how to build, test, lint or run things here when the obvious way fails, a pitfall that was discovered.\n"
+    "- update: a numbered memory is incomplete or partly wrong given the transcript; give its number as target and the "
+    "corrected full text.\n"
+    "- retire: a numbered memory is no longer true or the user withdrew it; give its number as target.\n"
+    "Rules of the job: a user rule is added, changed or retired only because of the user's own words. Skip details of "
+    "the current task, one-off requests ('for this change only'), guesses the agent did not verify, general "
+    "programming knowledge, anything soon stale, anything about the agent's own memory or tools, and anything the "
+    "memory already says. Never record a place where the code still breaks a user rule as the accepted way. For each "
+    "operation give: op; target (the memory number, 0 for add); kind ('rule' for a convention the USER stated, 'env' "
+    "for a limit of the agent's environment rather than the repository, such as a refused or missing command, else "
+    "'note'); text (one short imperative or factual sentence; for retire, why); evidence (an EXACT quote of 8-200 "
+    "characters copied from the transcript); path (a repo-relative file or folder it applies to, or ''); conflicts "
+    "(true when the operation would contradict or weaken a user rule without the user saying so). At most 5 "
+    "operations; an empty list is the usual answer.")
 SCHEMA = json.dumps({
     "type": "object", "additionalProperties": False, "required": ["items"],
     "properties": {"items": {"type": "array", "maxItems": MAX_ITEMS, "items": {
         "type": "object", "additionalProperties": False,
-        "required": ["kind", "text", "evidence", "path", "conflicts"],
-        "properties": {"kind": {"type": "string", "enum": ["rule", "note", "env"]}, "text": {"type": "string"},
+        "required": ["op", "target", "kind", "text", "evidence", "path", "conflicts"],
+        "properties": {"op": {"type": "string", "enum": ["add", "update", "retire"]}, "target": {"type": "integer"},
+                       "kind": {"type": "string", "enum": ["rule", "note", "env"]}, "text": {"type": "string"},
                        "evidence": {"type": "string"}, "path": {"type": "string"},
                        "conflicts": {"type": "boolean"}}}}}})
 _SELF = re.compile(r"(?i)\b(?:memcode|memory_(?:add|search|pinned|facts)|(?:agent|assistant)'?s? (?:own )?memory)\b")
@@ -169,11 +191,36 @@ def condense(lines: list[str]) -> str:
 
 # ---- model ----
 
-def extract(text: str, rules: list[str] | None = None, model: str | None = None, timeout: int = 120) -> dict | None:
-    """-> {"items": [...], "model", "cost_usd"} or None on any failure."""
+MAX_BRIEF_MEMORIES = 60
+
+
+def briefing(con, root: str, session: str) -> str:
+    """What the memory agent is told before each transcript: which repository and session, and the memory as it
+    stands (numbered, so it can update or retire an item), plus the facts."""
+    lines = [f"Repository: {os.path.basename(os.path.realpath(root)) or root}", f"Session: {session}",
+             "Memory now (number, kind, where it applies, text):"]
+    rows = con.execute("SELECT id, trigger, text, anchor_path, scope_path FROM memories WHERE stale=0 "
+                       "ORDER BY (trigger='correction') DESC, updated_at DESC LIMIT ?", (MAX_BRIEF_MEMORIES,)).fetchall()
+    for r in rows:
+        kind = "rule" if r["trigger"] == "correction" else "note"
+        body = r["text"].replace("Rule from user correction: ", "", 1) if kind == "rule" else r["text"]
+        where = r["anchor_path"] or r["scope_path"] or "repo"
+        lines.append(f"- #{r['id']} {kind} [{where}]: {' '.join(body.split())[:300]}")
+    if not rows:
+        lines.append("- (empty)")
+    try:
+        from . import facts
+        fl = facts.lines(con, max_lines=12)
+    except Exception:  # noqa: BLE001
+        fl = []
+    lines += ["Facts:"] + (fl or ["- (none)"])
+    return "\n".join(lines)
+
+
+def extract(text: str, context: str = "", model: str | None = None, timeout: int = 120) -> dict | None:
+    """One memory-agent call: briefing + condensed transcript -> {"items": [...], "model", "cost_usd"} or None."""
     model = model or os.environ.get("MEMCODE_CAPTURE_MODEL") or DEFAULT_MODEL
-    given = "\n".join(f"- {r}" for r in (rules or [])) or "(none)"
-    cmd = ["claude", "-p", f"Rules the user already gave:\n{given}\n\nTranscript:\n{text}", "--model", model, "--effort", "low",
+    cmd = ["claude", "-p", f"{context}\n\nTranscript:\n{text}", "--model", model, "--effort", "low",
            "--setting-sources", "", "--strict-mcp-config", "--tools", "", "--no-session-persistence",
            "--session-id", str(uuid.uuid4()), "--max-budget-usd", "0.25", "--output-format", "json",
            "--system-prompt", SYSTEM, "--json-schema", SCHEMA]
@@ -242,10 +289,63 @@ def _anchor(root: str, path: str) -> str:
     return p if os.path.exists(os.path.join(root, p)) else ""
 
 
+def _log(con, session, op, mid, before=None, after=None, evidence=""):
+    ensure(con)
+    con.execute("INSERT INTO memory_log(ts, session, op, memory_id, before, after, evidence) VALUES(?,?,?,?,?,?,?)",
+                (time.time(), session, op, mid, json.dumps(dict(before)) if before is not None else None, after,
+                 redact(str(evidence))[:200]))
+
+
+def _user_evidence(item: dict, condensed: str) -> bool:
+    ev = _norm(item.get("evidence", ""))
+    return bool(ev) and any(_norm(l).startswith("[user]") and ev in _norm(l) for l in condensed.splitlines())
+
+
+def change(con, session: str, item: dict, condensed: str) -> int | None:
+    """update / retire a numbered memory. Same evidence and conflict checks as add; a user rule changes only on the
+    user's own words. Retire deletes the row (staleness is recomputed from the tree, so it cannot hold a withdrawal);
+    the old row is kept in memory_log. -> the memory id changed, or None."""
+    from . import activity
+    op = item.get("op")
+    try:
+        target = int(item.get("target") or 0)
+    except (TypeError, ValueError):
+        return None
+    row = con.execute("SELECT * FROM memories WHERE id=? AND stale=0", (target,)).fetchone() if target > 0 else None
+    if row is None or verified(dict(item, kind="note"), condensed) is None:
+        return None
+    is_rule = row["trigger"] in ("correction", "manual")
+    if is_rule and not _user_evidence(item, condensed):
+        return None
+    text = redact(" ".join(str(item.get("text", "")).split()))[:300]
+    ev = item.get("evidence", "")
+    if op == "retire":
+        _log(con, session, "retire", target, before=row, after=text, evidence=ev)
+        from .consolidate import delete_ids
+        delete_ids(con, [target])
+        activity.note(con, "retired", f"retired #{target}: {text}")
+        return target
+    if op == "update":
+        new = f"Rule from user correction: {text}" if row["trigger"] == "correction" else text
+        if new == row["text"]:
+            return None
+        _log(con, session, "update", target, before=row, after=new, evidence=ev)
+        con.execute("UPDATE memories SET text=?, updated_at=? WHERE id=?", (new, time.time(), target))
+        activity.note(con, "updated", f"updated #{target}: {text}")
+        return target
+    return None
+
+
 def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "") -> list[int]:
+    """Apply the memory agent's operations: add (default), update, retire. -> ids added or changed."""
     from . import activity
     ids = []
     for item in items:
+        if item.get("op") in ("update", "retire"):
+            mid = change(con, session, item, condensed)
+            if mid is not None:
+                ids.append(mid)
+            continue
         kind = verified(item, condensed)
         text = redact(" ".join(str(item.get("text", "")).split()))[:300]
         if kind is None or is_repeat(con, text):
@@ -279,6 +379,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         except Exception:  # noqa: BLE001  rescope_new retries at session start
             pass
         store.bump(con, session, "captured", commit=False)
+        _log(con, session, "add", mid, after=text, evidence=item.get("evidence", ""))
         ids.append(mid)
         if len(ids) >= MAX_ITEMS:
             break
@@ -309,9 +410,7 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=ex
     condensed = condense(new)
     if len(condensed) < MIN_NEW_CHARS and "[user] " not in condensed:
         return offset, [], 0.0                          # too little yet: kept for the next scan, never skipped
-    rules = [r[0].replace("Rule from user correction: ", "", 1) for r in
-             con.execute("SELECT text FROM memories WHERE stale=0 AND trigger='correction' ORDER BY id")][-40:]
-    res = extract_fn(condensed[-MAX_CHARS:], rules)
+    res = extract_fn(condensed[-MAX_CHARS:], briefing(con, root, session))
     if res is None:
         raise RuntimeError("model call failed")
     ids = store_items(con, root, session, res["items"], condensed, res.get("model", ""))

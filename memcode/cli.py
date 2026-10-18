@@ -18,6 +18,7 @@
   config [KEY on|off] show or set options (model-capture: opt-in model-based rule capture)
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
+  history [-n N]      what the memory agent (transcript capture) added, updated or retired, with the old text
   rescope             recompute every memory's scope; `list --scope DIR` lists memories scoped under DIR
   consolidate [--dry-run|--undo]  group redundant agent notes under one lesson (MEMCODE_CONSOLIDATE=1 does it
                       at session start and shows lessons instead of their notes)
@@ -334,6 +335,23 @@ def cmd_list_scope(con, a) -> int:
 # --- end scope (A) ---
 
 
+def cmd_history(con, a) -> int:
+    """`memcode history [-n N]`: what the memory agent (transcript capture) added, updated or retired."""
+    from . import transcript_capture
+    transcript_capture.ensure(con)
+    rows = con.execute("SELECT * FROM memory_log ORDER BY id DESC LIMIT ?", (a.n,)).fetchall()
+    if not rows:
+        print("no memory-agent changes yet")
+    for r in rows:
+        before = json.loads(r["before"])["text"] if r["before"] else ""
+        print(f"{_fmt_ts(r['ts'])}  {r['op']:<7} #{r['memory_id']}  {r['after'] or ''}")
+        if before:
+            print(f"{'':18}was: {before}")
+        if r["evidence"]:
+            print(f"{'':18}evidence: \"{r['evidence']}\"")
+    return 0
+
+
 # --- abstraction (B) ---
 def cmd_consolidate(con, a) -> int:
     """`memcode consolidate [--dry-run | --undo]`: group redundant agent notes under one lesson each."""
@@ -408,6 +426,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("value", nargs="*")
     p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
+    p = sub.add_parser("history", help="what the memory agent added, updated or retired"); p.add_argument("-n", type=int, default=20)
     sub.add_parser("prune-stale")
     # --- scope (A) ---
     sub.add_parser("rescope", help="recompute every memory's scope (repo/dir/file/symbol)")
@@ -463,7 +482,7 @@ def main(argv: list[str] | None = None) -> int:
             return {"share": cmd_share, "unshare": cmd_unshare, "team": cmd_team,
                     "sync-rules": cmd_sync_rules}[a.cmd](con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
-                "export": cmd_export, "sessions": cmd_sessions, "salience": cmd_salience, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
+                "export": cmd_export, "history": cmd_history, "sessions": cmd_sessions, "salience": cmd_salience, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2

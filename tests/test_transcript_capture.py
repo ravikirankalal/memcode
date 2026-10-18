@@ -137,7 +137,35 @@ class Store(unittest.TestCase):
         tc.run_worker(self.d, fake)
         self.assertEqual(len(seen), 1)
         self.assertIn("[agent] ok", seen[0][0])                         # the held-back part is included
-        self.assertEqual(seen[0][1], ["Indent with tabs."])             # the model sees the user's rules
+        brief = seen[0][1]                                              # the model is briefed as the repo's memory agent
+        self.assertIn("Session: s1", brief)
+        self.assertRegex(brief, r"- #\d+ rule \[repo\]: Indent with tabs\.")
+
+    def test_update_and_retire_follow_the_evidence_rules(self):
+        cond = tc.condense([json.dumps(e) for e in SESSION] + [json.dumps(user(
+            "Actually we dropped the SPDX header requirement last week, new files do not need it anymore."))])
+        rule = store.add_memory(self.con, "correction", "Rule from user correction: Every module starts with SPDX.",
+                                "", None, {})
+        note = store.add_memory(self.con, "transcript", "Run the tests with pytest.", "", None, {})
+        agent_ev = "unittest finds nothing here; the Makefile has a check target"
+        user_ev = "we dropped the SPDX header requirement last week"
+        ops = [{"op": "update", "target": note, "kind": "note", "text": "Run the tests with `make check`.",
+                "evidence": agent_ev, "path": "", "conflicts": False},
+               {"op": "retire", "target": rule, "kind": "rule", "text": "The user dropped the SPDX header rule.",
+                "evidence": agent_ev, "path": "", "conflicts": False}]                # agent's words: refused
+        self.assertEqual(tc.store_items(self.con, self.d, "s", ops, cond), [note])
+        self.assertEqual(self.con.execute("SELECT text FROM memories WHERE id=?", (note,)).fetchone()[0],
+                         "Run the tests with `make check`.")
+        self.assertIsNotNone(self.con.execute("SELECT id FROM memories WHERE id=?", (rule,)).fetchone())
+        ops[1]["evidence"] = user_ev                                               # the user's own words: retired
+        self.assertEqual(tc.store_items(self.con, self.d, "s", ops[1:], cond), [rule])
+        self.assertIsNone(self.con.execute("SELECT id FROM memories WHERE id=?", (rule,)).fetchone())
+        log = self.con.execute("SELECT op, memory_id, before FROM memory_log ORDER BY id").fetchall()
+        self.assertEqual([(r[0], r[1]) for r in log], [("update", note), ("retire", rule)])
+        self.assertIn("Every module starts with SPDX", json.loads(log[1][2])["text"])   # the old row is kept
+        bad = {"op": "retire", "target": 9999, "kind": "note", "text": "x" * 10, "evidence": user_ev, "path": "",
+               "conflicts": False}
+        self.assertEqual(tc.store_items(self.con, self.d, "s", [bad], cond), [])  # unknown target: nothing
 
     def test_short_fact_is_not_a_repeat(self):                          # tc1 (Run 16): a fact "shelf" ate a rule
         from memcode import facts
