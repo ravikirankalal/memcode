@@ -290,6 +290,24 @@ class Store(unittest.TestCase):
         feed = json.loads(Path(self.d, ".memcode", activity.FILE).read_text())
         self.assertNotIn("problems", feed)
 
+    def test_new_transcript_path_or_shorter_file_scans_from_the_top(self):
+        # found in a live check: a stale offset from another transcript file skipped every line of the new one
+        sent = []
+        fake = lambda text, ctx=None: sent.append(text) or {"items": [], "model": "f", "cost_usd": 0}  # noqa: E731
+        tc.enqueue(self.con, "s1", write_transcript(SESSION))
+        tc.run_worker(self.d, fake)
+        self.con.execute("UPDATE transcript_scans SET offset=9539"); self.con.commit()
+        tc.enqueue(self.con, "s1", write_transcript(SESSION))           # same session id, another file
+        tc.run_worker(self.d, fake)
+        self.assertEqual(len(sent), 2)
+        path = write_transcript(SESSION)
+        tc.enqueue(self.con, "s2", path)
+        tc.run_worker(self.d, fake)
+        self.con.execute("UPDATE transcript_scans SET offset=9539 WHERE session='s2'"); self.con.commit()
+        tc.enqueue(self.con, "s2", path)                                 # same file, now shorter than the offset
+        tc.run_worker(self.d, fake)
+        self.assertEqual(len(sent), 4)
+
     def test_why_failed_names_the_fix(self):
         self.assertIn("claude update", tc.why_failed("API Error [claude-code:unrecognized_model] no such model", "m"))
         self.assertIn("/login", tc.why_failed("Not logged in · Please run /login", "m"))

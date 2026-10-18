@@ -129,7 +129,8 @@ def enqueue(con, session: str, path: str) -> None:
     ensure(con)
     con.execute("""INSERT INTO transcript_scans(session, path, status, ts) VALUES(?,?,'pending',?)
                    ON CONFLICT(session) DO UPDATE SET path=excluded.path, status='pending', attempts=0,
-                   ts=excluded.ts""", (session, path, time.time()))
+                   ts=excluded.ts, offset=CASE WHEN transcript_scans.path=excluded.path THEN offset ELSE 0 END""",
+                (session, path, time.time()))          # another transcript file: its lines start at 0
     con.commit()
 
 
@@ -498,6 +499,8 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=ex
             lines = fh.read().splitlines()
     except OSError:
         return offset, [], 0.0
+    if offset > len(lines):
+        offset = 0                                      # the file was rewritten shorter: scan it again from the top
     new = lines[offset:]
     condensed = condense(new)
     if len(condensed) < MIN_NEW_CHARS and "[user] " not in condensed:
