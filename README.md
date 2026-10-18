@@ -81,6 +81,24 @@ memcode list          # run inside a repo
 The agent also gets four MCP tools: `memory_search`, `memory_add`, `memory_pinned`, `memory_facts`, and can run
 `memcode` directly (the plugin's `bin/` is on its PATH).
 
+### Status above the prompt (optional mod)
+
+`memcode-status` adds a line above Claude Code's prompt showing what memcode holds and what it just did:
+
+```text
+memcode 37 memories · 12 rules · 9 facts  │ + rule: Always use tabs for indentation in this repo. 5s ago
+```
+
+It updates whenever a memory is saved (`+`), recalled for a prompt (`↻`), injected when the agent opens a file (`→`),
+or when a first write is held for a folder's rules (`⏸`); after ten quiet minutes it shows the counts only. Install it
+from the same marketplace:
+
+```text
+/plugin install memcode-status@memcode
+```
+
+It reads `.memcode/activity.json`, which memcode keeps up to date (the last 20 events and the counts).
+
 ## Docs
 
 - [`docs/guide.md`](docs/guide.md): how it works, what is stored, privacy, troubleshooting, uninstalling
