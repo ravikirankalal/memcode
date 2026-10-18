@@ -129,8 +129,13 @@ listed by `/memcode:list` (trigger `transcript`, or rules with source `transcrip
 If its model calls fail (the `claude` CLI does not know the capture model, or its login expired), `/memcode:status`
 and the memcode status bar say so with the fix (`claude update`, `/login`, or `MEMCODE_CAPTURE_MODEL`); nothing is
 lost meanwhile: the next turn after the fix scans everything not scanned yet, oldest first, in pieces of 24,000
-condensed characters, within the per-session budget (`MEMCODE_CAPTURE_BUDGET_USD`, default $0.10). If the budget runs
-out first, `/memcode:status` says how many transcript lines were left unscanned.
+condensed characters, within the per-session budget: $0.10, rising with the transcript's length ($0.03 per 1,000
+lines) up to $0.50; `MEMCODE_CAPTURE_BUDGET_USD` sets it outright. If the budget runs out first, `/memcode:status`
+says how many transcript lines were left unscanned, and the status bar shows a yellow BUDGET badge until a scan
+finishes within budget.
+
+A note about how a code file behaves goes stale when that file changes. A how-to ("Run X as a module") or a note on a
+manifest, config or doc stays shown across edits and goes stale only when its file is deleted.
 
 A request for now ("Park G16. Start a review on main ... we can't touch develop yet") is never stored as a rule,
 however the model labels it.
@@ -213,7 +218,7 @@ hooks cannot inject context.
 | A correction was not captured | Phrase it as a rule ("No - always X", "never Y"); see the trigger table. |
 | Hook errors | Failures never block the agent; they are logged to `<repo>/.memcode/error.log`. |
 | `python3 -m memcode` cannot import | Use `/memcode:cli ...` inside Claude Code, or the plugin's `bin/memcode` (see the README alias); `python3 -m memcode` only works from a checkout or with `PYTHONPATH` set to the plugin directory. |
-| Wrong repo | The root is `CLAUDE_PROJECT_DIR`, else the git toplevel, else the working directory. Use `--root`. In a linked git worktree the store is the main checkout's `.memcode/` (one per repository), while files (staleness, the repo map) are read from the worktree itself. |
+| Wrong repo | The root is `CLAUDE_PROJECT_DIR`, else the git toplevel, else the working directory. Use `--root`. In a linked git worktree the store is the main checkout's `.memcode/` (one per repository), while files (staleness, the repo map) are read from the worktree itself, also when the host sets `CLAUDE_PROJECT_DIR` to the main checkout. |
 | Stale or wrong memory | `python3 -m memcode show ID`, then `forget ID` or `prune-stale`. |
 
 ## Disable or uninstall

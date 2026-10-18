@@ -104,13 +104,24 @@ EVENT_MAX_AGE_S = 30 * 86400
 
 def resolve_root(hint: str | os.PathLike | None = None) -> str:
     """The session's working tree, used by hooks, slash commands and the MCP server alike: CLAUDE_PROJECT_DIR, else
-    `git rev-parse --show-toplevel` from `hint` (or cwd), else `hint`/cwd itself. Files (anchors, staleness, the repo
-    map, scoping) resolve against it; the store itself lives in the main working tree (memdir), so a linked worktree
-    shares its repository's store without reading the main checkout's branch (#32, #37)."""
+    `git rev-parse --show-toplevel` from `hint` (the hook's cwd) or the process cwd, else that directory itself.
+    Files (anchors, staleness, the repo map, scoping) resolve against it; the store itself lives in the main working
+    tree (memdir), so a linked worktree shares its repository's store without reading the main checkout's branch
+    (#32, #37). A host may set CLAUDE_PROJECT_DIR to the main checkout while the session runs in one of its linked
+    worktrees: then the worktree the session is in wins (#39)."""
+    start = str(hint) if hint and os.path.isdir(str(hint)) else os.getcwd()
+    here = _toplevel(start)
     env = os.environ.get("CLAUDE_PROJECT_DIR")
     if env and os.path.isdir(env):
-        return os.path.abspath(env)
-    start = str(hint) if hint and os.path.isdir(str(hint)) else os.getcwd()
+        env = os.path.abspath(env)
+        if here and os.path.realpath(here) != os.path.realpath(env) \
+                and os.path.realpath(main_tree(here)) == os.path.realpath(main_tree(env)):
+            return here                                 # another checkout of the same repository: the session's own
+        return env
+    return here or os.path.abspath(start)
+
+
+def _toplevel(start: str) -> str | None:
     try:
         r = subprocess.run(["git", "-C", start, "rev-parse", "--show-toplevel"],
                            capture_output=True, check=False, timeout=5)
@@ -118,7 +129,7 @@ def resolve_root(hint: str | os.PathLike | None = None) -> str:
             return os.path.abspath(r.stdout.decode("utf-8", "surrogateescape").strip())
     except (OSError, ValueError, subprocess.SubprocessError):
         pass
-    return os.path.abspath(start)
+    return None
 
 
 @functools.lru_cache(maxsize=32)
