@@ -24,6 +24,7 @@ const LOOK: Record<string, Look> = {
   touch: { icon: '📂', tag: 'FOLDER RULES', color: 'planMode' },
   held: { icon: '✋', tag: 'HELD', color: 'warning' },
   start: { icon: '🚀', tag: 'LOADED', color: 'claude' },
+  scanned: { icon: '🔍', tag: 'SCANNED', color: 'ide' }, // the memory agent read the latest turns
 }
 const OTHER: Look = { icon: '•', tag: 'EVENT', color: 'inactive' }
 const FRESH_BOLD_MS = 15 * 1000 // an event this new is drawn bold

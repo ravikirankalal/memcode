@@ -70,8 +70,9 @@ class Checks(unittest.TestCase):
         rule = {"kind": "rule", "text": "Every module starts with the SPDX header line.",
                 "evidence": "Every module in this repo starts with the SPDX header line", "path": ""}
         self.assertEqual(tc.verified(rule, self.condensed), "rule")
-        claimed = dict(rule, evidence="The tests in this repo run with make check")   # agent's words: a note
-        self.assertEqual(tc.verified(claimed, self.condensed), "note")
+        claimed = dict(rule, evidence="The tests in this repo run with make check")   # agent's words
+        self.assertIsNone(tc.verified(claimed, self.condensed))      # a "rule" the user never said: not kept at all
+        self.assertEqual(tc.verified(dict(claimed, kind="note"), self.condensed), "note")
         made_up = dict(rule, evidence="always run tox before committing")
         self.assertIsNone(tc.verified(made_up, self.condensed))
         self.assertIsNone(tc.verified(dict(rule, evidence="SPDX"), self.condensed))           # too short
@@ -351,6 +352,27 @@ class Store(unittest.TestCase):
         item = {"kind": "note", "text": "The budget badge is yellow.", "path": "",
                 "evidence": "The bar shows the 💸 BUDGET badge on a yellow background"}
         self.assertEqual(tc.verified(item, cond), "note")
+
+    def test_each_scan_shows_on_the_feed_even_when_nothing_is_kept(self):
+        from memcode import activity
+        tc.enqueue(self.con, "s1", write_transcript(SESSION))
+        tc.run_worker(self.d, lambda text, ctx=None: {"items": [{"op": "add", "kind": "note", "importance": 2,
+                                                                 "text": "minor", "evidence": "x" * 9}],
+                                                      "model": "f", "cost_usd": 0})
+        ev = json.loads(Path(self.d, ".memcode", activity.FILE).read_text())["events"][-1]
+        self.assertEqual((ev["kind"], ev["text"]), ("scanned", "1 candidate, kept 0"))
+
+    def test_low_rated_candidates_are_not_kept_and_the_best_go_first(self):
+        cond = "[user] fyi the deploy script needs VPN access before it runs\n[agent] noted, also the cache dir is tmp"
+        items = [{"op": "add", "kind": "note", "importance": 2, "text": "The cache dir is tmp here.",
+                  "evidence": "also the cache dir is tmp", "path": ""},
+                 {"op": "add", "kind": "note", "importance": 5, "text": "Connect the VPN before running the deploy script.",
+                  "evidence": "the deploy script needs VPN access", "path": ""}]
+        ids = tc.store_items(self.con, self.d, "s", items, cond, "m")
+        texts = [r[0] for r in self.con.execute("SELECT text FROM memories")]
+        self.assertEqual((len(ids), texts), (1, ["Connect the VPN before running the deploy script."]))
+        prov = json.loads(self.con.execute("SELECT provenance FROM memories").fetchone()[0])
+        self.assertEqual(prov["importance"], 5)
 
     def test_why_failed_names_the_fix(self):
         self.assertIn("claude update", tc.why_failed("API Error [claude-code:unrecognized_model] no such model", "m"))

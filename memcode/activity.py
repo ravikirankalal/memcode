@@ -6,7 +6,8 @@
 
 kind: saved (a memory was captured or added), start (session-start block), recalled (per-prompt retrieval),
 touch (scoped memories on a first read), held (a first write refused with the folder's rules), forgot (memories
-deleted with `memcode forget` / `prune-stale`). Read by the memcode
+deleted with `memcode forget` / `prune-stale`), scanned (the memory agent read the latest turns: candidates, kept),
+updated / retired (the memory agent changed a memory). Read by the memcode
 status mod (mods/memcode-status) and anything else that wants a live view; never read back by memcode itself.
 Writing it can never break a hook: every failure is swallowed.
 """
