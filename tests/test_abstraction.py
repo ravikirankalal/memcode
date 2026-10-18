@@ -62,10 +62,9 @@ class Consolidate(Base):
         b = 'Agent change to x.py was reverted (removed "return None").'
         self.assertNotEqual(consolidate.signature(a), consolidate.signature(b))
 
-    def test_rules_team_and_different_signatures_never_merge(self):
+    def test_rules_and_different_signatures_never_merge(self):
         for _ in range(3):
             self.add("correction", "Rule from user correction: Always use tabs.")
-            self.add("fail_to_fix", FTF.format(f="a.py"), "a.py", prov={"source": "team"})
         for code in ("return 1", "return 2", "return 3"):
             self.add("revert", f'Agent change to b.py was reverted (removed "{code}").', "b.py")
         self.assertEqual(consolidate.run(self.con)["created"], 0)
@@ -130,7 +129,6 @@ class Budget(Base):
     def test_eviction_order_and_never_evict_set(self):
         rule = self.add("correction", "Rule from user correction: Always use tabs.")
         manual = self.add("manual", "deploys need VPN")
-        team = self.add("fail_to_fix", FTF.format(f="t.py"), "t.py", prov={"source": "team"})
         stale = self.add("revert", "old revert", "gone.py", age=9000)
         self.con.execute("UPDATE memories SET stale=1 WHERE id=?", (stale,)); self.con.commit()
         kids = self.ftf(3)
@@ -148,7 +146,7 @@ class Budget(Base):
         self.assertTrue(st["over_cap"])
         self.assertEqual(st["evicted"]["low_salience"], 1)
         left = {r[0] for r in self.con.execute("SELECT id FROM memories")}
-        self.assertEqual(left, {rule, manual, team, self.lessons()[0]["id"]})
+        self.assertEqual(left, {rule, manual, self.lessons()[0]["id"]})
         self.assertNotIn(note, left)
 
     def test_merge_before_evict_keeps_the_count(self):

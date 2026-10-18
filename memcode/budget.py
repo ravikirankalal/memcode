@@ -11,8 +11,7 @@ stopping as soon as the count is back at the cap:
   3. low_evidence  top-level live retry / dep_change notes, lowest salience first (then oldest, then id)
   4. low_salience  any other top-level live agent-derived note (fail_to_fix, revert), lowest salience first: the cap
                  holds even when the store is all fresh, distinct notes
-Never evicted, in any step: user rules (trigger 'correction' / 'manual'), team memories (provenance source 'team' or
-any team_id), and lessons. If only protected rows are left, enforcement stops above the cap and reports over_cap=True.
+Never evicted, in any step: user rules (trigger 'correction' / 'manual') and lessons. If only protected rows are left, enforcement stops above the cap and reports over_cap=True.
 """
 from __future__ import annotations
 

@@ -14,11 +14,9 @@ from . import store
 
 
 def session_start(con, root: str, session: str, prepare_only: bool = False) -> str:
-    """Refresh the repo map and team file, score finished sessions, render the pinned block and record what was shown.
+    """Refresh the repo map, score finished sessions, render the pinned block and record what was shown.
     prepare_only (PreCompact): refresh only, render nothing."""
-    from . import team, tree
-    if not prepare_only:
-        team.sync(con, root)                       # reviewed team memory from .memcode-team.jsonl
+    from . import tree
     tree.refresh_from_git_diff(con, root)          # renames / plain mv re-anchor
     tree.scan_repo(con, root)
     tree.mark_stale(con, root)

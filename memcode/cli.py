@@ -7,9 +7,6 @@
   stats               counts by trigger, stale, retrievals, events
   sessions [-n N]     per-session counters: rules/notes injected, captured, repeated corrections
   why ID              salience score and the evidence behind it
-  share ID...         add memories to .memcode-team.jsonl (commit it to share them through review)
-  unshare KEY...      remove shared memories (team id or local memory id)
-  team                team memory dashboard: shared, imported, stale, worth sharing
   sync-rules [T...]   write the memory block into another agent's instruction file (default target: agents)
   setup AGENT         print the config that wires memcode into codex or gemini
   facts [--backfill [--force]]  facts: commands, repo, environment, inferences (backfill from the event log)
@@ -156,40 +153,6 @@ def cmd_why(con, a) -> int:
     print(f"#{r['id']} salience {salience.score(con, r):.2f}  "
           + "  ".join(f"{k} {v:.2f}" for k, v in dims.items()))
     print(salience.explain(con, r))
-    return 0
-
-
-def cmd_share(con, a, root) -> int:
-    from . import team
-    ids = team.share(con, root, a.ids)
-    print(f"shared {len(ids)} memor{'y' if len(ids) == 1 else 'ies'} in {team.TEAM_FILE}: {', '.join(ids)}")
-    print(f"commit {team.TEAM_FILE} and open a PR; teammates get them on their next session after it merges")
-    return 0
-
-
-def cmd_unshare(con, a, root) -> int:
-    from . import team
-    n = team.unshare(con, root, a.keys)
-    print(f"removed {n} line(s) from {team.TEAM_FILE}" + ("; commit the change" if n else ""))
-    return 0 if n else 1
-
-
-def cmd_team(con, a, root) -> int:
-    from . import team
-    team.sync(con, root)
-    st = team.status(con, root)
-    if not os.path.exists(team.path(root)):
-        print(f"{team.TEAM_FILE}: not created yet (memcode share ID... creates it)")
-    else:
-        print(f"{team.TEAM_FILE}: {st['records']} shared memories ({st['rules']} rules)"
-              + ("" if st["uncommitted"] is None else ("; UNCOMMITTED changes" if st["uncommitted"] else "; committed")))
-    print(f"imported from teammates: {st['imported']} ({st['stale_imported']} stale: their anchor changed since)")
-    print(f"shared by you: {st['shared_by_me']}")
-    if st["suggest"]:
-        print("worth sharing (rules, restated or recurring, high confidence):")
-        for m in st["suggest"]:
-            print(f"  #{m['id']} [{m['trigger']}] {(m['anchor_path'] or '/')}: {m['text'][:100]}")
-        print("  -> memcode share ID...")
     return 0
 
 
@@ -369,7 +332,7 @@ def cmd_consolidate(con, a) -> int:
 
 
 def cmd_budget(con, a) -> int:
-    """`memcode budget N [--dry-run]`: evict down to N memories (user rules, team memories, lessons are kept)."""
+    """`memcode budget N [--dry-run]`: evict down to N memories (user rules and lessons are kept)."""
     from . import budget
     st = budget.enforce(con, a.cap, time.time(), dry_run=a.dry_run)
     why = ", ".join(f"{k} {v}" for k, v in st["evicted"].items() if v) or "nothing"
@@ -416,9 +379,6 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
     sub.add_parser("salience")
     p = sub.add_parser("why"); p.add_argument("id", type=int)
-    p = sub.add_parser("share"); p.add_argument("ids", type=int, nargs="+")
-    p = sub.add_parser("unshare"); p.add_argument("keys", nargs="+")
-    sub.add_parser("team")
     p = sub.add_parser("sync-rules"); p.add_argument("targets", nargs="*")
     p = sub.add_parser("setup"); p.add_argument("agent")
     p = sub.add_parser("facts"); p.add_argument("--backfill", action="store_true"); p.add_argument("--force", action="store_true")
@@ -478,9 +438,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_facts(con, a, root)
         if a.cmd == "fact":
             return cmd_fact(con, a)
-        if a.cmd in ("share", "unshare", "team", "sync-rules"):
-            return {"share": cmd_share, "unshare": cmd_unshare, "team": cmd_team,
-                    "sync-rules": cmd_sync_rules}[a.cmd](con, a, root)
+        if a.cmd == "sync-rules":
+            return cmd_sync_rules(con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
                 "export": cmd_export, "history": cmd_history, "sessions": cmd_sessions, "salience": cmd_salience, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:

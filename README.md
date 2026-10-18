@@ -38,16 +38,14 @@ Codex CLI or Gemini CLI: see [Other agents](docs/guide.md#other-agents-codex-cli
 2. **Injects** at session start (and after compaction): your stated rules as *project rules*, then a compact repo map and
    recorded notes under a hard token cap. Agent-derived notes are labelled as untrusted data.
 3. **Expires** memories tied to code that changed (staleness), and re-anchors them across renames.
-4. **Shares** what you choose with your team: `memcode share ID` writes it to `.memcode-team.jsonl`, which you commit
-   and review like any change; teammates' agents pick it up after the merge. Nothing is shared automatically.
-5. **Scopes** memories to where they apply (since 0.8.0): a rule about `billing/` reaches the agent when it works in
+4. **Scopes** memories to where they apply (since 0.8.0): a rule about `billing/` reaches the agent when it works in
    `billing/`, instead of crowding every session. On a crowded store this took live benchmark mistakes from 24/54 to
    0/53 (bench/live/RESULTS.md, Run 15). `memcode config hierarchy off` (or `MEMCODE_HIER=0`) restores flat memory.
-6. **Scans each finished turn** (since 0.9.0) for things the triggers miss: rules you state only as description ("every
+5. **Scans each finished turn** (since 0.9.0) for things the triggers miss: rules you state only as description ("every
    public function here starts with qx_") and pitfalls the agent discovers ("the checks only run through
    tools/ci/verify.sh"). Each item needs quoted evidence from the transcript; only your own words become rules. On an
    untuned benchmark this cut mistakes from 25/30 to 3/30, with every stored memory correct (Run 17).
-7. **Keeps facts** about the repo: the test/build/lint commands that actually work here (confirmed from exit codes, or
+6. **Keeps facts** about the repo: the test/build/lint commands that actually work here (confirmed from exit codes, or
    from the runner's summary line when the agent pipes output), missing tools, fragile folders.
 
 Experimental, opt-in (see [docs/guide.md](docs/guide.md)): consolidation of repeated notes into lessons
@@ -76,7 +74,7 @@ Inspect and control what is stored, from inside Claude Code:
 /memcode:facts                   facts: build/test/run commands, environment limits, fragile areas
 /memcode:why 3                   why memory #3 ranks where it does
 /memcode:forget 3                delete memory #3
-/memcode:cli                     every other command: show, add, team, share, fact set, config, export...
+/memcode:cli                     every other command: show, add, history, fact set, config, export...
 ```
 
 From a terminal, the same CLI is `bin/memcode` in the plugin directory. A shell alias that always points at the

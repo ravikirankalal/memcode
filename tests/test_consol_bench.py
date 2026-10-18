@@ -151,8 +151,6 @@ class Harness(unittest.TestCase):
             try:
                 con = store.connect(d)
                 self.assertEqual(con.execute("SELECT COUNT(*) FROM memories").fetchone()[0], n)
-                team = con.execute("SELECT COUNT(*) FROM memories WHERE provenance LIKE '%\"source\": \"team\"%'").fetchone()[0]
-                self.assertEqual(team, 2)
                 con.close()
                 self.assertEqual(set(meta["tags"]), {v["tag"] for v in ce.VALUABLE})
             finally:
@@ -173,8 +171,8 @@ class Harness(unittest.TestCase):
             self.assertTrue(r["consol"]["present"])
             if present["budget"]:
                 self.assertTrue(r["budget_check"]["invariants_ok"], r["budget_check"])
-                self.assertLessEqual(r["budget_check"]["after"], max(r["budget_cap"], len(r["budget"]["store_after"]["rules"])
-                                                                     + len(r["budget"]["store_after"]["team"])))
+                self.assertLessEqual(r["budget_check"]["after"],
+                                     max(r["budget_cap"], len(r["budget"]["store_after"]["rules"])))
             self.assertEqual(r["consol"]["wrong_merges"], [])
 
     def test_labels_never_change_injection(self):

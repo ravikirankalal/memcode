@@ -5,7 +5,6 @@ Stores are synthetic but shaped like memcode's real captures (texts follow memco
   noise     many near-duplicate fail_to_fix / revert / retry notes, concentrated on a few hot files (Zipf-like)
   stale     notes anchored to files that no longer exist (mark_stale hides them)
   rules     distractor user rules about synthetic areas (pressure.scaled_distractors), plus a few needed rules
-  team      a team rule and a team note imported from .memcode-team.jsonl by team.sync (as in real use)
   valuable  a fixed set of distinct notes and rules, each NEEDED by one task prompt (PROMPTS)
 Arms (each on a fresh copy of the same store; MEMCODE_* stripped, then set):
   flat      MEMCODE_RETRIEVAL=1, default split ranking (= run.py memcode_split)
@@ -250,7 +249,7 @@ def _retry(key: str, variants: list) -> str:
     return f"Command `{key}` needed multiple attempts with different flags/fixes: " + "; ".join(f"`{v}`" for v in variants)
 
 
-# Valuable items: distinct facts, each needed by one prompt below. kind: rule | team_rule | team_note | note
+# Valuable items: distinct facts, each needed by one prompt below. kind: rule | note
 VALUABLE = [
     {"tag": "r_billing_cents", "kind": "rule", "age": 40,
      "text": "Amounts in billing/ are integer cents; never use float or Decimal for money."},
@@ -258,9 +257,9 @@ VALUABLE = [
      "text": "Tests in tests/ build objects with the factories in tests/factories.py, never by hand."},
     {"tag": "r_cli_exit3", "kind": "rule", "age": 36,
      "text": "Commands in cli/ exit with status 3 on bad input, never 1 or 2."},
-    {"tag": "t_api_tuple", "kind": "team_rule", "age": 50,
+    {"tag": "t_api_tuple", "kind": "rule", "age": 50,
      "text": "Handlers in api/ return (status, body) tuples and never raise HTTP errors."},
-    {"tag": "t_queue_256kb", "kind": "team_note", "trigger": "manual", "anchor": "worker/queue.py", "age": 45,
+    {"tag": "t_queue_256kb", "kind": "note", "trigger": "manual", "anchor": "worker/queue.py", "age": 45,
      "text": "worker/queue.py drops messages larger than 256 KB without an error; split payloads before enqueueing."},
     {"tag": "n_jobs_idempotent", "kind": "note", "trigger": "manual", "anchor": "worker/jobs.py", "age": 35,
      "text": "worker/jobs.py: jobs must be idempotent; the scheduler re-delivers a job after a 30 s visibility timeout."},
@@ -287,13 +286,13 @@ MUST_NOT_MERGE = [("n_routes_v2", "n_schemas_forbid"), ("n_search_casefold", "n_
 PROMPTS = [
     {"name": "billing_discount", "shape": "crowded_rule", "needed": "r_billing_cents", "key": r"integer cents",
      "prompt": "Add a function to billing/invoice.py that applies a percentage discount to an invoice total."},
-    {"name": "api_delete", "shape": "crowded_team_rule", "needed": "t_api_tuple", "key": r"\(status, body\)",
+    {"name": "api_delete", "shape": "crowded_old_rule", "needed": "t_api_tuple", "key": r"\(status, body\)",
      "prompt": "Add a handler to api/handlers.py that deletes a user by id."},
     {"name": "test_delete", "shape": "crowded_rule", "needed": "r_tests_factories", "key": r"never by hand",
      "prompt": "Write a test in tests/test_api.py for the user deletion handler."},
     {"name": "nightly_job", "shape": "crowded_note", "needed": "n_jobs_idempotent", "key": r"idempotent",
      "prompt": "Add a job to worker/jobs.py that recomputes search rankings every night."},
-    {"name": "queue_export", "shape": "team_note", "needed": "t_queue_256kb", "key": r"256 KB",
+    {"name": "queue_export", "shape": "manual_note", "needed": "t_queue_256kb", "key": r"256 KB",
      "prompt": "Send the nightly export through worker/queue.py as one message."},
     {"name": "migration", "shape": "control_cold_note", "needed": "n_migrate_down", "key": r"downgrade",
      "prompt": "Write a migration in db/migrate.py that adds an email column to users."},
@@ -311,7 +310,7 @@ PROMPTS = [
 
 
 def mix_for(n: int) -> dict:
-    """How a store of n memories splits (team items are imported by team.sync and counted in n)."""
+    """How a store of n memories splits."""
     fixed = len(VALUABLE)
     rules = max(5, round(0.06 * n))
     stale = max(3, round(0.08 * n))
@@ -328,7 +327,7 @@ def build_store(n: int, seed: int = 0, now: float | None = None) -> tuple[Path, 
     """A git repo with a seeded .memcode of exactly n memories. Returns (repo, meta); meta["ids"] maps memory id ->
     {"cluster", "tag", "kind"} and meta["tags"] maps a valuable tag -> its memory id."""
     from bench.live.pressure import scaled_distractors
-    from memcode import store, team
+    from memcode import store
     now = time.time() if now is None else now
     rnd = random.Random(1000 + n + seed)
     d = Path(tempfile.mkdtemp(prefix=f"memcode-consol-{n}-")) / "r"
@@ -336,15 +335,6 @@ def build_store(n: int, seed: int = 0, now: float | None = None) -> tuple[Path, 
     for p, c in repo_files().items():
         (d / p).parent.mkdir(parents=True, exist_ok=True)
         (d / p).write_text(c)
-    team_lines = []
-    for v in VALUABLE:
-        if v["kind"].startswith("team"):
-            trig = "correction" if v["kind"] == "team_rule" else v["trigger"]
-            text = f"Rule from user correction: {v['text']}" if trig == "correction" else v["text"]
-            team_lines.append({"id": f"team-{v['tag']}", "trigger": trig, "text": text,
-                               "anchor_path": v.get("anchor", ""),
-                               "added": time.strftime("%Y-%m-%d", time.localtime(now - v["age"] * DAY))})
-    (d / team.TEAM_FILE).write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in team_lines))
     _git_init(d)
     mix = mix_for(n)
     con = store.connect(d)
@@ -386,12 +376,6 @@ def build_store(n: int, seed: int = 0, now: float | None = None) -> tuple[Path, 
         put(trig, text, anchor, rnd.uniform(0, 60), cluster, "noise")
         k += 1
     con.commit()
-    team.sync(con, str(d))                         # team items arrive the way they do in real use
-    for v in VALUABLE:
-        if v["kind"].startswith("team"):
-            row = con.execute("SELECT id FROM memories WHERE provenance LIKE ?", (f'%"team-{v["tag"]}"%',)).fetchone()
-            meta["ids"][row[0]] = {"cluster": v["tag"], "tag": v["tag"], "kind": v["kind"]}
-            meta["tags"][v["tag"]] = row[0]
     con.close()
     return d, meta
 
@@ -543,24 +527,21 @@ def _useful_present(block: str, shown: list[int], meta: dict, kids: dict) -> set
 
 
 def _census(con, meta) -> dict:
-    """Memories table only (facts are a separate table). rules/team = ids that must never be evicted."""
+    """Memories table only (facts are a separate table). rules = ids that must never be evicted."""
     rows = con.execute("SELECT id, trigger, stale, provenance FROM memories").fetchall()
-    team_ids = {r["id"] for r in rows if '"source": "team"' in (r["provenance"] or "")}
     return {"total": len(rows), "live": sum(1 for r in rows if not r["stale"]),
             "rules": sorted(r["id"] for r in rows if r["trigger"] == "correction"),
-            "team": sorted(team_ids),
             "valuable": sorted(t for t, i in meta["tags"].items() if any(r["id"] == i for r in rows))}
 
 
 def budget_check(res: dict) -> dict:
-    """Store size after the budget and the invariants: no user rule and no team memory evicted."""
+    """Store size after the budget and the invariant: no user rule evicted."""
     if not res.get("present"):
         return {"present": False}
     b, a = res["store_before"], res["store_after"]
     lost_rules = sorted(set(b["rules"]) - set(a["rules"]))
-    lost_team = sorted(set(b["team"]) - set(a["team"]))
     return {"present": True, "before": b["total"], "after": a["total"], "live_after": a["live"],
-            "rules_evicted": lost_rules, "team_evicted": lost_team, "invariants_ok": not lost_rules and not lost_team,
+            "rules_evicted": lost_rules, "invariants_ok": not lost_rules,
             "valuable_lost": sorted(set(b["valuable"]) - set(a["valuable"]))}
 
 
@@ -781,15 +762,15 @@ def markdown(results: list[dict], lat: list[dict], lab: dict) -> str:
             cells.append(" -> ".join(vals))
         out.append(f"| {p['name']} | {p['shape']} | " + " | ".join(cells) + " |")
     out += ["", f"## Storage budget (cap = {BUDGET_FRACTION:.0%} of the store)", "",
-            "| memories | cap | store before | store after | live after | rules evicted | team evicted | valuable lost |",
-            "|---|---|---|---|---|---|---|---|"]
+            "| memories | cap | store before | store after | live after | rules evicted | valuable lost |",
+            "|---|---|---|---|---|---|---|"]
     for r in results:
         b = r["budget_check"]
         if not b.get("present"):
-            out.append(f"| {r['n']} | {r['budget_cap']} | {r['flat']['store_before']['total']} | {NA} | {NA} | {NA} | {NA} | {NA} |")
+            out.append(f"| {r['n']} | {r['budget_cap']} | {r['flat']['store_before']['total']} | {NA} | {NA} | {NA} | {NA} |")
         else:
             out.append(f"| {r['n']} | {r['budget_cap']} | {b['before']} | {b['after']} | {b['live_after']} | "
-                       f"{len(b['rules_evicted'])} | {len(b['team_evicted'])} | {', '.join(b['valuable_lost']) or '-'} |")
+                       f"{len(b['rules_evicted'])} | {', '.join(b['valuable_lost']) or '-'} |")
     out += ["", "## Hook latency (in-process, ms median / p95)", "",
             "| memories | arm | session start | per-prompt retrieval | consolidation (first run) | consolidation (again) |",
             "|---|---|---|---|---|---|"]
