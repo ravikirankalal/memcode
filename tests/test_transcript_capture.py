@@ -346,6 +346,12 @@ class Store(unittest.TestCase):
         stale = dict(self.con.execute("SELECT id, stale FROM memories").fetchall())
         self.assertEqual((stale[mid], stale[code]), (0, 0))
 
+    def test_quotes_match_without_markdown_marks(self):
+        cond = "[agent] The bar shows the **💸 BUDGET** badge on a `yellow` background (colour 220)."
+        item = {"kind": "note", "text": "The budget badge is yellow.", "path": "",
+                "evidence": "The bar shows the 💸 BUDGET badge on a yellow background"}
+        self.assertEqual(tc.verified(item, cond), "note")
+
     def test_why_failed_names_the_fix(self):
         self.assertIn("claude update", tc.why_failed("API Error [claude-code:unrecognized_model] no such model", "m"))
         self.assertIn("/login", tc.why_failed("Not logged in · Please run /login", "m"))

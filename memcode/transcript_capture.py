@@ -319,7 +319,8 @@ def why_failed(output: str, model: str) -> str:
 # ---- checks ----
 
 def _norm(s: str) -> str:
-    return " ".join(str(s).lower().split())
+    """For matching quotes: case, spacing and markdown emphasis/code marks ignored (the model quotes `**X**` as X)."""
+    return " ".join(re.sub(r"[*`]", "", str(s)).lower().split())
 
 
 def _terms(s: str) -> set:
