@@ -120,9 +120,10 @@ _SCRIPT = re.compile(r"(?:^|[;&|({\n]\s*)(?:for|while|until|if|case|select|funct
                      r"(?:^|[;&|\n]\s*)\(|\b[\w-]+\s*\(\)\s*\{|\n\s*\S")
 # Commands that act on one thing once, or manage tools rather than the repo: never a repo workflow fact (#36)
 _ONE_OFF = re.compile(
-    r"^(?:gh|glab|hub|claude|pgrep|pidof|ssh|scp|sftp|rsync|open|xdg-open|code|cursor|osascript|brew|apt(?:-get)?|yum|dnf|"
+    r"^(?:gh|glab|hub|pgrep|pidof|ssh|scp|sftp|rsync|open|xdg-open|code|cursor|osascript|brew|apt(?:-get)?|yum|dnf|"
     r"pacman|snap|man|tldr|tmux|screen|pkill|killall|lsof|netstat|ping|dig|nslookup|telnet|nc|psql|mysql|"
     r"sqlite3|redis-cli|mongo(?:sh)?)\b"
+    r"|^claude\b(?!\s+plugin\s+(?:test|validate)\b)"    # plugin management is one-off; a plugin repo's own checks are not
     r"|^(?:kubectl|oc)\b.*\s(?:exec|logs|port-forward|describe|get|top|cp|attach|debug|edit|delete)\b"
     r"|^docker(?:\s+compose)?\b.*\s(?:exec|logs|ps|inspect|rm|stop|kill|attach|images|pull)\b"
     r"|^(?:npm|pnpm|yarn)\s+(?:view|info|outdated|ls|why|search)\b|^pip3?\s+(?:show|list|freeze|download)\b"

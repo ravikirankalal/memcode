@@ -191,6 +191,10 @@ class Noise(unittest.TestCase):
                     "mvn help", "npm view react version", "git show b8dcf40"):
             facts.observe(self.con, self.d, bash(cmd))
         self.assertEqual(self.commands(), [])
+        for cmd in ("claude plugin test mods/memcode-status", "claude plugin validate .claude-plugin/plugin.json --strict"):
+            facts.observe(self.con, self.d, bash(cmd))                  # a plugin repo's own checks are workflows
+        self.assertEqual(self.commands(), ["claude plugin test mods/memcode-status",
+                                           "claude plugin validate .claude-plugin/plugin.json --strict"])
 
     def test_variants_merge_and_show_the_newest_passing_one(self):
         facts.observe(self.con, self.d, bash("python3 -m pytest -q"))
