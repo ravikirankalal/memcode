@@ -49,10 +49,10 @@ ALLOWED = ("Read Edit Write Bash(pytest:*) Bash(python3:*) Bash(ls:*) Bash(find:
            "Bash(git add:*) Bash(git commit:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*)")
 CONFIGS = ("nomem", "builtin", "claudemd", "memcode", "memcode_legacy", "memcode_model",
            "claudemd_full", "memcode_retrieval", "memcode_salience", "memcode_split",
-           "memcode_local", "memcode_team", "claudemd_team")
+           "memcode_local", "memcode_team", "claudemd_team", "memcode_tc")
 TEAM = ("memcode_local", "memcode_team", "claudemd_team")
 PLUGIN = ("memcode", "memcode_legacy", "memcode_model", "memcode_retrieval", "memcode_salience", "memcode_split",
-          "memcode_local", "memcode_team")
+          "memcode_local", "memcode_team", "memcode_tc")
 
 BASE = {"app.py": "def add(a, b):\n    return a + b\n",
         "conftest.py": "import pytest\n\n@pytest.fixture\ndef three():\n    return 3\n",
