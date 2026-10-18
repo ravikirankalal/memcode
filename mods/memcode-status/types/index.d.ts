@@ -7,6 +7,6 @@ export type Feed = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'memcode-status': { feed: Feed | null; now: number }
+    'memcode-status': { feed: Feed | null; now: number; hint: string | null }
   }
 }

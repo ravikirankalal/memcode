@@ -223,6 +223,33 @@ class Store(unittest.TestCase):
         self.assertEqual((row[0], round(row[1], 2)), ("idle", 0.02))
         self.assertEqual(tc.pending(self.con), 0)
 
+    def test_session_budget_stops_scanning(self):
+        path = write_transcript(SESSION)
+        calls = []
+        fake = lambda text, ctx=None: calls.append(1) or {"items": [], "model": "f", "cost_usd": 0.06}  # noqa: E731
+        tc.enqueue(self.con, "s1", path)
+        tc.run_worker(self.d, fake)
+        for i in range(3):                                              # more turns, each over the line again
+            with open(path, "a") as fh:
+                fh.write(json.dumps(user(f"Turn {i}: please keep going with the next part of the work.")) + "\n")
+            tc.enqueue(self.con, "s1", path)
+            tc.run_worker(self.d, fake)
+        self.assertEqual(len(calls), 2)                                 # $0.06 + $0.06 >= $0.10: stops
+        self.assertEqual(tc.pending(self.con), 0)
+
+    def test_env_facts_are_capped(self):
+        words = ["docker", "kubectl", "terraform", "ansible", "helm", "gcloud", "aws", "az", "psql", "redis",
+                 "mongo", "nginx", "systemctl", "brew", "apt", "snap", "flatpak", "podman", "vagrant", "packer"]
+        cond = "\n".join(f"[ran] `{w} status` -> failed | {w} blocked by sandbox policy" for w in words)
+        items = [{"op": "add", "target": 0, "kind": "env", "conflicts": False, "path": "",
+                  "text": f"The {w} CLI is blocked in this sandbox.", "evidence": f"{w} blocked by sandbox policy"}
+                 for w in words]
+        with mock.patch.object(tc, "is_repeat", lambda con, text: False):   # the cap, not dedupe, is under test
+            for chunk in range(0, 20, 5):
+                tc.store_items(self.con, self.d, "s", items[chunk:chunk + 5], cond)
+        n = self.con.execute("SELECT COUNT(*) FROM facts WHERE key LIKE 'env:obs:%'").fetchone()[0]
+        self.assertEqual(n, tc.MAX_ENV_FACTS)
+
     def test_model_failure_retries_then_errors(self):
         path = write_transcript(SESSION)
         tc.enqueue(self.con, "s1", path)

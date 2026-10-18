@@ -30,11 +30,24 @@ class Activity(unittest.TestCase):
             f = self.feed()
             saved = [e for e in f["events"] if e["kind"] == "saved"]
             self.assertEqual(len(saved), 1)
+            self.assertNotIn("recalled", [e["kind"] for e in f["events"]])   # not echoed back
             self.assertIn("rule: ", saved[0]["text"])
             self.assertEqual((f["counts"]["memories"], f["counts"]["rules"]), (1, 1))
             engine.session_start(self.con, self.d, "s2")
             self.assertEqual(self.feed()["events"][-1]["kind"], "start")
             self.assertIn("1 rule,", self.feed()["events"][-1]["text"])
+
+    def test_a_rule_is_not_echoed_back_in_the_prompt_that_stated_it(self):
+        with mock.patch.dict(os.environ, {"MEMCODE_RETRIEVAL": "1"}):
+            engine.prompt(self.con, self.d, "s", "do the thing")
+            engine.tool_result(self.con, self.d, {"kind": "tool_result", "session": "s", "tool": "Edit",
+                                                  "input": {"file_path": "a.py"}, "command": None,
+                                                  "file_path": "a.py", "exit_code": 0, "output": ""})
+            ctx = engine.prompt(self.con, self.d, "s", "No, always use tabs for indentation in this repo.")
+        self.assertNotIn("tabs", ctx)                                   # the user's words are already in context
+        self.assertEqual([e["kind"] for e in self.feed()["events"]][-1], "saved")
+        src = [r[0] for r in self.con.execute("SELECT source FROM injections")]
+        self.assertEqual(src, ["stated"])
 
     def test_forget_refreshes_the_counts(self):
         import contextlib

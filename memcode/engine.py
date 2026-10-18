@@ -61,6 +61,12 @@ def prompt(con, root: str, session: str, text: str) -> str:
     from .triggers import TriggerEngine
     ev = {"kind": "prompt", "session": session, "prompt": text}
     ids = TriggerEngine(con, root).handle_batch([ev])
+    stated = [i for i in ids if i]
+    if stated:                                     # the user's own words are in context: never echo them back
+        now = time.time()
+        con.executemany("INSERT INTO injections(session,memory_id,ts,source) VALUES(?,?,?,'stated')",
+                        [(session, i, now) for i in stated])
+        con.commit()
     ctx = ""
     from . import retrieval
     if retrieval.enabled(root):
