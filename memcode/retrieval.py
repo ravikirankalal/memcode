@@ -155,7 +155,8 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     # block already listed it; a start-block mention among many was followed less often than one beside the request
     again = lambda r: (hier and src.get(r["id"]) == {"pinned"} and bool(r["anchor_path"])
                        and _mentions(prompt_l, r["anchor_path"], r["anchor_symbol"]))
-    rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0" + store.injectable_sql("m"))
+    rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0 AND m.trigger!='decision'"
+                                         + store.injectable_sql("m"))
             if r["id"] not in src or again(r)]
     if not rows:
         return []

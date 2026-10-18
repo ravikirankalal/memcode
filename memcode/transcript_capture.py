@@ -40,7 +40,8 @@ DEFAULT_MODEL = "claude-haiku-5-5"
 MAX_ITEMS = 4                # memories kept per piece: the most important candidates
 MAX_CANDIDATES = 12          # candidates the memory agent may propose per piece, each rated 1-5
 MIN_IMPORTANCE = 4           # a note rated below this is not kept
-MIN_RULE_IMPORTANCE = 3      # the user's own rules get more room
+MIN_RULE_IMPORTANCE = 3      # the user's own rules and decisions get more room
+DECISION_DAYS = 30           # a decision is shown this long after it was last stated (MEMCODE_DECISION_DAYS), then expires
 MIN_NEW_CHARS = 400          # a scan needs at least this much new condensed text
 MAX_CHARS = 24_000           # condensed text sent per model call; a longer backlog goes in chunks, oldest first
 DUP_OVERLAP = 0.6            # term overlap with an existing memory or fact that counts as a repeat
@@ -107,7 +108,13 @@ SYSTEM = (
     "- environment: how the tools, CLI, sandbox, CI or host behave here (an env var a host sets, a command that is "
     "missing, a flag a tool needs).\n"
     "- design: a decision and its reason, an invariant, a limit, which module owns what, why something is built the "
-    "way it is.\n\n"
+    "way it is.\n"
+    "- decision: the state of ongoing work that the USER stated or confirmed: scope ('console login is out of G15'), "
+    "parked or deferred items ('G16 is parked until the end'), holds and gates ('the develop MR waits until I say "
+    "go'), an agreed approach, or a result verified or disproven in a [ran] line. Give it a short subject key "
+    "('G16', 'develop-merge') so a later decision on the same subject replaces it. When the user changes one ('go "
+    "ahead with the develop MR'), retire or update it. A request to do something now is never a rule, but the "
+    "state it sets can be a decision ('Park G16. Start a review' -> decision 'G16 parked').\n\n"
     "First collect candidates (up to 12). Then rate each one's importance from 1 to 5: how much a future session "
     "would lose without it (5: it would break a user rule or repeat a costly mistake; 4: it would waste a lot of "
     "time; 3: it saves real time; 2: minor; 1: trivia). Return the candidates with their ratings, most important "
@@ -122,9 +129,10 @@ SYSTEM = (
     "the user's own words. Items marked (in the agent's context) were already shown to the coding agent this "
     "session: the agent following or restating them is memcode working, not news. Never record a place where the "
     "code still breaks a user rule as the accepted way.\n\n"
-    "For each operation give: op; target; kind ('rule' only for what the USER said they want; 'env' for a limit of "
-    "the agent's environment rather than the repository; else 'note'); category (rule, workflow, pitfall, "
-    "environment, design); importance (1-5); text (one or two short sentences, specific: exact commands, files, "
+    "For each operation give: op; target; kind ('rule' only for what the USER said they want; 'decision' for the "
+    "state of ongoing work the USER stated or confirmed; 'env' for a limit of the agent's environment rather than "
+    "the repository; else 'note'); category (rule, workflow, pitfall, environment, design, decision); subject (a "
+    "short key for a decision, else ''); importance (1-5); text (one or two short sentences, specific: exact commands, files, "
     "values; for retire, why); evidence (an EXACT quote of 8-200 characters copied from the transcript); path (a "
     "repo-relative file or folder it applies to, or ''); conflicts (true when it would contradict or weaken a user "
     "rule without the user saying so).")
@@ -132,10 +140,13 @@ SCHEMA = json.dumps({
     "type": "object", "additionalProperties": False, "required": ["items"],
     "properties": {"items": {"type": "array", "maxItems": MAX_CANDIDATES, "items": {
         "type": "object", "additionalProperties": False,
-        "required": ["op", "target", "kind", "category", "importance", "text", "evidence", "path", "conflicts"],
+        "required": ["op", "target", "kind", "category", "subject", "importance", "text", "evidence", "path",
+                     "conflicts"],
         "properties": {"op": {"type": "string", "enum": ["add", "update", "retire"]}, "target": {"type": "integer"},
-                       "kind": {"type": "string", "enum": ["rule", "note", "env"]},
-                       "category": {"type": "string", "enum": ["rule", "workflow", "pitfall", "environment", "design"]},
+                       "kind": {"type": "string", "enum": ["rule", "decision", "note", "env"]},
+                       "category": {"type": "string",
+                                    "enum": ["rule", "workflow", "pitfall", "environment", "design", "decision"]},
+                       "subject": {"type": "string"},
                        "importance": {"type": "integer", "minimum": 1, "maximum": 5},
                        "text": {"type": "string"}, "evidence": {"type": "string"}, "path": {"type": "string"},
                        "conflicts": {"type": "boolean"}}}}}})
@@ -154,6 +165,38 @@ def enabled(root) -> bool:
         return False
     import shutil
     return shutil.which("claude") is not None
+
+
+def decisions_enabled(root) -> bool:
+    """Decision capture (#42): on with the memory agent; off with `memcode config decision-capture off` or
+    MEMCODE_DECISION_CAPTURE=0."""
+    env = os.environ.get("MEMCODE_DECISION_CAPTURE", "").lower()
+    if env in ("0", "false", "off"):
+        return False
+    if env in ("1", "true", "on"):
+        return True
+    from .model_capture import read_config
+    return read_config(root).get("decision_capture") is not False
+
+
+def decision_days() -> float:
+    try:
+        return float(os.environ.get("MEMCODE_DECISION_DAYS") or DECISION_DAYS)
+    except ValueError:
+        return DECISION_DAYS
+
+
+def expire_decisions(con, session: str = "") -> int:
+    """Delete decisions not restated for decision_days(); each is kept in memory_log ('expire')."""
+    cutoff = time.time() - decision_days() * 86400
+    rows = con.execute("SELECT * FROM memories WHERE trigger='decision' AND updated_at < ?", (cutoff,)).fetchall()
+    for r in rows:
+        _log(con, session, "expire", r["id"], before=r, after=f"expired after {decision_days():g} days")
+    if rows:
+        from .consolidate import delete_ids
+        delete_ids(con, [r["id"] for r in rows])
+        con.commit()
+    return len(rows)
 
 
 def ensure(con) -> None:
@@ -277,12 +320,16 @@ def briefing(con, root: str, session: str) -> str:
     shown = shown_ids(con, session)
     lines = [f"Repository: {os.path.basename(os.path.realpath(root)) or root}", f"Session: {session}",
              "Memory now (number, kind, where it applies, text):"]
-    rows = con.execute("SELECT id, trigger, text, anchor_path, scope_path FROM memories WHERE stale=0 "
-                       "ORDER BY (trigger='correction') DESC, updated_at DESC LIMIT ?", (MAX_BRIEF_MEMORIES,)).fetchall()
+    rows = con.execute("SELECT id, trigger, text, anchor_path, scope_path, provenance, updated_at FROM memories "
+                       "WHERE stale=0 ORDER BY (trigger='correction') DESC, (trigger='decision') DESC, updated_at DESC "
+                       "LIMIT ?", (MAX_BRIEF_MEMORIES,)).fetchall()
     for r in rows:
-        kind = "rule" if r["trigger"] == "correction" else "note"
+        kind = {"correction": "rule", "decision": "decision"}.get(r["trigger"], "note")
         body = r["text"].replace("Rule from user correction: ", "", 1) if kind == "rule" else r["text"]
         where = r["anchor_path"] or r["scope_path"] or "repo"
+        if kind == "decision":
+            subj = _json(r["provenance"]).get("subject") or ""
+            where = f"{time.strftime('%Y-%m-%d', time.localtime(r['updated_at']))}" + (f", subject {subj}" if subj else "")
         mark = " (in the agent's context)" if r["id"] in shown else ""
         lines.append(f"- #{r['id']} {kind} [{where}]{mark}: {' '.join(body.split())[:300]}")
     if not rows:
@@ -367,6 +414,8 @@ def verified(item: dict, condensed: str, root=None) -> str | None:
     hits = [l for l in lines if ev in l]
     if not hits:
         return None
+    if item.get("kind") == "decision":      # the user's words, or a result a command showed; never the agent's plan
+        return "decision" if any(l.startswith(("[user]", "[ran]")) for l in hits) else None
     if item.get("kind") == "rule":
         users = [l for l in hits if l.startswith("[user]")]
         if not users:
@@ -460,6 +509,8 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
     is_rule = row["trigger"] in ("correction", "manual")
     if is_rule and (not _user_evidence(item, condensed) or verified(dict(item, kind="rule"), condensed) != "rule"):
         return None
+    if row["trigger"] == "decision" and verified(dict(item, kind="decision"), condensed) != "decision":
+        return None
     text = redact(" ".join(str(item.get("text", "")).split()))[:300]
     ev = item.get("evidence", "")
     if op == "retire":
@@ -518,7 +569,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             if mid is not None:
                 ids.append(mid)
             continue
-        floor = MIN_RULE_IMPORTANCE if item.get("kind") == "rule" else MIN_IMPORTANCE
+        floor = MIN_RULE_IMPORTANCE if item.get("kind") in ("rule", "decision") else MIN_IMPORTANCE
         if rating(item) < floor or added >= MAX_ITEMS:
             continue
         kind = verified(item, condensed, root)
@@ -539,7 +590,23 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             activity.note(con, "saved", f"env fact: {text}")
             added += 1
             continue
-        if kind == "rule":
+        if kind == "decision":
+            if not decisions_enabled(root):
+                continue
+            subject = " ".join(str(item.get("subject", "")).split())[:40].lower()
+            prov["subject"] = subject
+            if subject:                    # a newer decision on the same subject replaces the older one
+                old = [r for r in con.execute("SELECT * FROM memories WHERE trigger='decision'")
+                       if (_json(r["provenance"]).get("subject") or "") == subject]
+                for r in old:
+                    _log(con, session, "retire", r["id"], before=r, after=f"replaced by a newer decision on {subject}",
+                         evidence=item.get("evidence", ""))
+                if old:
+                    from .consolidate import delete_ids
+                    delete_ids(con, [r["id"] for r in old])
+            mid = store.add_memory(con, "decision", text, "", None, prov, 0.6, commit=False)
+            activity.note(con, "saved", f"decision: {text}")
+        elif kind == "rule":
             body = f"Rule from user correction: {text}"
             mid = store.add_memory(con, "correction", body, "", None, prov, 0.6, commit=False)
             activity.saved(con, "correction", body)
@@ -553,8 +620,10 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             activity.saved(con, "transcript", text, a)
         try:
             from . import scope
-            sp, sk = scope.assign(con, "correction" if kind == "rule" else "transcript", text, "" if kind == "rule" else a, None)
-            con.execute("UPDATE memories SET scope_path=?, scope_kind=? WHERE id=?", (sp, sk, mid))
+            if kind != "decision":             # decisions are repo-wide context: no folder scope
+                sp, sk = scope.assign(con, "correction" if kind == "rule" else "transcript", text,
+                                      "" if kind == "rule" else a, None)
+                con.execute("UPDATE memories SET scope_path=?, scope_kind=? WHERE id=?", (sp, sk, mid))
         except Exception:  # noqa: BLE001  rescope_new retries at session start
             pass
         store.bump(con, session, "captured", commit=False)
@@ -633,6 +702,7 @@ def run_worker(root: str, extract_fn=extract) -> int:
     con = store.connect(root)
     ensure(con)
     unpin_howtos(con)
+    expire_decisions(con)
     stored = 0
     try:
         while True:

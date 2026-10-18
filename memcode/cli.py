@@ -235,7 +235,7 @@ def cmd_salience(con, a) -> int:
 def cmd_config(con, a, root: str) -> int:
     from . import model_capture
     keys = {"model-capture": "model_capture", "retrieval": "retrieval", "hierarchy": "hierarchy",
-            "transcript-capture": "transcript_capture"}
+            "transcript-capture": "transcript_capture", "decision-capture": "decision_capture"}
     if a.key is None:
         cfg = model_capture.read_config(root)
         print(f"model-capture: {'on' if model_capture.enabled(root) else 'off'}"
@@ -251,9 +251,13 @@ def cmd_config(con, a, root: str) -> int:
         print(f"transcript-capture: {'on' if transcript_capture.enabled(root) else 'off'}"
               f" (config {'off' if cfg.get('transcript_capture') is False else 'on'}; env MEMCODE_TRANSCRIPT_CAPTURE"
               " overrides; needs the claude CLI)")
+        print(f"decision-capture: {'on' if transcript_capture.decisions_enabled(root) else 'off'}"
+              f" (config {'off' if cfg.get('decision_capture') is False else 'on'}; env MEMCODE_DECISION_CAPTURE"
+              f" overrides; decisions expire after {transcript_capture.decision_days():g} days, MEMCODE_DECISION_DAYS)")
         return 0
     if a.key not in keys or a.value not in ("on", "off"):
-        print("usage: memcode config model-capture|retrieval|hierarchy|transcript-capture on|off", file=sys.stderr)
+        print("usage: memcode config model-capture|retrieval|hierarchy|transcript-capture|decision-capture on|off",
+              file=sys.stderr)
         return 2
     model_capture.write_config(root, **{keys[a.key]: a.value == "on"})
     print(f"{a.key}: {a.value}")

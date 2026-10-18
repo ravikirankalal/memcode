@@ -485,3 +485,82 @@ class Hook(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Decisions(unittest.TestCase):
+    """#42: the memory agent keeps the user's decisions and the state of ongoing work: dated, expiring, by subject"""
+    PARK = ("[user] Park G16 until the end. Start a review subagent on multitenant main.\n"
+            "[agent] Parked G16; starting the review.\n"
+            "[ran] `curl -s staging/health` -> ok | hypothesis X disproven: latency is from the DB pool")
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.con = store.connect(self.d)
+
+    def tearDown(self):
+        self.con.close()
+
+    def item(self, **kw):
+        base = {"op": "add", "target": 0, "kind": "decision", "category": "decision", "subject": "G16",
+                "importance": 4, "text": "G16 is parked until the end.", "evidence": "Park G16 until the end",
+                "path": "", "conflicts": False}
+        base.update(kw)
+        return base
+
+    def decisions(self):
+        return [r[0] for r in self.con.execute("SELECT text FROM memories WHERE trigger='decision'")]
+
+    def test_park_gives_a_decision_shown_dated_and_no_rule(self):
+        rule = self.item(kind="rule", category="rule", subject="", text="Start a review subagent on main.",
+                         evidence="Start a review subagent on multitenant main")
+        tc.store_items(self.con, self.d, "s", [self.item(), rule], self.PARK, "m")
+        self.assertEqual(self.decisions(), ["G16 is parked until the end."])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories WHERE trigger='correction'").fetchone()[0], 0)
+        from memcode import pinned
+        block = pinned.render_pinned(self.con, self.d)
+        self.assertIn("## Decisions", block.split(pinned.NOTES_OPEN)[1])           # context, not under rules
+        self.assertIn(f"- {time.strftime('%Y-%m-%d')}: G16 is parked until the end.", block)
+        self.assertNotIn("(decision)", block)                                       # not repeated under ## Memories
+        mid = self.con.execute("SELECT id FROM memories WHERE trigger='decision'").fetchone()[0]
+        self.assertIn(mid, pinned.shown_ids(self.con, block))
+
+    def test_evidence_must_be_the_users_words_or_a_result(self):
+        plan = self.item(subject="db", text="Next, the agent will rewrite the pool.", evidence="Parked G16; starting the review")
+        result = self.item(subject="hypothesis-x", text="Hypothesis X is disproven on staging: latency is from the DB pool.",
+                           evidence="hypothesis X disproven: latency is from the DB pool")
+        tc.store_items(self.con, self.d, "s", [plan, result], self.PARK, "m")
+        self.assertEqual(self.decisions(), ["Hypothesis X is disproven on staging: latency is from the DB pool."])
+
+    def test_same_subject_replaces_and_the_users_words_retire(self):
+        tc.store_items(self.con, self.d, "s", [self.item()], self.PARK, "m")
+        later = "[user] G16 is back in scope for this milestone, plan it after G15.\n[user] un-park G16, start it"
+        tc.store_items(self.con, self.d, "s", [self.item(text="G16 is planned after G15.",
+                                                         evidence="G16 is back in scope for this milestone")], later, "m")
+        self.assertEqual(self.decisions(), ["G16 is planned after G15."])
+        mid = self.con.execute("SELECT id FROM memories WHERE trigger='decision'").fetchone()[0]
+        agent_only = {"op": "retire", "target": mid, "kind": "decision", "text": "done", "evidence": "Parked G16; starting"}
+        self.assertIsNone(tc.change(self.con, "s", agent_only, self.PARK))         # the agent's words cannot retire it
+        retire = {"op": "retire", "target": mid, "kind": "decision", "text": "the user un-parked G16",
+                  "evidence": "un-park G16, start it"}
+        self.assertEqual(tc.change(self.con, "s", retire, later), mid)
+        self.assertEqual(self.decisions(), [])
+
+    def test_decisions_expire(self):
+        tc.store_items(self.con, self.d, "s", [self.item()], self.PARK, "m")
+        self.con.execute("UPDATE memories SET updated_at=updated_at-31*86400"); self.con.commit()
+        from memcode import pinned
+        self.assertNotIn("## Decisions", pinned.render_pinned(self.con, self.d))
+        self.assertEqual(tc.expire_decisions(self.con), 1)
+        self.assertEqual(self.decisions(), [])
+        self.assertEqual(self.con.execute("SELECT op FROM memory_log").fetchall()[-1][0], "expire")
+
+    def test_switch_off(self):
+        with mock.patch.dict(os.environ, {"MEMCODE_DECISION_CAPTURE": "0"}):
+            tc.store_items(self.con, self.d, "s", [self.item()], self.PARK, "m")
+        self.assertEqual(self.decisions(), [])
+        from memcode import cli
+        import io
+        from contextlib import redirect_stdout
+        with redirect_stdout(io.StringIO()):
+            cli.main(["--root", self.d, "config", "decision-capture", "off"])
+        self.assertFalse(tc.decisions_enabled(self.d))

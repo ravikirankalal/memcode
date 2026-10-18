@@ -122,6 +122,11 @@ talk about the agent's own memory are dropped. On the untuned tc2 set (bench/liv
 from 25/30 to 3/30 with 22/22 stored memories correct; the first attempt (Run 16) failed its gate and led to the
 current safeguards.
 
+The agent collects up to 12 candidates of every kind (rules, workflows, pitfalls, environment behaviour, design
+decisions, decisions about ongoing work) and rates each 1-5 by what a future session would lose without it; memcode
+keeps the best few per scan (notes rated 4+, your rules and decisions 3+). Each scan shows on the status bar as
+`🔍 SCANNED  N candidates, kept K`, also when nothing was kept.
+
 It sends transcript text to the model. Turn it off per repo with `python3 -m memcode config transcript-capture off`, or
 everywhere with `MEMCODE_TRANSCRIPT_CAPTURE=0`; it is off wherever the `claude` CLI is not installed. What it stored is
 listed by `/memcode:list` (trigger `transcript`, or rules with source `transcript` in `memcode show ID`).
@@ -139,6 +144,19 @@ manifest, config or doc stays shown across edits and goes stale only when its fi
 
 A request for now ("Park G16. Start a review on main ... we can't touch develop yet") is never stored as a rule,
 however the model labels it.
+
+### Decisions (#42)
+
+Besides rules and notes, the memory agent keeps the state of ongoing work that you state or confirm: scope ("console
+login is out of G15"), parked or deferred items ("park G16 until the end"), holds and gates ("hold the develop MR until
+I say go"), an agreed approach, or a result a command verified or disproved. Each needs your own words (or a command's
+output for a result) as evidence; the agent's plans never count. A decision carries a short subject key, so a later
+decision on the same subject replaces it, and your words can update or retire it ("go ahead with the develop MR").
+
+Decisions are shown at session start, newest first and dated, in a `## Decisions` section of the notes block (context,
+not instructions; never under Project rules), and expire 30 days after they were last stated (`MEMCODE_DECISION_DAYS`).
+"Park G16. Start a review…" gives the decision "G16 parked" and still no rule (#33). Off with
+`memcode config decision-capture off` or `MEMCODE_DECISION_CAPTURE=0`.
 
 ### Facts
 
