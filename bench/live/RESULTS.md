@@ -503,3 +503,93 @@ it is a hierarchy arm.
 Constructed stores (dense directory-scoped rules), one model, 6 runs per cell. The first-write refusal costs one extra
 tool call per folder with unseen rules per session; it is wired for Claude Code (PreToolUse) only, Codex and Gemini get
 the read-time injection.
+
+---
+
+# Run 16 (2026-10-18): tc1, transcript capture gate — FAILED (criteria 1 and 3); a dedupe bug found
+
+Pre-registered in bench/live/tc1_gate.md. Frozen e2e1, memcode vs memcode_tc (+ transcript capture, Haiku), same
+plugin commit (4e2bd33), hierarchy pinned off, Haiku, 4 simulated weeks per arm, $2.63.
+
+| task | arm | C1 | C2 | C3 | C4 | P1 | P2 | P3 | E1 | E2 | lesson mistakes | bash failed / session |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| thu_recent | memcode | 0/4 | 1/4 | 0/4 | 0/4 | 0/4 | 0/4 | 2/4 | 0/4 | 0/4 | 3/36 | 7.5 |
+| thu_recent | memcode_tc | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 1/4 | 0/4 | 0/4 | 1/36 | 2.2 |
+| fri_markdown | memcode | 0/4 | 4/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 4/36 | 3.2 |
+| fri_markdown | memcode_tc | 0/4 | 4/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 4/36 | 1.5 |
+
+Primary cells: memcode 6/32, memcode_tc 5/32. Capture cost $0.013 per week; checks passed 8/8 in both arms.
+
+## Gate
+1. Lower primary total AND lower Friday C2: **failed** (5 vs 6, but Friday C2 4/4 in both).
+2. No cell worse by more than 1/4: passed.
+3. Precision (>= 80% correct, none contradicting the spec): **failed**. 24 transcript memories over 4 weeks:
+   13 correct repo knowledge (CHANGES.md Unreleased section x4, duplicate detection on title+author x2, __pycache__
+   left out of commits x4, ruff config, clock module, no .gitignore); 9 true but about the benchmark's tool
+   permissions, not the repo ("chained shell commands need approval", "rm -rf needs approval"); 2 wrong:
+   "writing rules to memcode memory was declined, keep rules in session instructions" (false), and "storage.load
+   raises a built-in ValueError ... left unchanged" (records a violation of C2 as the accepted state).
+4. Cost and checks: passed.
+
+## Why C2 was missed: a bug, not the model
+Replaying the extractor on the C2 turn of a memcode_tc week returned the ShelfError rule as a rule 3/3, with
+verified evidence. The dedupe check divided term overlap by the SMALLER set, so the repo fact "shelf" (one term)
+"matched" the rule at 100% and it was dropped as a repeat. Fixed (overlap measured on the new item's terms; existing
+text needs >= 3 terms) with a regression test. e2e1 is now tuned for transcript capture: a new gate needs a new set.
+
+## Side effect worth noting
+memcode_tc sessions had far fewer failed shell calls (2.2 vs 7.5 on Thursday) and fewer tokens (730k vs 991k):
+the permission notes taught later sessions to avoid commands the environment refuses. True and useful, but about the
+agent's environment, so they belong with facts (env), not repo memories.
+
+---
+
+# Run 17 (2026-10-18): tc2, transcript capture confirmation — gate PASSED
+
+Frozen `tc2` (bench/live/tc2.py, untuned; written after the Run 16 fixes). Session 1 teaches, two fresh later
+sessions are judged. memcode (MEMCODE_RETRIEVAL=1) vs memcode_tc (+ transcript capture, Haiku), plugin ce0be9c,
+hierarchy pinned off, Haiku, 3 units x 2 later sessions per cell.
+
+| scenario | shape | memcode | memcode_tc |
+|---|---|---|---|
+| g_prefix | rule stated as description | 6/6 | **0/6** |
+| g_result_tuple | rule stated as description | 6/6 | **0/6** |
+| g_owner_line | rule stated as description | 6/6 | **0/6** |
+| d_qa_runner | pitfall discovered in session 1 | 1/6 | 1/6 |
+| d_tally_env | pitfall discovered in session 1 | 6/6 | **2/6** |
+| k_pattern_rule | control: pattern-captured rule | 0/6 | 0/6 |
+| k_one_off | harm control: one-off instruction | 0/6 | 0/6 |
+| **gain total** | | 25/30 [0.66, 0.93] | **3/30** [0.03, 0.26] |
+
+## Gate
+1. Gain scenarios lower with non-overlapping Wilson intervals: **passed**.
+2. Controls: k_pattern_rule 0/6 vs 0/6, k_one_off 0/6 (no one-off memory was stored): **passed**.
+3. Precision: transcript capture stored 22 memories in 21 teaching sessions: 9 rules (each the user's descriptive
+   convention, restated correctly) and 13 notes, all true of the repo, none contradicting a rule. Low-value but true:
+   "run Python with -B to avoid __pycache__", "a grep found no existing Owner: lines". Correct: 22/22. **Passed.**
+   Environment observations (sandbox refusals of compound commands, variables, `sh tools/ci/verify.sh`) went to env
+   facts, not memories (21 facts, all true of this sandbox).
+4. Capture cost $0.0006-0.0019 per teaching session (limit $0.01): **passed**.
+
+## Against the predictions
+- g_*: as predicted (memcode 6/6, memcode_tc 0/6).
+- d_qa_runner: predicted memcode ~nomem; it was 1/6. The facts table had recorded the unittest command that worked
+  in session 1 and showed it as the test command, so plain memcode already avoided pytest. Not a transcript-capture
+  gain on this set.
+- d_tally_env: memcode 6/6 as predicted (the facts table keeps the working command without its TALLY_DATA= prefix);
+  memcode_tc 2/6, from notes saying TALLY_DATA must be set.
+
+## Decision
+Transcript capture passes; it stays opt-in (`memcode config transcript-capture on`) because it sends condensed
+transcript text to a model, and is now the recommended setting for anyone who accepts that. Follow-up: the facts table
+should keep a required environment prefix (TALLY_DATA=) instead of dropping it.
+
+## Run 17b (2026-10-18, regression check on a used set): the memory-agent version
+tc2 again, memcode_tc arm only, plugin 32e49b7 (role prompt, repo briefing with numbered memory, add/update/retire;
+before the in-context filter of 3a5b183). Not a gate: tc2 was already used.
+Descriptive rules 0/18 (unchanged), d_qa_runner 2/6 (was 1/6), d_tally_env 4/6 (was 2/6), controls 0/12; gain
+6/30 [0.10, 0.37] vs 3/30 [0.03, 0.26] in Run 17 (intervals overlap; memcode alone was 25/30). The agent stored
+fewer, more conservative notes (4 vs 13; all correct, 13/13 memories correct overall): it now sees the facts in its
+briefing and skips what they already say, and its TALLY_DATA notes no longer name the value (ledger/). $0.023.
+Watch item: the discovered-pitfall cells; a note that says what to do ("set TALLY_DATA=ledger") beats one that only
+says what fails.

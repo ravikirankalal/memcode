@@ -48,7 +48,7 @@ ALLOWED = ("Read Edit Write Glob Grep "
            "Bash(ls:*) Bash(find:*) Bash(grep:*) Bash(cat:*) Bash(head:*) Bash(tail:*) Bash(wc:*) "
            "Bash(mkdir:*) Bash(mv:*) Bash(cp:*) Bash(touch:*) "
            "Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git add:*) Bash(git commit:*)")
-ARMS = ("nomem", "builtin", "claudemd", "memcode")
+ARMS = ("nomem", "builtin", "claudemd", "memcode")   # + memcode_tc (transcript capture gate), by --arms
 MAX_TURNS = 40
 TIMEOUT_S = 900
 RAW_DIR: Path | None = None          # set by main(): raw stream-json of every turn, gzipped, for audits
@@ -66,18 +66,41 @@ def load_spec(name: str) -> dict:
 def env_for(arm: str) -> dict:
     env = {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_")}
     env["MEMCODE_HIER"] = "0"            # e2e1 was frozen against 0.7.0 behaviour (hierarchy off)
+    env["MEMCODE_TRANSCRIPT_CAPTURE"] = "0"   # and before transcript capture; memcode_tc turns it on
     if arm in ("nomem", "oracle"):
         env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
-    if arm == "memcode":
+    if arm in ("memcode", "memcode_tc"):
         env["MEMCODE_RETRIEVAL"] = "1"
+    if arm == "memcode_tc":                # + opt-in transcript capture (memcode/transcript_capture.py)
+        env["MEMCODE_TRANSCRIPT_CAPTURE"] = "1"
+        env["MEMCODE_CAPTURE_MODEL"] = "claude-haiku-5-5"
     return env
+
+
+def wait_capture(repo: Path, timeout_s: float = 300) -> dict:
+    """memcode_tc: the Stop hook's detached worker scans after the session ends; the memory is copied to the next
+    session's repo, so wait until nothing is pending. -> {"waited_s", "cost_usd"} of the scans so far."""
+    db = repo / ".memcode" / "memory.db"
+    t0 = time.time()
+    while db.exists() and time.time() - t0 < timeout_s:
+        try:
+            con = sqlite3.connect(db, timeout=10)
+            busy = con.execute("SELECT COUNT(*) FROM transcript_scans WHERE status IN ('pending','working')").fetchone()[0]
+            cost = con.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM transcript_scans").fetchone()[0]
+            con.close()
+        except sqlite3.Error:
+            busy, cost = 1, 0.0
+        if not busy:
+            return {"waited_s": round(time.time() - t0, 1), "cost_usd": cost}
+        time.sleep(2)
+    return {"waited_s": round(time.time() - t0, 1), "cost_usd": None}
 
 
 def claude(cwd: Path, prompt: str, model: str, arm: str, plugin_dir: Path, resume: str | None = None) -> tuple[list, float]:
     """One headless turn. Same safety and env rules as run.claude, with a larger turn budget for realistic tasks."""
     cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
            "--max-turns", str(MAX_TURNS), "--allowedTools", ALLOWED]
-    if arm == "memcode":
+    if arm in ("memcode", "memcode_tc"):
         cmd += ["--plugin-dir", str(plugin_dir)]
     cmd += ["--resume", resume] if resume else ["--session-id", str(uuid.uuid4())]
     t0 = time.perf_counter()
@@ -370,8 +393,9 @@ def run_unit(args: tuple) -> dict:
                     m.update(exec_facts(ev, spec["judge"]))
                     m["injected_start_tokens"] = injected(ev)["start_tokens"]
                 turns.append(m)
-            rec["teach"].append({"day": sess["day"], "turns": turns,
-                                 "stored": run.memcode_memories(repo) if arm == "memcode" else None})
+            cap = wait_capture(repo) if arm == "memcode_tc" else None
+            rec["teach"].append({"day": sess["day"], "turns": turns, "capture": cap,
+                                 "stored": run.memcode_memories(repo) if arm.startswith("memcode") else None})
             prev = repo
         rec["memory_after_teaching"] = memory_snapshot(prev, arm)
     for later in spec["later"]:
@@ -454,7 +478,9 @@ def summarize(results: list[dict]) -> str:
         rs = [r for r in results if r["arm"] == arm]
         tcost = sum(t["cost_usd"] for r in rs for s in r["teach"] for t in s["turns"]) / max(1, len(rs))
         lcost = sum(m["cost_usd"] for r in rs for m in r["later"]) / max(1, len(rs))
-        week.append(f"- {arm}: teaching ${tcost:.3f} + later ${lcost:.3f} per week (mean of {len(rs)})")
+        caps = [max((s.get("capture") or {}).get("cost_usd") or 0.0 for s in r["teach"]) for r in rs if r["teach"]]
+        cap = f" + transcript capture ${sum(caps) / len(caps):.3f}" if any(caps) else ""
+        week.append(f"- {arm}: teaching ${tcost:.3f} + later ${lcost:.3f}{cap} per week (mean of {len(rs)})")
     note = ["", f"Excluded (a session failed to run): {', '.join(dropped)}"] if dropped else []
     return "\n".join(L + ["", "Cost per simulated week:"] + week + note)
 

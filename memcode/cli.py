@@ -18,6 +18,7 @@
   config [KEY on|off] show or set options (model-capture: opt-in model-based rule capture)
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
+  history [-n N]      what the memory agent (transcript capture) added, updated or retired, with the old text
   rescope             recompute every memory's scope; `list --scope DIR` lists memories scoped under DIR
   consolidate [--dry-run|--undo]  group redundant agent notes under one lesson (MEMCODE_CONSOLIDATE=1 does it
                       at session start and shows lessons instead of their notes)
@@ -81,6 +82,9 @@ def _delete(con, ids: list[int]) -> int:
             con.execute(f"DELETE FROM {t} WHERE memory_id=?", (i,))
         n += con.execute("DELETE FROM memories WHERE id=?", (i,)).rowcount
     con.commit()
+    if n:
+        from . import activity
+        activity.note(con, "forgot", f"forgot {n} memor{'y' if n == 1 else 'ies'}", n)
     return n
 
 
@@ -262,7 +266,8 @@ def cmd_salience(con, a) -> int:
 
 def cmd_config(con, a, root: str) -> int:
     from . import model_capture
-    keys = {"model-capture": "model_capture", "retrieval": "retrieval", "hierarchy": "hierarchy"}
+    keys = {"model-capture": "model_capture", "retrieval": "retrieval", "hierarchy": "hierarchy",
+            "transcript-capture": "transcript_capture"}
     if a.key is None:
         cfg = model_capture.read_config(root)
         print(f"model-capture: {'on' if model_capture.enabled(root) else 'off'}"
@@ -274,12 +279,18 @@ def cmd_config(con, a, root: str) -> int:
         from . import scope
         print(f"hierarchy: {'on' if scope.hier_enabled() else 'off'}"
               f" (config {'off' if cfg.get('hierarchy') is False else 'on'}; env MEMCODE_HIER overrides)")
+        from . import transcript_capture
+        print(f"transcript-capture: {'on' if transcript_capture.enabled(root) else 'off'}"
+              f" (config {'off' if cfg.get('transcript_capture') is False else 'on'}; env MEMCODE_TRANSCRIPT_CAPTURE"
+              " overrides; needs the claude CLI)")
         return 0
     if a.key not in keys or a.value not in ("on", "off"):
-        print("usage: memcode config model-capture|retrieval|hierarchy on|off", file=sys.stderr)
+        print("usage: memcode config model-capture|retrieval|hierarchy|transcript-capture on|off", file=sys.stderr)
         return 2
     model_capture.write_config(root, **{keys[a.key]: a.value == "on"})
     print(f"{a.key}: {a.value}")
+    if a.value == "on" and a.key == "transcript-capture":
+        print("note: each finished turn's condensed, redacted transcript will be sent to the model via your `claude` login")
     if a.value == "on" and a.key == "model-capture":
         print("note: prompts the pattern triggers miss will be sent (redacted) to the model via your `claude` login")
     return 0
@@ -322,6 +333,23 @@ def cmd_list_scope(con, a) -> int:
         print(f"#{r['id']:<4} {r['trigger']:<9} {r['scope_kind']:<6} {where:<24} {r['text']}{flag}")
     return 0
 # --- end scope (A) ---
+
+
+def cmd_history(con, a) -> int:
+    """`memcode history [-n N]`: what the memory agent (transcript capture) added, updated or retired."""
+    from . import transcript_capture
+    transcript_capture.ensure(con)
+    rows = con.execute("SELECT * FROM memory_log ORDER BY id DESC LIMIT ?", (a.n,)).fetchall()
+    if not rows:
+        print("no memory-agent changes yet")
+    for r in rows:
+        before = json.loads(r["before"])["text"] if r["before"] else ""
+        print(f"{_fmt_ts(r['ts'])}  {r['op']:<7} #{r['memory_id']}  {r['after'] or ''}")
+        if before:
+            print(f"{'':18}was: {before}")
+        if r["evidence"]:
+            print(f"{'':18}evidence: \"{r['evidence']}\"")
+    return 0
 
 
 # --- abstraction (B) ---
@@ -398,6 +426,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("value", nargs="*")
     p = sub.add_parser("config"); p.add_argument("key", nargs="?"); p.add_argument("value", nargs="?")
     p = sub.add_parser("export"); p.add_argument("file", nargs="?")
+    p = sub.add_parser("history", help="what the memory agent added, updated or retired"); p.add_argument("-n", type=int, default=20)
     sub.add_parser("prune-stale")
     # --- scope (A) ---
     sub.add_parser("rescope", help="recompute every memory's scope (repo/dir/file/symbol)")
@@ -453,7 +482,7 @@ def main(argv: list[str] | None = None) -> int:
             return {"share": cmd_share, "unshare": cmd_unshare, "team": cmd_team,
                     "sync-rules": cmd_sync_rules}[a.cmd](con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
-                "export": cmd_export, "sessions": cmd_sessions, "salience": cmd_salience, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
+                "export": cmd_export, "history": cmd_history, "sessions": cmd_sessions, "salience": cmd_salience, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2

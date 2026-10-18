@@ -52,11 +52,23 @@ def main(argv: list[str]) -> int:
             return 0
     except Exception:  # noqa: BLE001  never break the agent
         pass
+    if name == "Stop":                             # only transcript capture listens; off (the default): no store
+        try:
+            from . import transcript_capture
+            if not (d.get("transcript_path") and transcript_capture.enabled(root)):
+                return 0
+        except Exception:  # noqa: BLE001  never break the agent
+            return 0
     try:
         con = store.connect(root)
         try:
             from . import adapters, engine
             session = d.get("session_id", "unknown")
+            if name == "Stop":                     # opt-in transcript capture: queue it, a detached worker scans
+                from . import transcript_capture
+                transcript_capture.enqueue(con, session, str(d["transcript_path"]))
+                transcript_capture.spawn_worker(root)
+                return 0
             if name == "PreToolUse":
                 reason = engine.before_write(con, root, session, d.get("tool_name", ""), d.get("tool_input") or {})
                 if reason:
