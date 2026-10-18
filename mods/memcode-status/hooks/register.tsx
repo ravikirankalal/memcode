@@ -11,15 +11,25 @@ const now = atom({ plugin: 'memcode-status', key: 'now' } as const, 0)
 const POLL_MS = 2000
 const FRESH_MS = 10 * 60 * 1000 // the latest event is shown this long, then only the counts
 
-const LABEL: Record<string, { icon: string; color: string }> = {
-  saved: { icon: '+', color: 'success' },
-  updated: { icon: '~', color: 'success' },
-  retired: { icon: '-', color: 'subtle' },
-  forgot: { icon: '-', color: 'subtle' },
-  recalled: { icon: '↻', color: 'suggestion' },
-  touch: { icon: '→', color: 'suggestion' },
-  held: { icon: '⏸', color: 'warning' },
-  start: { icon: '•', color: 'subtle' },
+// each event kind: a badge (icon + word on a coloured background) and the colour of its text. Theme keys, so light and
+// dark terminals both work; on a dark terminal: success green, warning yellow, suggestion light blue, planMode teal,
+// merged lavender, claude salmon, inactive grey (checked in a real session)
+type Look = { icon: string; tag: string; color: string }
+const LOOK: Record<string, Look> = {
+  saved: { icon: '🧠', tag: 'SAVED', color: 'success' },
+  updated: { icon: '✏️', tag: 'UPDATED', color: 'success' },
+  retired: { icon: '🗑', tag: 'RETIRED', color: 'inactive' },
+  forgot: { icon: '🗑', tag: 'FORGOT', color: 'inactive' },
+  recalled: { icon: '💡', tag: 'RECALLED', color: 'suggestion' },
+  touch: { icon: '📂', tag: 'FOLDER RULES', color: 'planMode' },
+  held: { icon: '✋', tag: 'HELD', color: 'warning' },
+  start: { icon: '🚀', tag: 'LOADED', color: 'claude' },
+}
+const OTHER: Look = { icon: '•', tag: 'EVENT', color: 'inactive' }
+const FRESH_BOLD_MS = 15 * 1000 // an event this new is drawn bold
+
+export function look(kind: string): Look {
+  return LOOK[kind] ?? OTHER
 }
 
 export function parseFeed(text: string): Feed | null {
@@ -139,19 +149,26 @@ export const register: Register = on => {
     const ev = latest(f, t)
     const { Box, Text } = $.ui.resolve(e)
     const c = f.counts
-    const label = ev ? LABEL[ev.kind] ?? { icon: '·', color: 'subtle' } : null
-    const width = Math.max(20, e.props.bodyColumns - 46)
+    const lk = ev ? look(ev.kind) : null
+    const fresh = !!ev && t - ev.ts * 1000 < FRESH_BOLD_MS
+    const width = Math.max(20, e.props.bodyColumns - 70)
     const text = ev && ev.text.length > width ? `${ev.text.slice(0, width - 1)}…` : ev?.text
 
     return (
       <Box flexDirection="row">
-        <Text color="claude" bold>memcode</Text>
-        <Text dimColor> {c.memories} memories · {c.rules} rules · {c.facts} facts</Text>
-        {ev && label && (
+        <Text color="claude" bold>◆ memcode </Text>
+        <Text color="merged">📜 {c.rules} </Text>
+        <Text dimColor>rules  </Text>
+        <Text color="suggestion">📝 {c.notes} </Text>
+        <Text dimColor>notes  </Text>
+        <Text color="planMode">⚙ {c.facts} </Text>
+        <Text dimColor>facts</Text>
+        {ev && lk && (
           <Text>
-            <Text dimColor>  │ </Text>
-            <Text color={label.color}>{label.icon} {text}</Text>
-            <Text dimColor> {ago(t - ev.ts * 1000)}</Text>
+            <Text dimColor>  ┃ </Text>
+            <Text backgroundColor={lk.color} color="inverseText" bold> {lk.icon} {lk.tag} </Text>
+            <Text color={lk.color} bold={fresh}> {text}</Text>
+            <Text dimColor> · {ago(t - ev.ts * 1000)}</Text>
           </Text>
         )}
       </Box>

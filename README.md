@@ -93,11 +93,12 @@ The agent also gets four MCP tools: `memory_search`, `memory_add`, `memory_pinne
 `memcode-status` adds a line above Claude Code's prompt showing what memcode holds and what it just did:
 
 ```text
-memcode 37 memories · 12 rules · 9 facts  │ + rule: Always use tabs for indentation in this repo. 5s ago
+◆ memcode 📜 12 rules  📝 25 notes  ⚙ 9 facts  ┃  🧠 SAVED  rule: Always use tabs for indentation in this repo. · 5s ago
 ```
 
-It updates whenever a memory is saved (`+`), recalled for a prompt (`↻`), injected when the agent opens a file (`→`),
-or when a first write is held for a folder's rules (`⏸`); after ten quiet minutes it shows the counts only. Install it
+Each event gets a coloured badge: `🧠 SAVED` (green) when a memory is saved, `✏️ UPDATED` / `🗑 RETIRED` when the memory
+agent changes one, `💡 RECALLED` for a prompt, `📂 FOLDER RULES` when the agent opens a file, `✋ HELD` (yellow) when a
+first write waits for a folder's rules. New events are bold; after ten quiet minutes it shows the counts only. Install it
 from the same marketplace:
 
 ```text

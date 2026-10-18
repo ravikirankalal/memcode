@@ -46,8 +46,11 @@ test('the band shows counts and the latest memory event on every surface', async
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: 'memcode-status', surface, ...BAND })
-    expect(await ui.find({ type: 'Text', text: /37 memories · 12 rules · 9 facts/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /\+ rule: Always use tabs/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /📜 12/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /📝 25/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /⚙ 9/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /🧠 SAVED/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /rule: Always use tabs/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /0s ago|5s ago/ })).toBeDefined()
     await ui.unmount()
   }

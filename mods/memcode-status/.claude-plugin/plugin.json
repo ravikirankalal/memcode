@@ -1,6 +1,6 @@
 {
   "name": "memcode-status",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "memcode status above the prompt: counts and the latest memory saved or recalled",
   "types": "./types/index.d.ts",
   "author": {
