@@ -277,8 +277,13 @@ def verified(item: dict, condensed: str) -> str | None:
     hits = [l for l in lines if ev in l]
     if not hits:
         return None
-    if item.get("kind") == "rule" and any(l.startswith("[user]") for l in hits):
-        return "rule"
+    if item.get("kind") == "rule":
+        users = [l for l in hits if l.startswith("[user]")]
+        if not users:
+            return "note"
+        from .triggers import one_off
+        # a request for now is not a rule, however the model labels it (#33)
+        return None if one_off(text) or any(one_off(l) for l in users) else "rule"
     return "env" if item.get("kind") == "env" else "note"
 
 
@@ -334,7 +339,7 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
     if op == "update" and echoes_context(con, session, item, condensed):
         return None
     is_rule = row["trigger"] in ("correction", "manual")
-    if is_rule and not _user_evidence(item, condensed):
+    if is_rule and (not _user_evidence(item, condensed) or verified(dict(item, kind="rule"), condensed) != "rule"):
         return None
     text = redact(" ".join(str(item.get("text", "")).split()))[:300]
     ev = item.get("evidence", "")

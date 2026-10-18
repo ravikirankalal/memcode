@@ -69,9 +69,11 @@ def should_queue(con, session: str, text: str) -> bool:
     t = " ".join((text or "").split())
     if not (MIN_LEN <= len(t) <= MAX_LEN) or t.endswith("?"):
         return False
-    from .triggers import _CORRECTION, _STATEMENT, _STRONG
+    from .triggers import _CORRECTION, _STATEMENT, _STRONG, one_off
     if _CORRECTION.search(t) or _STATEMENT.search(t) or _STRONG.search(t):
         return False          # the pattern triggers own these (incl. repeats they dedupe on purpose)
+    if one_off(t):
+        return False          # a request for now ("Park G16. Start a review ...") is never a rule (#33)
     # Only after the agent has done something this session (same rule as the regex triggers).
     acted = con.execute("""SELECT 1 FROM events WHERE session=? AND kind='tool_use' AND
                            lower(json_extract(payload,'$.tool')) IN ('bash','edit','write','multiedit','notebookedit')
@@ -147,7 +149,8 @@ def run_worker(root: str, classify_fn=classify) -> int:
                 continue
             mid = None
             rule = " ".join(res["rule"].split())[:240]
-            if res["is_rule"] and rule:
+            from .triggers import one_off
+            if res["is_rule"] and rule and not (one_off(text) or one_off(rule)):
                 body = redact(f"Rule from user correction: {rule}")
                 dup = con.execute("SELECT id FROM memories WHERE trigger='correction' AND anchor_path='' AND text=?",
                                   (body,)).fetchone()

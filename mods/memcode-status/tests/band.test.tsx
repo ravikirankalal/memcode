@@ -91,3 +91,18 @@ test('nothing of its own when memcode is not active in the repo', async ($, on) 
   expect(await ui.find({ type: 'Text', text: /memcode/ })).toBeUndefined()
   await ui.unmount()
 })
+
+test('a worktree session finds the feed in the main working tree', async ($, on) => {
+  // issue #32: hooks keep the store under the main checkout; the session root is the worktree
+  mock.clock(on, { now: T * 1000 })
+  on('session.root', () => ({ value: '/repo/.claude/worktrees/w1' }))
+  on('session.repo', () => ({ value: { root: '/repo', remote: null, internal: false, name: null } }))
+  on('fs.read', (_$, e) => (e.path === '/repo/.memcode/activity.json' ? { value: JSON.stringify(FEED) } : { deny: 'ENOENT' }))
+  on('ui.render', ($, e) => { const { Box } = $.ui.resolve(e); return <Box /> })
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/repo/.claude/worktrees/w1', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /📜 12/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /🧠 SAVED/ })).toBeDefined()
+  await ui.unmount()
+})

@@ -106,6 +106,22 @@ class Store(unittest.TestCase):
         again = tc.store_items(self.con, self.d, "s2", self.items(), self.condensed, "m")
         self.assertEqual(again, [])                                     # repeats of live memories are skipped
 
+    def test_task_request_is_never_a_rule(self):
+        # issue #33: a request for now, quoted as the user's words, must not become a standing rule
+        msg = ("Park G16. Start a review subagent on multitenant main, it should keep the backwork compatibility in "
+               "mind with rest of the review points. keep in mind develop is still running in a different cluster "
+               "and we can not touch it yet.")
+        condensed = tc.condense([json.dumps(user(msg)), json.dumps(agent({"type": "text", "text": "On it."}))])
+        items = [{"kind": "rule", "text": msg[:120], "evidence": "Park G16. Start a review subagent", "path": ""},
+                 {"kind": "rule", "text": "Keep backward compatibility in mind in reviews.",
+                  "evidence": "keep the backwork compatibility in mind", "path": ""}]
+        self.assertEqual(tc.store_items(self.con, self.d, "s", items, condensed, "m"), [])
+        rid = store.add_memory(self.con, "correction", "Rule from user correction: Indent with tabs.", "", None, {})
+        upd = {"op": "update", "target": rid, "kind": "rule", "text": "Start a review subagent on main.",
+               "evidence": "Park G16. Start a review subagent", "path": ""}
+        self.assertIsNone(tc.change(self.con, "s", upd, condensed))
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories WHERE trigger='correction'").fetchone()[0], 1)
+
     def test_env_items_become_env_facts_and_conflicts_are_dropped(self):
         items = [{"kind": "env", "text": "Chained shell commands need approval here; run them one at a time.",
                   "evidence": "Ran 0 tests in 0.000s NO TESTS RAN", "path": "", "conflicts": False},

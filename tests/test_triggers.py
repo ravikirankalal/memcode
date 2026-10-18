@@ -221,3 +221,21 @@ class ForeignWorktrees(unittest.TestCase):
         engine.tool_result(con, d, dict(ev, exit_code=0))
         self.assertEqual(con.execute("SELECT COUNT(*) FROM memories").fetchone()[0], 0)
         con.close()
+
+
+class OneOff(unittest.TestCase):
+    def test_requests_for_now_vs_standing_rules(self):
+        from memcode.triggers import one_off
+        now = [("Park G16. Start a review subagent on multitenant main, it should keep the backwork compatibility in "
+                "mind with rest of the review points. keep in mind develop is still running in a different cluster "
+                "and we can not touch it yet."),                                 # issue #33
+               "Park G16. Start a review subagent on multitenant main.",
+               "For this change only, call the new function temp_square.",
+               "[user] okay, merge the branch and deploy to staging"]
+        rules = ["Use pnpm, not npm.", "Add type hints to every new function.", "Always run tests before pushing.",
+                 "Functions return a (value, error) tuple; they never raise.", "we indent with tabs in this repo",
+                 "Keep backward compatibility in mind in reviews.", "Start every task on main."]
+        for t in now:
+            self.assertIsNotNone(one_off(t), t)
+        for t in rules:
+            self.assertIsNone(one_off(t), t)

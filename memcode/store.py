@@ -96,20 +96,38 @@ EVENT_MAX_AGE_S = 30 * 86400
 
 
 def resolve_root(hint: str | os.PathLike | None = None) -> str:
-    """Repo root used by hooks and the MCP server alike: CLAUDE_PROJECT_DIR, else
-    `git rev-parse --show-toplevel` from `hint` (or cwd), else `hint`/cwd itself."""
+    """Repo root used by hooks, slash commands and the MCP server alike: CLAUDE_PROJECT_DIR, else
+    `git rev-parse --show-toplevel` from `hint` (or cwd), else `hint`/cwd itself. A linked git worktree resolves to
+    the main working tree, so every checkout of a repository shares one store (#32)."""
     env = os.environ.get("CLAUDE_PROJECT_DIR")
     if env and os.path.isdir(env):
-        return os.path.abspath(env)
+        return main_tree(os.path.abspath(env))
     start = str(hint) if hint and os.path.isdir(str(hint)) else os.getcwd()
     try:
         r = subprocess.run(["git", "-C", start, "rev-parse", "--show-toplevel"],
                            capture_output=True, check=False, timeout=5)
         if r.returncode == 0 and r.stdout.strip():
-            return os.path.abspath(r.stdout.decode("utf-8", "surrogateescape").strip())
+            return main_tree(os.path.abspath(r.stdout.decode("utf-8", "surrogateescape").strip()))
     except (OSError, ValueError, subprocess.SubprocessError):
         pass
     return os.path.abspath(start)
+
+
+def main_tree(top: str) -> str:
+    """The main working tree when `top` is a linked worktree (its git common dir is <main>/.git), else `top`."""
+    try:
+        r = subprocess.run(["git", "-C", top, "rev-parse", "--git-dir", "--git-common-dir"],
+                           capture_output=True, check=False, timeout=5)
+        if r.returncode != 0:
+            return top
+        git_dir, common = (os.path.normpath(os.path.join(top, x))
+                           for x in r.stdout.decode("utf-8", "surrogateescape").split("\n")[:2])
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return top
+    main = os.path.dirname(common)
+    if git_dir == common or os.path.basename(common) != ".git" or not os.path.isdir(main):
+        return top                 # not a linked worktree, or the main repository is bare
+    return main
 
 
 def _ensure_ignored(repo_root: Path, memdir: Path) -> None:
