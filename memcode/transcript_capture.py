@@ -569,8 +569,15 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=ex
 
 
 def _skipped(con, session: str, n: int, budget: float) -> None:
-    con.execute("UPDATE transcript_scans SET result=json_set(COALESCE(result, '{}'), '$.skipped_lines', ?, "
-                "'$.budget_usd', ?) WHERE session=?", (n, round(budget, 2), session))
+    """Add `n` to the session's unscanned lines (they never get scanned) and note the budget that applied."""
+    con.execute("UPDATE transcript_scans SET result=json_set(COALESCE(result, '{}'), '$.skipped_lines', "
+                "COALESCE(json_extract(result, '$.skipped_lines'), 0) + ?, '$.budget_usd', ?) WHERE session=?",
+                (n, round(budget, 2), session))
+
+
+def _skipped_lines(con, session: str) -> int:
+    row = con.execute("SELECT result FROM transcript_scans WHERE session=?", (session,)).fetchone()
+    return int(_json(row[0]).get("skipped_lines") or 0) if row else 0
 
 
 def run_worker(root: str, extract_fn=extract) -> int:
@@ -585,6 +592,7 @@ def run_worker(root: str, extract_fn=extract) -> int:
                 return stored
             session, path, offset, attempts = row
             from . import activity
+            skipped_before = _skipped_lines(con, session)
             try:
                 off, ids, _ = scan_one(con, root, session, path, offset, extract_fn)   # saves cost per chunk
                 stored += len(ids)
@@ -595,6 +603,12 @@ def run_worker(root: str, extract_fn=extract) -> int:
                             "ELSE status END, result=? WHERE session=?",
                             (off, json.dumps({"stored": ids, **keep}), session))
                 activity.problem(con, "capture", None)
+                if keep.get("skipped_lines", 0) > skipped_before:   # the budget ran out in this scan: on the bar too
+                    activity.problem(con, "budget", f"memory agent: this session's ${keep['budget_usd']} budget is "
+                                     f"spent; {keep['skipped_lines']} transcript lines not scanned (raise "
+                                     f"MEMCODE_CAPTURE_BUDGET_USD)")
+                else:
+                    activity.problem(con, "budget", None)
             except Exception as e:  # noqa: BLE001
                 status = "pending" if attempts + 1 < MAX_ATTEMPTS else "error"
                 con.execute("UPDATE transcript_scans SET status=?, result=? WHERE session=?",

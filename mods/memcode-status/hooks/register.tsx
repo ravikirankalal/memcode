@@ -28,6 +28,19 @@ const LOOK: Record<string, Look> = {
 const OTHER: Look = { icon: '•', tag: 'EVENT', color: 'inactive' }
 const FRESH_BOLD_MS = 15 * 1000 // an event this new is drawn bold
 
+// standing problems (memcode/activity.py `problems`), most serious first; each holds the bar until memcode clears it
+const PROBLEMS: [string, Look][] = [
+  ['capture', { icon: '⚠', tag: 'PROBLEM', color: 'error' }], // #34: the memory agent's model calls fail
+  ['budget', { icon: '💸', tag: 'BUDGET', color: 'warning' }], // this session's scan budget is spent
+]
+
+export function problemOf(f: Feed): { look: Look; text: string } | null {
+  const ps = f.problems ?? {}
+  for (const [k, lk] of PROBLEMS) if (ps[k]) return { look: lk, text: ps[k] }
+  const other = Object.values(ps)[0]
+  return other ? { look: PROBLEMS[0][1], text: other } : null
+}
+
 export function look(kind: string): Look {
   return LOOK[kind] ?? OTHER
 }
@@ -142,7 +155,7 @@ export const register: Register = on => {
     const lines = [
       f ? `memcode: ${f.counts.memories} memories, ${f.counts.rules} rules, ${f.counts.facts} facts`
         : 'memcode: no activity feed in this repo yet (.memcode/activity.json)',
-      ...Object.values(f?.problems ?? {}).map(p => `  PROBLEM: ${p}`),
+      ...Object.entries(f?.problems ?? {}).map(([k, p]) => `  ${k === 'budget' ? 'BUDGET' : 'PROBLEM'}: ${p}`),
       ...(f ? f.events.slice(-5).map(ev => `  ${ev.kind}: ${ev.text} (${ago(t - ev.ts * 1000)})`) : []),
       `feed: ${path || '(not resolved yet)'}${f ? '' : ' (missing)'}`,
       ...(f ? [] : [`  ${(await read($, hint)) || 'no .memcode store here: memcode is not used in this repo'}`]),
@@ -170,9 +183,8 @@ export const register: Register = on => {
     const fresh = !!ev && t - ev.ts * 1000 < FRESH_BOLD_MS
     const width = Math.max(20, e.props.bodyColumns - 85)
     const text = ev && ev.text.length > width ? `${ev.text.slice(0, width - 1)}…` : ev?.text
-    // a standing problem (#34: the memory agent's model calls fail) holds the bar until memcode clears it
-    const problem = Object.values(f.problems ?? {})[0]
-    const ptext = problem && problem.length > width ? `${problem.slice(0, width - 1)}…` : problem
+    const problem = problemOf(f)
+    const ptext = problem && problem.text.length > width ? `${problem.text.slice(0, width - 1)}…` : problem?.text
 
     return (
       <Box flexDirection="row">
@@ -185,14 +197,14 @@ export const register: Register = on => {
         <Text dimColor>notes  </Text>
         <Text color="planMode">⚙ {c.facts} </Text>
         <Text dimColor>facts</Text>
-        {ptext && (
+        {problem && (
           <Text>
             <Text dimColor>  ┃ </Text>
-            <Text backgroundColor="error" color="inverseText" bold> ⚠ PROBLEM </Text>
-            <Text color="error"> {ptext}</Text>
+            <Text backgroundColor={problem.look.color} color="inverseText" bold> {problem.look.icon} {problem.look.tag} </Text>
+            <Text color={problem.look.color}> {ptext}</Text>
           </Text>
         )}
-        {!ptext && ev && lk && (
+        {!problem && ev && lk && (
           <Text>
             <Text dimColor>  ┃ </Text>
             <Text backgroundColor={lk.color} color="inverseText" bold> {lk.icon} {lk.tag} </Text>

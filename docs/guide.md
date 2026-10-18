@@ -131,7 +131,8 @@ and the memcode status bar say so with the fix (`claude update`, `/login`, or `M
 lost meanwhile: the next turn after the fix scans everything not scanned yet, oldest first, in pieces of 24,000
 condensed characters, within the per-session budget: $0.10, rising with the transcript's length ($0.03 per 1,000
 lines) up to $0.50; `MEMCODE_CAPTURE_BUDGET_USD` sets it outright. If the budget runs out first, `/memcode:status`
-says how many transcript lines were left unscanned.
+says how many transcript lines were left unscanned, and the status bar shows a yellow BUDGET badge until a scan
+finishes within budget.
 
 A note about how a code file behaves goes stale when that file changes. A how-to ("Run X as a module") or a note on a
 manifest, config or doc stays shown across edits and goes stale only when its file is deleted.

@@ -401,6 +401,18 @@ class Store(unittest.TestCase):
         with mock.patch.object(tc, "MAX_CHARS", 1500):
             tc.run_worker(self.d, lambda text, ctx=None: {"items": [], "model": "f", "cost_usd": 0.06})
         self.assertIn("not scanned", tc.health(self.con))
+        from memcode import activity
+        feed = lambda: json.loads(Path(self.d, ".memcode", activity.FILE).read_text())  # noqa: E731
+        self.assertIn("budget is spent", feed()["problems"]["budget"])            # on the status bar too
+        n = feed()["problems"]["budget"]
+        with open(path, "a") as fh:                                             # a later turn: still over budget
+            fh.write(json.dumps(user("Turn 9: " + "word " * 60)) + "\n")
+        tc.enqueue(self.con, "s1", path)
+        tc.run_worker(self.d, lambda text, ctx=None: {"items": [], "model": "f", "cost_usd": 0.06})
+        self.assertNotEqual(feed()["problems"]["budget"], n)                     # the count grows
+        tc.enqueue(self.con, "s2", write_transcript(SESSION))                  # a session within budget clears it
+        tc.run_worker(self.d, lambda text, ctx=None: {"items": [], "model": "f", "cost_usd": 0.01})
+        self.assertNotIn("problems", feed())
 
 
 class Hook(unittest.TestCase):

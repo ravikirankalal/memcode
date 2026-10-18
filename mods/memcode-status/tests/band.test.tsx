@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { ago, latest, parseFeed } from '../hooks/register'
+import { ago, latest, parseFeed, problemOf } from '../hooks/register'
 import type { Feed } from '../types'
 
 const BAND = { component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as const
@@ -121,4 +121,18 @@ test('a failing memory agent holds the bar with its reason', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /🧠 SAVED/ })).toBeUndefined()
   expect(parseFeed(JSON.stringify(FEED))?.problems).toEqual({})
   await ui.unmount()
+})
+
+test('a spent scan budget shows as a warning, a failure outranks it', async ($, on) => {
+  mock.clock(on, { now: T * 1000 })
+  const budget = "memory agent: this session's $0.3 budget is spent; 120 transcript lines not scanned"
+  world(on, JSON.stringify({ ...FEED, problems: { budget } }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /💸 BUDGET/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /120 transcript lines not scanned/ })).toBeDefined()
+  await ui.unmount()
+  const both: Feed = { ...FEED, problems: { budget, capture: 'memory agent: not logged in' } }
+  expect(problemOf(both)?.look.tag).toBe('PROBLEM')
+  expect(problemOf(FEED)).toBeNull()
 })
