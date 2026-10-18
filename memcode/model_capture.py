@@ -38,7 +38,7 @@ MAX_ATTEMPTS = 2
 
 
 def config_path(root) -> Path:
-    return Path(root) / ".memcode" / "config.json"
+    return store.memdir(root) / "config.json"
 
 
 def read_config(root) -> dict:

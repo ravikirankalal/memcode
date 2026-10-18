@@ -51,6 +51,8 @@ class Observe(unittest.TestCase):
         self.con.close()
 
     def row(self, key):
+        if key.startswith("cmd:"):
+            key = "cmd:" + facts.cmd_key(key[4:])
         return self.con.execute("SELECT * FROM facts WHERE key=?", (key,)).fetchone()
 
     def test_success_failure_and_attribution(self):
@@ -158,6 +160,73 @@ class RepoScan(unittest.TestCase):
         facts.scan_repo(con, d)
         self.assertNotIn("repo:make:lint", {r["key"] for r in facts.list_facts(con)})
         con.close()
+
+
+class Noise(unittest.TestCase):
+    """issue #36: pieces of compound commands and one-off actions are not repo command facts"""
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.con = store.connect(self.d)
+
+    def tearDown(self):
+        self.con.close()
+
+    def commands(self):
+        return sorted(r[0] for r in self.con.execute("SELECT value FROM facts WHERE category='command'"))
+
+    def test_compound_calls_leave_no_pieces(self):
+        for cmd in ("for c in b8dcf40 34302cd dde5424 d005c97; do git show --stat $c; done",
+                    "for c in \\\n  b8dcf40 34302cd\ndo copy h-dev develop-08858f6.keys-off $c\ndone",
+                    "echo $(git rev-parse HEAD)", "V=$(mvn -v) && echo $V",
+                    "find . -name x | xargs grep -l y; diff <(git merge-base origin/develop origin/main) z",
+                    "f() { make build; }; f", "(cd jobs-core && mvn -q test)", "make build\nmake test"):
+            facts.observe(self.con, self.d, bash(cmd))
+        self.assertEqual(self.commands(), [])
+
+    def test_one_off_actions_are_not_facts(self):
+        for cmd in ("glab mr close 326", "glab mr view 326 -F json", "glab mr view 328 -F json",
+                    "gh repo view ravikirankalal/memcode --json name", "claude plugin update memcode@memcode",
+                    "claude plugin --help", "kubectl -n jobs exec deploy/worker -- wget -qO- http://localhost/api/v1/jobs",
+                    "kubectl -n jobs exec deploy/worker -- wget -S -qO- http://localhost/api/v1/jobs",
+                    "mvn help", "npm view react version", "git show b8dcf40"):
+            facts.observe(self.con, self.d, bash(cmd))
+        self.assertEqual(self.commands(), [])
+
+    def test_variants_merge_and_show_the_newest_passing_one(self):
+        facts.observe(self.con, self.d, bash("python3 -m pytest -q"))
+        facts.observe(self.con, self.d, bash("python3 -m pytest -x --tb short"))
+        facts.observe(self.con, self.d, bash("python3 -m pytest -k slow", 1))
+        (r,) = self.con.execute("SELECT * FROM facts WHERE category='command'").fetchall()
+        self.assertEqual((r["runs"], r["ok"], r["fail"], r["value"]), (3, 2, 1, "python3 -m pytest -x --tb short"))
+
+    def test_chains_keep_role_commands_only(self):
+        facts.observe(self.con, self.d, bash("npm run build && npm test"))
+        facts.observe(self.con, self.d, bash("make deploy-check && notify-team done"))
+        self.assertEqual(self.commands(), ["npm run build", "npm test"])
+
+    def test_unconfirmed_commands_are_not_shown_at_session_start(self):
+        facts.observe(self.con, self.d, bash("mvn -q test | tail -5"))       # piped, no summary: unknown
+        facts.observe(self.con, self.d, bash("./gradlew build | tail -3"))
+        self.assertEqual(len(self.commands()), 2)
+        self.assertEqual([l for l in facts.lines(self.con) if "`" in l], [])
+        for _ in range(2):
+            facts.observe(self.con, self.d, bash("./gradlew build"))
+        self.assertIn("build: `./gradlew build` (ran 3x, 2 confirmed ok)", "\n".join(facts.lines(self.con)))
+
+    def test_old_store_is_cleaned_once(self):
+        now = 1.0
+        facts.ensure(self.con)
+        for v, ok in (("b8dcf40 34302cd dde5424 d005c97", 0), ("mvn -v)", 0), ("glab mr view 326 -F json", 1),
+                      ("claude plugin --help", 1), ("python3 -m pytest -q", 2), ("python3 -m pytest -x", 1)):
+            self.con.execute("INSERT INTO facts(key,category,role,value,source,runs,ok,fail,first_seen,last_seen) "
+                             "VALUES(?,?,?,?,?,?,?,?,?,?)", (f"cmd:{v}", "command", facts.role_of(v), v, "observed",
+                                                            ok, ok, 0, now, now))
+        self.con.execute("DELETE FROM facts_meta"); self.con.commit()
+        facts.ensure(self.con)
+        rows = self.con.execute("SELECT key, runs, ok FROM facts WHERE category='command'").fetchall()
+        self.assertEqual([tuple(r) for r in rows], [("cmd:python3 -m pytest", 3, 3)])
+        facts.ensure(self.con)                                                 # once: version recorded
+        self.assertEqual(self.con.execute("SELECT v FROM facts_meta").fetchone()[0], facts.FACTS_VERSION)
 
 
 class InferUserRender(unittest.TestCase):

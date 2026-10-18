@@ -19,7 +19,7 @@ from . import store
 
 def _log_error(root: str, e: BaseException) -> None:
     try:
-        d = os.path.join(root, ".memcode")
+        d = str(store.memdir(root))
         os.makedirs(d, exist_ok=True)
         p = os.path.join(d, "error.log")
         if os.path.exists(p) and os.path.getsize(p) > 100_000:

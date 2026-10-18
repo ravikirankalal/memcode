@@ -168,7 +168,7 @@ export const register: Register = on => {
     const c = f.counts
     const lk = ev ? look(ev.kind) : null
     const fresh = !!ev && t - ev.ts * 1000 < FRESH_BOLD_MS
-    const width = Math.max(20, e.props.bodyColumns - 70)
+    const width = Math.max(20, e.props.bodyColumns - 85)
     const text = ev && ev.text.length > width ? `${ev.text.slice(0, width - 1)}…` : ev?.text
     // a standing problem (#34: the memory agent's model calls fail) holds the bar until memcode clears it
     const problem = Object.values(f.problems ?? {})[0]
@@ -177,6 +177,8 @@ export const register: Register = on => {
     return (
       <Box flexDirection="row">
         <Text color="claude" bold>◆ memcode </Text>
+        <Text color="remember" bold>🧠 {c.memories} </Text>
+        <Text dimColor>memories  </Text>
         <Text color="merged">📜 {c.rules} </Text>
         <Text dimColor>rules  </Text>
         <Text color="suggestion">📝 {c.notes} </Text>

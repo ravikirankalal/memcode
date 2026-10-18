@@ -142,7 +142,7 @@ accumulates, and shown in a short `## Facts` section at session start.
 
 | kind | where it comes from | example |
 |---|---|---|
-| command | shell commands the agent runs, split into simple commands and classified (test, build, lint, typecheck, format, run, install), or kept because they recur | test: `python3 -m unittest discover -s tests` (ran 31x, 31 confirmed ok) |
+| command | shell commands the agent runs, classified (test, build, lint, typecheck, format, run, install) or kept because they recur and pass. Variants that differ only by flags are one fact. Scripts (loops, `$( )`, functions, several lines) and one-off actions (an MR/PR by number, `--help`, plugin management, `kubectl exec` probes) are never recorded. Only commands confirmed to pass are shown at session start | test: `python3 -m unittest discover -s tests` (ran 31x, 31 confirmed ok) |
 | repo | build manifests read at session start (package.json scripts, Makefile targets, pyproject, Cargo, go.mod, CI `run:` steps), main languages, test directory; refreshed when the file changes | build: `npm run build` (from package.json) |
 | env | limitations seen here: a command not installed (exit 127 and not on PATH) | `sqlite3` is not installed in this environment |
 | inference | aggregated: fragile folders, commands that keep failing | `make deploy` has failed 3x and never passed here |
@@ -213,7 +213,7 @@ hooks cannot inject context.
 | A correction was not captured | Phrase it as a rule ("No - always X", "never Y"); see the trigger table. |
 | Hook errors | Failures never block the agent; they are logged to `<repo>/.memcode/error.log`. |
 | `python3 -m memcode` cannot import | Use `/memcode:cli ...` inside Claude Code, or the plugin's `bin/memcode` (see the README alias); `python3 -m memcode` only works from a checkout or with `PYTHONPATH` set to the plugin directory. |
-| Wrong repo | The root is `CLAUDE_PROJECT_DIR`, else the git toplevel, else the working directory. Use `--root`. |
+| Wrong repo | The root is `CLAUDE_PROJECT_DIR`, else the git toplevel, else the working directory. Use `--root`. In a linked git worktree the store is the main checkout's `.memcode/` (one per repository), while files (staleness, the repo map) are read from the worktree itself. |
 | Stale or wrong memory | `python3 -m memcode show ID`, then `forget ID` or `prune-stale`. |
 
 ## Disable or uninstall
@@ -230,4 +230,6 @@ rm -rf <repo>/.memcode          # delete a repository's memory
 - Staleness is per symbol for Python (`file.py::function`, hashed on the AST, so comments and formatting do not
   count) and falls back to the whole file for other languages or files that do not parse.
 - Plain `mv` of a whole directory is not re-anchored.
+- Checkouts of one repository share the store, so staleness and the repo map follow whichever checkout last started
+  a session; two sessions open at once in checkouts on different branches can flip a note between fresh and stale.
 - The benefit over a hand-written `CLAUDE.md` is unproven; see the benchmark results.
