@@ -81,6 +81,9 @@ def _delete(con, ids: list[int]) -> int:
             con.execute(f"DELETE FROM {t} WHERE memory_id=?", (i,))
         n += con.execute("DELETE FROM memories WHERE id=?", (i,)).rowcount
     con.commit()
+    if n:
+        from . import activity
+        activity.note(con, "forgot", f"forgot {n} memor{'y' if n == 1 else 'ies'}", n)
     return n
 
 

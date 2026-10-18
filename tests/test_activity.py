@@ -36,6 +36,18 @@ class Activity(unittest.TestCase):
             self.assertEqual(self.feed()["events"][-1]["kind"], "start")
             self.assertIn("1 rule,", self.feed()["events"][-1]["text"])
 
+    def test_forget_refreshes_the_counts(self):
+        import contextlib
+        import io
+        from memcode import cli
+        mid = store.add_memory(self.con, "correction", "Rule from user correction: Use tabs.", "", None, {})
+        activity.note(self.con, "saved", "rule: Use tabs.")
+        self.assertEqual(self.feed()["counts"]["memories"], 1)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.main(["--root", self.d, "forget", str(mid)])
+        self.assertEqual(self.feed()["counts"]["memories"], 0)
+        self.assertEqual(self.feed()["events"][-1]["kind"], "forgot")
+
     def test_bounded_and_never_raises(self):
         for i in range(30):
             activity.note(self.con, "recalled", f"x {i}")
