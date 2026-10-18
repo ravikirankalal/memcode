@@ -583,3 +583,13 @@ hierarchy pinned off, Haiku, 3 units x 2 later sessions per cell.
 Transcript capture passes; it stays opt-in (`memcode config transcript-capture on`) because it sends condensed
 transcript text to a model, and is now the recommended setting for anyone who accepts that. Follow-up: the facts table
 should keep a required environment prefix (TALLY_DATA=) instead of dropping it.
+
+## Run 17b (2026-10-18, regression check on a used set): the memory-agent version
+tc2 again, memcode_tc arm only, plugin 32e49b7 (role prompt, repo briefing with numbered memory, add/update/retire;
+before the in-context filter of 3a5b183). Not a gate: tc2 was already used.
+Descriptive rules 0/18 (unchanged), d_qa_runner 2/6 (was 1/6), d_tally_env 4/6 (was 2/6), controls 0/12; gain
+6/30 [0.10, 0.37] vs 3/30 [0.03, 0.26] in Run 17 (intervals overlap; memcode alone was 25/30). The agent stored
+fewer, more conservative notes (4 vs 13; all correct, 13/13 memories correct overall): it now sees the facts in its
+briefing and skips what they already say, and its TALLY_DATA notes no longer name the value (ledger/). $0.023.
+Watch item: the discovered-pitfall cells; a note that says what to do ("set TALLY_DATA=ledger") beats one that only
+says what fails.
