@@ -134,6 +134,39 @@ class TestStore(Repo):
             con.close()
             self.assertFalse(Path(outside, ".memcode").exists())
 
+    def test_worktree_wins_over_a_main_checkout_project_dir(self):
+        # #39: the host sets CLAUDE_PROJECT_DIR to the main checkout while the session runs in a linked worktree
+        from memcode import engine
+        with tempfile.TemporaryDirectory() as d:
+            main = os.path.realpath(os.path.join(d, "main"))
+            os.makedirs(main)
+            git(main, "init", "-q")
+            Path(main, "a.py").write_text("x = 1\n")
+            git(main, "add", "a.py")
+            git(main, "commit", "-q", "-m", "i")
+            wt = os.path.join(main, ".claude", "worktrees", "w1")
+            git(main, "worktree", "add", "-q", wt, "-b", "w1")
+            Path(wt, "newfile.py").write_text("def f():\n    return 1\n")
+            git(wt, "add", "newfile.py")
+            git(wt, "commit", "-q", "-m", "n")
+            other = os.path.join(d, "other")
+            os.makedirs(other)
+            git(other, "init", "-q")
+            with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": main}):
+                self.assertEqual(store.resolve_root(os.path.join(wt, "sub-does-not-exist")), main)  # no such dir
+                self.assertEqual(store.resolve_root(wt), os.path.realpath(wt))
+                self.assertEqual(store.resolve_root(main), main)
+                self.assertEqual(store.resolve_root(other), main)          # another repository: the env wins
+                root = store.resolve_root(wt)
+            con = store.connect(root)
+            self.assertEqual(store.db_path(root), Path(main, ".memcode", "memory.db"))
+            mid = store.add_memory(con, "manual", "f returns 1 on purpose", "newfile.py",
+                                   store.sha1(Path(wt, "newfile.py").read_bytes()), {})
+            engine.session_start(con, root, "s")
+            self.assertEqual(con.execute("SELECT stale FROM memories WHERE id=?", (mid,)).fetchone()[0], 0)
+            self.assertIn("newfile.py", {r[0] for r in con.execute("SELECT path FROM paths WHERE kind='file'")})
+            con.close()
+
 class TestScan(Repo):
     def test_single_transaction_and_skip_unchanged(self):
         r1 = tree.scan_repo(self.con, self.root)
