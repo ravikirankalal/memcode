@@ -14,7 +14,8 @@ output tail, files written), asks a model for durable, repo-specific knowledge, 
 
 Failures are not silent: a failed model call's reason (unknown model, expired login, usage limit) is shown by
 `memcode stats` and the status feed's `problems` until a scan succeeds, and the text it could not send waits for the
-next scan. A backlog longer than MAX_CHARS goes in chunks, oldest first, within the session budget.
+next scan. A backlog longer than MAX_CHARS goes in chunks, oldest first, within the session budget (session_budget: $0.10,
+rising with the transcript's length up to $0.50).
 
 On by default since 0.9.0; off with `memcode config transcript-capture off` or MEMCODE_TRANSCRIPT_CAPTURE=0. Model: MEMCODE_CAPTURE_MODEL
 (default claude-haiku-5-5 here: one call per scanned turn). The call uses the `claude` CLI (the user's login) with
@@ -41,7 +42,20 @@ MIN_NEW_CHARS = 400          # a scan needs at least this much new condensed tex
 MAX_CHARS = 24_000           # condensed text sent per model call; a longer backlog goes in chunks, oldest first
 DUP_OVERLAP = 0.6            # term overlap with an existing memory or fact that counts as a repeat
 MAX_ATTEMPTS = 2
-MAX_SESSION_USD = float(os.environ.get("MEMCODE_CAPTURE_BUDGET_USD", "0.10") or 0.10)  # per session; then it stops
+MIN_SESSION_USD, MAX_SESSION_USD = 0.10, 0.50  # per-session budget: grows with the transcript between these, then stops
+USD_PER_1K_LINES = 0.03      # about what scanning 1,000 transcript lines costs on Haiku
+
+
+def session_budget(n_lines: int) -> float:
+    """What one session may spend: MEMCODE_CAPTURE_BUDGET_USD if set, else $0.10 rising with the transcript's length
+    (a long session has more to read) up to $0.50."""
+    env = os.environ.get("MEMCODE_CAPTURE_BUDGET_USD")
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    return min(MAX_SESSION_USD, max(MIN_SESSION_USD, USD_PER_1K_LINES * n_lines / 1000))
 MAX_ENV_FACTS = 12           # observed environment limits kept (newest win)
 
 SCHEMA_SQL = """
@@ -349,6 +363,34 @@ def is_repeat(con, text: str) -> bool:
     return False
 
 
+# A note is tied to its file's exact content only when it describes how that code behaves ("resolve_root maps a
+# worktree to ..."): an edit may make it wrong, so an edit makes it stale. A how-to ("Run X as a module", "Validate
+# the manifests with ...") or a note on a manifest, config or doc stays true across edits (plugin.json changes with
+# every release), so it goes stale only when the file is gone.
+CODE_EXTS = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".go", ".rs", ".java", ".kt", ".rb", ".php", ".cs", ".c",
+             ".cc", ".cpp", ".h", ".hpp", ".swift", ".scala", ".sh"}
+_HOWTO = re.compile(r"(?i)^(?:(?:when|if|before|after|whenever|for)\b[^,]{0,120},\s*)?(?:always |never |do not |don't )?(?:run|use|call|start|stop|validate|check|keep|give|"
+                    r"set|pass|add|avoid|prefer|install|build|test|lint|invoke|launch|open|read|write|put|make|"
+                    r"create|delete|remove|rebuild|restart|pin|export|send|ask|wait|retry|commit|push|copy|treat)\b")
+
+
+def pins_content(text: str, path: str) -> bool:
+    """Whether a note on `path` goes stale when the file changes (see CODE_EXTS / _HOWTO)."""
+    return os.path.splitext(path)[1].lower() in CODE_EXTS and not _HOWTO.match(text.strip())
+
+
+def unpin_howtos(con) -> int:
+    """Notes stored before pins_content existed: drop the content pin of how-tos and non-code notes, so a still-true
+    note stops going stale on every edit (session start revives the ones staled that way)."""
+    rows = con.execute("SELECT id, text, anchor_path FROM memories WHERE trigger='transcript' "
+                       "AND anchor_hash IS NOT NULL").fetchall()
+    ids = [r["id"] for r in rows if not pins_content(r["text"], r["anchor_path"])]
+    if ids:
+        con.executemany("UPDATE memories SET anchor_hash=NULL WHERE id=?", [(i,) for i in ids])
+        con.commit()
+    return len(ids)
+
+
 def _anchor(root: str, path: str) -> str:
     p = (path or "").strip().strip("/")
     if not p or p.startswith("..") or os.path.isabs(p):
@@ -458,7 +500,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         else:
             a = _anchor(root, item.get("path", ""))
             h = None
-            if a and os.path.isfile(os.path.join(root, a)):
+            if a and os.path.isfile(os.path.join(root, a)) and pins_content(text, a):
                 with open(os.path.join(root, a), "rb") as fh:
                     h = store.sha1(fh.read())
             mid = store.add_memory(con, "transcript", text, a, h, prov, 0.5, commit=False)
@@ -505,13 +547,14 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=ex
     condensed = condense(new)
     if len(condensed) < MIN_NEW_CHARS and "[user] " not in condensed:
         return offset, [], 0.0                          # too little yet: kept for the next scan, never skipped
+    budget = session_budget(len(lines))
     spent = con.execute("SELECT cost_usd FROM transcript_scans WHERE session=?", (session,)).fetchone()
     total = spent[0] if spent else 0.0
     ids: list[int] = []
     cost, start = 0.0, offset
     for end, piece in chunks(new):
-        if total + cost >= MAX_SESSION_USD:             # this session's budget is spent: skip the rest, and say so
-            _skipped(con, session, len(lines) - offset)
+        if total + cost >= budget:                      # this session's budget is spent: skip the rest, and say so
+            _skipped(con, session, len(lines) - offset, budget)
             return len(lines), ids, cost
         res = extract_fn(piece, briefing(con, root, session))
         if res is None or "error" in res:
@@ -525,14 +568,15 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=ex
     return offset, ids, cost
 
 
-def _skipped(con, session: str, n: int) -> None:
-    con.execute("UPDATE transcript_scans SET result=json_set(COALESCE(result, '{}'), '$.skipped_lines', ?) "
-                "WHERE session=?", (n, session))
+def _skipped(con, session: str, n: int, budget: float) -> None:
+    con.execute("UPDATE transcript_scans SET result=json_set(COALESCE(result, '{}'), '$.skipped_lines', ?, "
+                "'$.budget_usd', ?) WHERE session=?", (n, round(budget, 2), session))
 
 
 def run_worker(root: str, extract_fn=extract) -> int:
     con = store.connect(root)
     ensure(con)
+    unpin_howtos(con)
     stored = 0
     try:
         while True:
@@ -545,11 +589,11 @@ def run_worker(root: str, extract_fn=extract) -> int:
                 off, ids, _ = scan_one(con, root, session, path, offset, extract_fn)   # saves cost per chunk
                 stored += len(ids)
                 prev = con.execute("SELECT result FROM transcript_scans WHERE session=?", (session,)).fetchone()
-                skipped = (_json(prev[0]) if prev else {}).get("skipped_lines")
+                last = _json(prev[0]) if prev else {}
+                keep = {k: last[k] for k in ("skipped_lines", "budget_usd") if k in last and last.get("skipped_lines")}
                 con.execute("UPDATE transcript_scans SET offset=?, status=CASE WHEN status='working' THEN 'idle' "
                             "ELSE status END, result=? WHERE session=?",
-                            (off, json.dumps({"stored": ids, **({"skipped_lines": skipped} if skipped else {})}),
-                             session))
+                            (off, json.dumps({"stored": ids, **keep}), session))
                 activity.problem(con, "capture", None)
             except Exception as e:  # noqa: BLE001
                 status = "pending" if attempts + 1 < MAX_ATTEMPTS else "error"
@@ -580,8 +624,8 @@ def health(con) -> str | None:
     if row["status"] == "error" or (row["status"] == "pending" and res.get("error")):
         return f"memory agent FAILING: {res.get('error') or 'unknown error'} (session {row['session'][:8]})"
     if res.get("skipped_lines"):
-        return (f"memory agent: session {row['session'][:8]} spent its budget (MEMCODE_CAPTURE_BUDGET_USD="
-                f"{MAX_SESSION_USD:g}); {res['skipped_lines']} transcript lines were not scanned")
+        return (f"memory agent: session {row['session'][:8]} spent its budget (${res.get('budget_usd', '?')}; raise it "
+                f"with MEMCODE_CAPTURE_BUDGET_USD); {res['skipped_lines']} transcript lines were not scanned")
     return None
 
 

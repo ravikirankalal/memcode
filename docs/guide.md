@@ -129,8 +129,12 @@ listed by `/memcode:list` (trigger `transcript`, or rules with source `transcrip
 If its model calls fail (the `claude` CLI does not know the capture model, or its login expired), `/memcode:status`
 and the memcode status bar say so with the fix (`claude update`, `/login`, or `MEMCODE_CAPTURE_MODEL`); nothing is
 lost meanwhile: the next turn after the fix scans everything not scanned yet, oldest first, in pieces of 24,000
-condensed characters, within the per-session budget (`MEMCODE_CAPTURE_BUDGET_USD`, default $0.10). If the budget runs
-out first, `/memcode:status` says how many transcript lines were left unscanned.
+condensed characters, within the per-session budget: $0.10, rising with the transcript's length ($0.03 per 1,000
+lines) up to $0.50; `MEMCODE_CAPTURE_BUDGET_USD` sets it outright. If the budget runs out first, `/memcode:status`
+says how many transcript lines were left unscanned.
+
+A note about how a code file behaves goes stale when that file changes. A how-to ("Run X as a module") or a note on a
+manifest, config or doc stays shown across edits and goes stale only when its file is deleted.
 
 A request for now ("Park G16. Start a review on main ... we can't touch develop yet") is never stored as a rule,
 however the model labels it.

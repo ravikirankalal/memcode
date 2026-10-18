@@ -308,6 +308,44 @@ class Store(unittest.TestCase):
         tc.run_worker(self.d, fake)
         self.assertEqual(len(sent), 4)
 
+    def test_budget_grows_with_the_transcript(self):
+        with mock.patch.dict(os.environ, {"MEMCODE_CAPTURE_BUDGET_USD": ""}):
+            self.assertEqual(tc.session_budget(500), 0.10)
+            self.assertAlmostEqual(tc.session_budget(10_000), 0.30)
+            self.assertEqual(tc.session_budget(100_000), 0.50)
+        with mock.patch.dict(os.environ, {"MEMCODE_CAPTURE_BUDGET_USD": "2"}):
+            self.assertEqual(tc.session_budget(100_000), 2.0)
+
+    def test_only_notes_on_code_behaviour_pin_the_file_content(self):
+        self.assertTrue(tc.pins_content("resolve_root maps a linked git worktree to the main working tree.",
+                                        "memcode/store.py"))
+        self.assertFalse(tc.pins_content("Run bench/live/x.py as a module: `python3 -m bench.live.x`.", "bench/live/x.py"))
+        self.assertFalse(tc.pins_content("Validate the plugin manifests with `claude plugin validate`.",
+                                         ".claude-plugin/plugin.json"))
+        self.assertFalse(tc.pins_content("The manifest lists both plugins.", ".claude-plugin/marketplace.json"))
+        self.assertFalse(tc.pins_content("When auditing trap hits, treat leading spaces as a snippet.", "bench/m.py"))
+        self.assertTrue(tc.pins_content("If the cache is cold, load() reads the whole store.", "memcode/store.py"))
+        Path(self.d, "plugin.json").write_text('{"version": "1"}')
+        items = [{"kind": "note", "text": "Validate plugin.json with `claude plugin validate plugin.json --strict`.",
+                  "evidence": "unittest finds nothing here; the Makefile has a check target", "path": "plugin.json"}]
+        (mid,) = tc.store_items(self.con, self.d, "s", items, self.condensed, "m")
+        Path(self.d, "plugin.json").write_text('{"version": "2"}')                  # a release bump
+        from memcode import tree
+        tree.mark_stale(self.con, self.d)
+        self.assertEqual(self.con.execute("SELECT stale FROM memories WHERE id=?", (mid,)).fetchone()[0], 0)
+
+    def test_old_pinned_howtos_are_unpinned_and_revive(self):
+        from memcode import tree
+        Path(self.d, "plugin.json").write_text('{"version": "2"}')
+        mid = store.add_memory(self.con, "transcript", "Validate plugin.json before merging.", "plugin.json",
+                               "oldhash", {})
+        code = store.add_memory(self.con, "transcript", "f returns 1.", "Makefile", "oldhash", {})
+        tree.mark_stale(self.con, self.d)
+        self.assertEqual(tc.unpin_howtos(self.con), 2)                    # both: Makefile is not a code file
+        tree.mark_stale(self.con, self.d)
+        stale = dict(self.con.execute("SELECT id, stale FROM memories").fetchall())
+        self.assertEqual((stale[mid], stale[code]), (0, 0))
+
     def test_why_failed_names_the_fix(self):
         self.assertIn("claude update", tc.why_failed("API Error [claude-code:unrecognized_model] no such model", "m"))
         self.assertIn("/login", tc.why_failed("Not logged in · Please run /login", "m"))
