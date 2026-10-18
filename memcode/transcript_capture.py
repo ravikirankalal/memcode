@@ -52,21 +52,28 @@ CREATE TABLE IF NOT EXISTS transcript_scans (
 """
 
 SYSTEM = (
-    "You read a condensed transcript of a coding agent's session in one repository. List what a FUTURE session in "
-    "this repository must know to avoid a mistake or wasted time, and that it could not easily see from the code: "
-    "conventions the user stated or confirmed (also when phrased as description, e.g. 'every module has X'), how to "
-    "build, test, lint or run things here when the obvious way fails, environment limits, and pitfalls that were "
-    "discovered. Skip: details of the current task, one-off requests, anything the agent merely guessed or did not "
-    "verify, general programming knowledge, and anything that will be stale soon. For each item give: kind 'rule' "
-    "for a convention the USER stated, else 'note'; text, one short imperative or factual sentence; evidence, an "
-    "EXACT quote of 8-200 characters copied from the transcript that shows it; path, a repo-relative file or folder "
-    "it applies to, or ''. Return at most 5 items, and an empty list when nothing qualifies (the usual case).")
+    "You read a condensed transcript of a coding agent's session in one repository, and the rules the user already "
+    "gave. List what a FUTURE session in this repository must know to avoid a mistake or wasted time, and that it "
+    "could not easily see from the code: conventions the user stated or confirmed (also when phrased as description, "
+    "e.g. 'every module has X'), how to build, test, lint or run things here when the obvious way fails, and pitfalls "
+    "that were discovered. Skip: details of the current task, one-off requests, anything the agent merely guessed or "
+    "did not verify, general programming knowledge, anything that will be stale soon, statements about the agent's "
+    "own memory, instructions or tools, and anything already in the rules. Never record a place where the code still "
+    "breaks one of the user's rules as if that were the accepted way. For each item give: kind 'rule' for a convention "
+    "the USER stated, 'env' for a limit of the agent's environment rather than the repository (a command or tool that "
+    "is refused, needs approval or is not installed), else 'note'; text, one short imperative or factual sentence; "
+    "evidence, an EXACT quote of 8-200 characters copied from the transcript that shows it; path, a repo-relative file "
+    "or folder it applies to, or ''; conflicts, true when the item contradicts or weakens one of the user's rules. "
+    "Return at most 5 items, and an empty list when nothing qualifies (the usual case).")
 SCHEMA = json.dumps({
     "type": "object", "additionalProperties": False, "required": ["items"],
     "properties": {"items": {"type": "array", "maxItems": MAX_ITEMS, "items": {
-        "type": "object", "additionalProperties": False, "required": ["kind", "text", "evidence", "path"],
-        "properties": {"kind": {"type": "string", "enum": ["rule", "note"]}, "text": {"type": "string"},
-                       "evidence": {"type": "string"}, "path": {"type": "string"}}}}}})
+        "type": "object", "additionalProperties": False,
+        "required": ["kind", "text", "evidence", "path", "conflicts"],
+        "properties": {"kind": {"type": "string", "enum": ["rule", "note", "env"]}, "text": {"type": "string"},
+                       "evidence": {"type": "string"}, "path": {"type": "string"},
+                       "conflicts": {"type": "boolean"}}}}}})
+_SELF = re.compile(r"(?i)\b(?:memcode|memory_(?:add|search|pinned|facts)|(?:agent|assistant)'?s? (?:own )?memory)\b")
 
 
 def enabled(root) -> bool:
@@ -157,10 +164,11 @@ def condense(lines: list[str]) -> str:
 
 # ---- model ----
 
-def extract(text: str, model: str | None = None, timeout: int = 120) -> dict | None:
+def extract(text: str, rules: list[str] | None = None, model: str | None = None, timeout: int = 120) -> dict | None:
     """-> {"items": [...], "model", "cost_usd"} or None on any failure."""
     model = model or os.environ.get("MEMCODE_CAPTURE_MODEL") or DEFAULT_MODEL
-    cmd = ["claude", "-p", f"Transcript:\n{text}", "--model", model, "--effort", "low",
+    given = "\n".join(f"- {r}" for r in (rules or [])) or "(none)"
+    cmd = ["claude", "-p", f"Rules the user already gave:\n{given}\n\nTranscript:\n{text}", "--model", model, "--effort", "low",
            "--setting-sources", "", "--strict-mcp-config", "--tools", "", "--no-session-persistence",
            "--session-id", str(uuid.uuid4()), "--max-budget-usd", "0.25", "--output-format", "json",
            "--system-prompt", SYSTEM, "--json-schema", SCHEMA]
@@ -190,10 +198,11 @@ def _terms(s: str) -> set:
 
 
 def verified(item: dict, condensed: str) -> str | None:
-    """'rule' | 'note' when the item passes the evidence check, else None."""
+    """'rule' | 'note' | 'env' when the item passes the checks, else None: evidence quoted from the transcript, no
+    conflict with the user's rules (the model's flag), nothing about the agent's own memory or tools."""
     ev = _norm(item.get("evidence", ""))
     text = " ".join(str(item.get("text", "")).split())
-    if len(ev) < 8 or len(text) < 8 or len(text) > 300:
+    if len(ev) < 8 or len(text) < 8 or len(text) > 300 or item.get("conflicts") is True or _SELF.search(text):
         return None
     lines = [_norm(l) for l in condensed.splitlines()]
     hits = [l for l in lines if ev in l]
@@ -201,7 +210,7 @@ def verified(item: dict, condensed: str) -> str | None:
         return None
     if item.get("kind") == "rule" and any(l.startswith("[user]") for l in hits):
         return "rule"
-    return "note"
+    return "env" if item.get("kind") == "env" else "note"
 
 
 def is_repeat(con, text: str) -> bool:
@@ -238,6 +247,14 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             continue
         prov = {"session": session, "source": "transcript", "model": model, "ts": time.time(),
                 "evidence": redact(str(item.get("evidence", "")))[:200]}
+        if kind == "env":                  # the agent's environment, not the repo: an env fact (facts.py), not a memory
+            import hashlib
+            from . import facts
+            facts.ensure(con)
+            facts._set_derived(con, f"env:obs:{hashlib.sha1(text.lower().encode()).hexdigest()[:10]}", "env",
+                               "observed", text, "transcript")
+            activity.note(con, "saved", f"env fact: {text}")
+            continue
         if kind == "rule":
             body = f"Rule from user correction: {text}"
             mid = store.add_memory(con, "correction", body, "", None, prov, 0.6, commit=False)
@@ -285,9 +302,11 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=ex
         return offset, [], 0.0
     new = lines[offset:]
     condensed = condense(new)
-    if len(condensed) < MIN_NEW_CHARS:
-        return offset if not new else len(lines), [], 0.0
-    res = extract_fn(condensed[-MAX_CHARS:])
+    if len(condensed) < MIN_NEW_CHARS and "[user] " not in condensed:
+        return offset, [], 0.0                          # too little yet: kept for the next scan, never skipped
+    rules = [r[0].replace("Rule from user correction: ", "", 1) for r in
+             con.execute("SELECT text FROM memories WHERE stale=0 AND trigger='correction' ORDER BY id")][-40:]
+    res = extract_fn(condensed[-MAX_CHARS:], rules)
     if res is None:
         raise RuntimeError("model call failed")
     ids = store_items(con, root, session, res["items"], condensed, res.get("model", ""))

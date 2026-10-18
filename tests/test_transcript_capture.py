@@ -106,6 +106,39 @@ class Store(unittest.TestCase):
         again = tc.store_items(self.con, self.d, "s2", self.items(), self.condensed, "m")
         self.assertEqual(again, [])                                     # repeats of live memories are skipped
 
+    def test_env_items_become_env_facts_and_conflicts_are_dropped(self):
+        items = [{"kind": "env", "text": "Chained shell commands need approval here; run them one at a time.",
+                  "evidence": "Ran 0 tests in 0.000s NO TESTS RAN", "path": "", "conflicts": False},
+                 {"kind": "note", "text": "storage.load raises ValueError on bad JSON and was left unchanged.",
+                  "evidence": "unittest finds nothing here; the Makefile has a check target", "path": "",
+                  "conflicts": True},
+                 {"kind": "note", "text": "Writing rules to memcode memory was declined in this environment.",
+                  "evidence": "unittest finds nothing here; the Makefile has a check target", "path": "",
+                  "conflicts": False}]
+        self.assertEqual(tc.store_items(self.con, self.d, "s", items, self.condensed, "m"), [])
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories").fetchone()[0], 0)
+        from memcode import facts
+        env = [r["value"] for r in facts.list_facts(self.con) if r["category"] == "env"]
+        self.assertEqual(env, ["Chained shell commands need approval here; run them one at a time."])
+        self.assertIn("- Chained shell commands need approval here", "\n".join(facts.lines(self.con)))
+
+    def test_short_user_turn_is_scanned_and_small_ones_wait(self):
+        seen = []
+        fake = lambda text, rules=None: seen.append((text, rules)) or {"items": [], "model": "f", "cost_usd": 0}  # noqa: E731
+        store.add_memory(self.con, "correction", "Rule from user correction: Indent with tabs.", "", None, {})
+        path = write_transcript([agent({"type": "text", "text": "ok"})])
+        tc.enqueue(self.con, "s1", path)
+        tc.run_worker(self.d, fake)
+        self.assertEqual(seen, [])                                      # tiny, no user words: waits, offset kept
+        self.assertEqual(self.con.execute("SELECT offset FROM transcript_scans").fetchone()[0], 0)
+        with open(path, "a") as fh:
+            fh.write(json.dumps(user("By the way, our API returns cents as int.")) + "\n")
+        tc.enqueue(self.con, "s1", path)
+        tc.run_worker(self.d, fake)
+        self.assertEqual(len(seen), 1)
+        self.assertIn("[agent] ok", seen[0][0])                         # the held-back part is included
+        self.assertEqual(seen[0][1], ["Indent with tabs."])             # the model sees the user's rules
+
     def test_short_fact_is_not_a_repeat(self):                          # tc1 (Run 16): a fact "shelf" ate a rule
         from memcode import facts
         facts.ensure(self.con)
@@ -121,7 +154,7 @@ class Store(unittest.TestCase):
         path = write_transcript(SESSION)
         calls = []
 
-        def fake(text):
+        def fake(text, rules=None):
             calls.append(text)
             return {"items": self.items()[:1], "model": "fake", "cost_usd": 0.01}
         tc.enqueue(self.con, "s1", path)
@@ -145,7 +178,7 @@ class Store(unittest.TestCase):
     def test_model_failure_retries_then_errors(self):
         path = write_transcript(SESSION)
         tc.enqueue(self.con, "s1", path)
-        tc.run_worker(self.d, lambda text: None)
+        tc.run_worker(self.d, lambda text, rules=None: None)
         self.assertEqual(self.con.execute("SELECT status FROM transcript_scans").fetchone()[0], "error")
 
 
