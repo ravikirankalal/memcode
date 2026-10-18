@@ -79,7 +79,9 @@ SYSTEM = (
     "Rules of the job: a user rule is added, changed or retired only because of the user's own words. Skip details of "
     "the current task, one-off requests ('for this change only'), guesses the agent did not verify, general "
     "programming knowledge, anything soon stale, anything about the agent's own memory or tools, and anything the "
-    "memory already says. Never record a place where the code still breaks a user rule as the accepted way. For each "
+    "memory already says. Items marked (in the agent's context) were already shown to the coding agent in this "
+    "session: when the agent follows, quotes or restates them, that is memcode working, not something new; never add "
+    "or update anything because of it. Never record a place where the code still breaks a user rule as the accepted way. For each "
     "operation give: op; target (the memory number, 0 for add); kind ('rule' for a convention the USER stated, 'env' "
     "for a limit of the agent's environment rather than the repository, such as a refused or missing command, else "
     "'note'); text (one short imperative or factual sentence; for retire, why); evidence (an EXACT quote of 8-200 "
@@ -194,9 +196,19 @@ def condense(lines: list[str]) -> str:
 MAX_BRIEF_MEMORIES = 60
 
 
+def shown_ids(con, session: str) -> set[int]:
+    """Memories memcode already put in the main agent's context this session (start block, prompt, first touch)."""
+    try:
+        return {r[0] for r in con.execute("SELECT memory_id FROM injections WHERE session=?", (session,))}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
 def briefing(con, root: str, session: str) -> str:
     """What the memory agent is told before each transcript: which repository and session, and the memory as it
-    stands (numbered, so it can update or retire an item), plus the facts."""
+    stands (numbered, so it can update or retire an item; marked when the main agent already has it in context),
+    plus the facts."""
+    shown = shown_ids(con, session)
     lines = [f"Repository: {os.path.basename(os.path.realpath(root)) or root}", f"Session: {session}",
              "Memory now (number, kind, where it applies, text):"]
     rows = con.execute("SELECT id, trigger, text, anchor_path, scope_path FROM memories WHERE stale=0 "
@@ -205,7 +217,8 @@ def briefing(con, root: str, session: str) -> str:
         kind = "rule" if r["trigger"] == "correction" else "note"
         body = r["text"].replace("Rule from user correction: ", "", 1) if kind == "rule" else r["text"]
         where = r["anchor_path"] or r["scope_path"] or "repo"
-        lines.append(f"- #{r['id']} {kind} [{where}]: {' '.join(body.split())[:300]}")
+        mark = " (in the agent's context)" if r["id"] in shown else ""
+        lines.append(f"- #{r['id']} {kind} [{where}]{mark}: {' '.join(body.split())[:300]}")
     if not rows:
         lines.append("- (empty)")
     try:
@@ -314,6 +327,8 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
     row = con.execute("SELECT * FROM memories WHERE id=? AND stale=0", (target,)).fetchone() if target > 0 else None
     if row is None or verified(dict(item, kind="note"), condensed) is None:
         return None
+    if op == "update" and echoes_context(con, session, item, condensed):
+        return None
     is_rule = row["trigger"] in ("correction", "manual")
     if is_rule and not _user_evidence(item, condensed):
         return None
@@ -336,6 +351,26 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
     return None
 
 
+def echoes_context(con, session: str, item: dict, condensed: str) -> bool:
+    """The item's only evidence is the main agent repeating a memory memcode already showed it this session: an
+    [agent] line whose quoted part mostly repeats a shown memory. That is the memory being used, not new knowledge."""
+    ev = _norm(item.get("evidence", ""))
+    if not ev or any(_norm(l).startswith("[user]") and ev in _norm(l) for l in condensed.splitlines()):
+        return False
+    t = _terms(ev)
+    if not t:
+        return False
+    shown = shown_ids(con, session)
+    if not shown:
+        return False
+    marks = ",".join("?" * len(shown))
+    for (text,) in con.execute(f"SELECT text FROM memories WHERE id IN ({marks})", tuple(shown)):
+        o = _terms(text)
+        if o and len(t & o) / len(t) >= DUP_OVERLAP:
+            return True
+    return False
+
+
 def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "") -> list[int]:
     """Apply the memory agent's operations: add (default), update, retire. -> ids added or changed."""
     from . import activity
@@ -348,7 +383,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             continue
         kind = verified(item, condensed)
         text = redact(" ".join(str(item.get("text", "")).split()))[:300]
-        if kind is None or is_repeat(con, text):
+        if kind is None or is_repeat(con, text) or echoes_context(con, session, item, condensed):
             continue
         prov = {"session": session, "source": "transcript", "model": model, "ts": time.time(),
                 "evidence": redact(str(item.get("evidence", "")))[:200]}

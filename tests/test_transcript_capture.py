@@ -167,6 +167,26 @@ class Store(unittest.TestCase):
                "conflicts": False}
         self.assertEqual(tc.store_items(self.con, self.d, "s", [bad], cond), [])  # unknown target: nothing
 
+    def test_memories_in_the_agents_context_are_not_relearned(self):
+        rule = store.add_memory(self.con, "correction",
+                                "Rule from user correction: New code gets the date from shelf.clock, never datetime.",
+                                "", None, {})
+        self.con.execute("INSERT INTO injections(session, memory_id, ts, source) VALUES('s', ?, 0, 'pinned')", (rule,))
+        self.con.commit()
+        self.assertIn(f"#{rule} rule [repo] (in the agent's context):", tc.briefing(self.con, self.d, "s"))
+        self.assertNotIn("(in the agent's context)", tc.briefing(self.con, self.d, "other-session"))
+        cond = ("[agent] Per the project rule, new code gets the date from shelf.clock and never from datetime, "
+                "so importers.py uses clock.today().\n[user] Thanks. Our importers always skip blank rows silently.")
+        echo = {"op": "add", "target": 0, "kind": "note", "conflicts": False, "path": "",
+                "text": "importers.py gets the current date through clock.today().",
+                "evidence": "new code gets the date from shelf.clock and never from datetime"}
+        fresh = {"op": "add", "target": 0, "kind": "rule", "conflicts": False, "path": "",
+                 "text": "Importers skip blank rows silently.", "evidence": "Our importers always skip blank rows silently"}
+        self.assertEqual(len(tc.store_items(self.con, self.d, "s", [echo, fresh], cond)), 1)   # only the new one
+        texts = [r[0] for r in self.con.execute("SELECT text FROM memories")]
+        self.assertIn("Rule from user correction: Importers skip blank rows silently.", texts)
+        self.assertEqual(len(tc.store_items(self.con, self.d, "other", [echo], cond)), 1)      # not shown there
+
     def test_short_fact_is_not_a_repeat(self):                          # tc1 (Run 16): a fact "shelf" ate a rule
         from memcode import facts
         facts.ensure(self.con)
