@@ -122,6 +122,10 @@ def cmd_stats(con, a) -> int:
     q = dict(con.execute("SELECT status, COUNT(*) FROM capture_queue GROUP BY status").fetchall())
     if q:
         print("model capture queue: " + ", ".join(f"{k} {v}" for k, v in sorted(q.items())))
+    from . import transcript_capture
+    h = transcript_capture.health(con)
+    if h:
+        print(h)
     rep = one("SELECT COALESCE(SUM(repeated_corrections),0) FROM session_stats")
     print(f"repeated corrections: {rep}")
     print(f"retrievals: {one('SELECT COUNT(*) FROM retrievals')}  events: {one('SELECT COUNT(*) FROM events')}  "

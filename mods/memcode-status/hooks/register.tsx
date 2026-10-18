@@ -36,7 +36,11 @@ export function parseFeed(text: string): Feed | null {
   try {
     const d = JSON.parse(text)
     if (!d || typeof d !== 'object' || !d.counts || !Array.isArray(d.events)) return null
-    return { updated: Number(d.updated) || 0, counts: d.counts, events: d.events }
+    const problems: Record<string, string> = {}
+    if (d.problems && typeof d.problems === 'object') {
+      for (const [k, v] of Object.entries(d.problems)) if (typeof v === 'string' && v) problems[k] = v
+    }
+    return { updated: Number(d.updated) || 0, counts: d.counts, events: d.events, problems }
   } catch {
     return null
   }
@@ -138,6 +142,7 @@ export const register: Register = on => {
     const lines = [
       f ? `memcode: ${f.counts.memories} memories, ${f.counts.rules} rules, ${f.counts.facts} facts`
         : 'memcode: no activity feed in this repo yet (.memcode/activity.json)',
+      ...Object.values(f?.problems ?? {}).map(p => `  PROBLEM: ${p}`),
       ...(f ? f.events.slice(-5).map(ev => `  ${ev.kind}: ${ev.text} (${ago(t - ev.ts * 1000)})`) : []),
       `feed: ${path || '(not resolved yet)'}${f ? '' : ' (missing)'}`,
       ...(f ? [] : [`  ${(await read($, hint)) || 'no .memcode store here: memcode is not used in this repo'}`]),
@@ -165,6 +170,9 @@ export const register: Register = on => {
     const fresh = !!ev && t - ev.ts * 1000 < FRESH_BOLD_MS
     const width = Math.max(20, e.props.bodyColumns - 70)
     const text = ev && ev.text.length > width ? `${ev.text.slice(0, width - 1)}…` : ev?.text
+    // a standing problem (#34: the memory agent's model calls fail) holds the bar until memcode clears it
+    const problem = Object.values(f.problems ?? {})[0]
+    const ptext = problem && problem.length > width ? `${problem.slice(0, width - 1)}…` : problem
 
     return (
       <Box flexDirection="row">
@@ -175,7 +183,14 @@ export const register: Register = on => {
         <Text dimColor>notes  </Text>
         <Text color="planMode">⚙ {c.facts} </Text>
         <Text dimColor>facts</Text>
-        {ev && lk && (
+        {ptext && (
+          <Text>
+            <Text dimColor>  ┃ </Text>
+            <Text backgroundColor="error" color="inverseText" bold> ⚠ PROBLEM </Text>
+            <Text color="error"> {ptext}</Text>
+          </Text>
+        )}
+        {!ptext && ev && lk && (
           <Text>
             <Text dimColor>  ┃ </Text>
             <Text backgroundColor={lk.color} color="inverseText" bold> {lk.icon} {lk.tag} </Text>

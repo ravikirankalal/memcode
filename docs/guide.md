@@ -126,6 +126,15 @@ It sends transcript text to the model. Turn it off per repo with `python3 -m mem
 everywhere with `MEMCODE_TRANSCRIPT_CAPTURE=0`; it is off wherever the `claude` CLI is not installed. What it stored is
 listed by `/memcode:list` (trigger `transcript`, or rules with source `transcript` in `memcode show ID`).
 
+If its model calls fail (the `claude` CLI does not know the capture model, or its login expired), `/memcode:status`
+and the memcode status bar say so with the fix (`claude update`, `/login`, or `MEMCODE_CAPTURE_MODEL`); nothing is
+lost meanwhile: the next turn after the fix scans everything not scanned yet, oldest first, in pieces of 24,000
+condensed characters, within the per-session budget (`MEMCODE_CAPTURE_BUDGET_USD`, default $0.10). If the budget runs
+out first, `/memcode:status` says how many transcript lines were left unscanned.
+
+A request for now ("Park G16. Start a review on main ... we can't touch develop yet") is never stored as a rule,
+however the model labels it.
+
 ### Facts
 
 Besides memories (one event each), memcode keeps **facts**: keyed knowledge that is updated in place as evidence

@@ -272,6 +272,80 @@ class Store(unittest.TestCase):
         tc.run_worker(self.d, lambda text, rules=None: None)
         self.assertEqual(self.con.execute("SELECT status FROM transcript_scans").fetchone()[0], "error")
 
+    def test_failure_is_shown_with_its_reason_and_cleared_on_recovery(self):
+        # issue #34: a failing memory agent shows in `memcode stats` and the status feed, until a scan succeeds
+        from memcode import activity
+        path = write_transcript(SESSION)
+        tc.enqueue(self.con, "s1", path)
+        why = tc.why_failed('{"is_error": true, "result": "OAuth session expired and could not be refreshed"}', "m")
+        tc.run_worker(self.d, lambda text, ctx=None: {"error": why})
+        self.assertIn("FAILING", tc.health(self.con))
+        self.assertIn("/login", tc.health(self.con))
+        feed = json.loads(Path(self.d, ".memcode", activity.FILE).read_text())
+        self.assertIn("/login", feed["problems"]["capture"])
+        self.assertEqual(self.con.execute("SELECT offset FROM transcript_scans").fetchone()[0], 0)   # nothing lost
+        tc.enqueue(self.con, "s1", path)
+        tc.run_worker(self.d, lambda text, ctx=None: {"items": [], "model": "f", "cost_usd": 0.01})
+        self.assertIsNone(tc.health(self.con))
+        feed = json.loads(Path(self.d, ".memcode", activity.FILE).read_text())
+        self.assertNotIn("problems", feed)
+
+    def test_why_failed_names_the_fix(self):
+        self.assertIn("claude update", tc.why_failed("API Error [claude-code:unrecognized_model] no such model", "m"))
+        self.assertIn("/login", tc.why_failed("Not logged in · Please run /login", "m"))
+        self.assertIn("usage", tc.why_failed('{"is_error":true,"result":"Claude AI usage limit reached"}', "m"))
+        self.assertTrue(tc.why_failed("", "m").startswith("the model call failed"))
+
+    def test_long_backlog_is_scanned_in_chunks_oldest_first(self):
+        # issue #34: after an outage, every unscanned line is sent (in MAX_CHARS pieces), not only the newest tail
+        turns = []
+        for i in range(12):
+            turns += [user(f"Turn {i}: " + "word " * 60), agent({"type": "text", "text": f"Done {i}. " + "ok " * 100})]
+        path = write_transcript(turns)
+        sent = []
+        fake = lambda text, ctx=None: sent.append(text) or {"items": [], "model": "f", "cost_usd": 0.001}  # noqa: E731
+        tc.enqueue(self.con, "s1", path)
+        with mock.patch.object(tc, "MAX_CHARS", 1500):
+            tc.run_worker(self.d, fake)
+        self.assertGreater(len(sent), 3)
+        self.assertTrue(all(len(t) <= 1500 for t in sent))
+        joined = "\n".join(sent)
+        self.assertTrue(all(f"Turn {i}:" in joined for i in range(12)))
+        self.assertLess(joined.index("Turn 0:"), joined.index("Turn 11:"))
+        self.assertEqual(self.con.execute("SELECT offset FROM transcript_scans").fetchone()[0], len(turns))
+
+    def test_failure_mid_backlog_keeps_the_rest(self):
+        turns = []
+        for i in range(8):
+            turns += [user(f"Turn {i}: " + "word " * 60), agent({"type": "text", "text": "ok " * 100})]
+        path = write_transcript(turns)
+        n = []
+
+        def flaky(text, ctx=None):
+            n.append(text)
+            return {"items": [], "model": "f", "cost_usd": 0.001} if len(n) <= 2 else None
+        tc.enqueue(self.con, "s1", path)
+        with mock.patch.object(tc, "MAX_CHARS", 1500):
+            tc.run_worker(self.d, flaky)
+        off = self.con.execute("SELECT offset FROM transcript_scans").fetchone()[0]
+        self.assertTrue(0 < off < len(turns))                          # past the two pieces sent, no further
+        sent = []
+        tc.enqueue(self.con, "s1", path)
+        with mock.patch.object(tc, "MAX_CHARS", 1500):
+            tc.run_worker(self.d, lambda text, ctx=None: sent.append(text) or {"items": [], "model": "f", "cost_usd": 0})
+        self.assertIn("Turn 7:", "\n".join(sent))
+        self.assertNotIn("Turn 0:", "\n".join(sent))
+
+    def test_budget_running_out_mid_backlog_is_reported(self):
+        turns = []
+        for i in range(8):
+            turns += [user(f"Turn {i}: " + "word " * 60), agent({"type": "text", "text": "ok " * 100})]
+        path = write_transcript(turns)
+        tc.enqueue(self.con, "s1", path)
+        with mock.patch.object(tc, "MAX_CHARS", 1500):
+            tc.run_worker(self.d, lambda text, ctx=None: {"items": [], "model": "f", "cost_usd": 0.06})
+        self.assertIn("not scanned", tc.health(self.con))
+
 
 class Hook(unittest.TestCase):
     def run_hook(self, d, payload, **env):

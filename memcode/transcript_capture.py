@@ -12,6 +12,10 @@ output tail, files written), asks a model for durable, repo-specific knowledge, 
   new        it does not repeat a live memory or fact (term overlap)
   few        at most MAX_ITEMS per scan
 
+Failures are not silent: a failed model call's reason (unknown model, expired login, usage limit) is shown by
+`memcode stats` and the status feed's `problems` until a scan succeeds, and the text it could not send waits for the
+next scan. A backlog longer than MAX_CHARS goes in chunks, oldest first, within the session budget.
+
 On by default since 0.9.0; off with `memcode config transcript-capture off` or MEMCODE_TRANSCRIPT_CAPTURE=0. Model: MEMCODE_CAPTURE_MODEL
 (default claude-haiku-5-5 here: one call per scanned turn). The call uses the `claude` CLI (the user's login) with
 no tools, settings or plugins. Privacy: the condensed, redacted transcript text is sent to the model.
@@ -34,7 +38,7 @@ from .redact import redact
 DEFAULT_MODEL = "claude-haiku-5-5"
 MAX_ITEMS = 5
 MIN_NEW_CHARS = 400          # a scan needs at least this much new condensed text
-MAX_CHARS = 24_000           # condensed text sent per scan (the newest part wins)
+MAX_CHARS = 24_000           # condensed text sent per model call; a longer backlog goes in chunks, oldest first
 DUP_OVERLAP = 0.6            # term overlap with an existing memory or fact that counts as a repeat
 MAX_ATTEMPTS = 2
 MAX_SESSION_USD = float(os.environ.get("MEMCODE_CAPTURE_BUDGET_USD", "0.10") or 0.10)  # per session; then it stops
@@ -156,10 +160,15 @@ def _blocks(msg) -> list:
 def condense(lines: list[str]) -> str:
     """Transcript JSONL lines -> compact text: [user] / [agent] / [ran] / [wrote] lines. Harness-injected user turns
     (task notifications, reminders) and hook context are left out; tool output keeps only its tail."""
+    return redact("\n".join(text for _, text in _entries(lines)))
+
+
+def _entries(lines: list[str]) -> list[tuple[int, str]]:
+    """condense() as (index of the line after the one that produced it, text) pairs, for chunking."""
     from .engine import is_harness
-    out: list[str] = []
+    out: list[tuple[int, str]] = []
     pending_cmd: dict[str, str] = {}
-    for raw in lines:
+    for i, raw in enumerate(lines, 1):
         try:
             e = json.loads(raw)
         except ValueError:
@@ -173,26 +182,41 @@ def condense(lines: list[str]) -> str:
             if e["type"] == "user" and t == "text":
                 text = str(b.get("text", "")).strip()
                 if text and not is_harness(text) and not text.startswith(("<command-", "<local-command")):
-                    out.append("[user] " + " ".join(text.split())[:1500])
+                    out.append((i, "[user] " + " ".join(text.split())[:1500]))
             elif e["type"] == "assistant" and t == "text":
                 text = " ".join(str(b.get("text", "")).split())
                 if text:
-                    out.append("[agent] " + text[:800])
+                    out.append((i, "[agent] " + text[:800]))
             elif t == "tool_use":
                 inp = b.get("input") if isinstance(b.get("input"), dict) else {}
                 name = b.get("name", "")
                 if name == "Bash" and inp.get("command"):
                     pending_cmd[b.get("id", "")] = " ".join(str(inp["command"]).split())[:300]
                 elif name in ("Write", "Edit", "MultiEdit", "NotebookEdit") and inp.get("file_path"):
-                    out.append(f"[wrote] {inp['file_path']}")
+                    out.append((i, f"[wrote] {inp['file_path']}"))
             elif t == "tool_result" and b.get("tool_use_id") in pending_cmd:
                 cmd = pending_cmd.pop(b["tool_use_id"])
                 c = b.get("content")
                 text = c if isinstance(c, str) else " ".join(x.get("text", "") for x in c if isinstance(x, dict)) \
                     if isinstance(c, list) else ""
                 tail = " ".join(text.split())[-300:]
-                out.append(f"[ran] `{cmd}` -> {'failed' if b.get('is_error') else 'ok'}" + (f" | {tail}" if tail else ""))
-    return redact("\n".join(out))
+                out.append((i, f"[ran] `{cmd}` -> {'failed' if b.get('is_error') else 'ok'}" + (f" | {tail}" if tail else "")))
+    return out
+
+
+def chunks(lines: list[str]) -> list[tuple[int, str]]:
+    """The condensed lines cut into pieces of at most MAX_CHARS, oldest first: (lines consumed, condensed text).
+    The last piece consumes every line, so a turn whose tool result has not arrived yet is not rescanned forever."""
+    out, cur, size = [], [], 0
+    for end, text in _entries(lines):
+        if cur and size + len(text) + 1 > MAX_CHARS:
+            out.append((cur[-1][0], redact("\n".join(t for _, t in cur))))
+            cur, size = [], 0
+        cur.append((end, text[:MAX_CHARS]))
+        size += len(cur[-1][1]) + 1
+    if cur:
+        out.append((len(lines), redact("\n".join(t for _, t in cur))))
+    return out
 
 
 # ---- model ----
@@ -245,14 +269,34 @@ def extract(text: str, context: str = "", model: str | None = None, timeout: int
     try:
         with tempfile.TemporaryDirectory() as cwd:
             p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"error": f"the claude CLI did not answer within {timeout}s"}
+    except OSError as e:
+        return {"error": f"could not run the claude CLI ({e.strerror or e})"}
+    try:
         out = json.loads(p.stdout or "{}")
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        return None
+    except ValueError:
+        out = {}
     so = out.get("structured_output") if isinstance(out, dict) and not out.get("is_error") else None
     if not isinstance(so, dict) or not isinstance(so.get("items"), list):
-        return None
+        return {"error": why_failed(f"{p.stdout}\n{p.stderr}", model)}
     return {"items": [i for i in so["items"] if isinstance(i, dict)][:MAX_ITEMS], "model": model,
             "cost_usd": float(out.get("total_cost_usd") or 0.0)}
+
+
+def why_failed(output: str, model: str) -> str:
+    """A model call's output -> the reason it failed, with what to do about it (#34)."""
+    o = output.lower()
+    if "unrecognized_model" in o or re.search(r"\b(?:unknown|invalid|unsupported|not.found)\b.{0,40}\bmodel\b|"
+                                              r"\bmodel\b.{0,60}\b(?:not found|not recognized|unknown|invalid)", o):
+        return (f"the claude CLI does not know the model {model}: update Claude Code (`claude update`) or set "
+                f"MEMCODE_CAPTURE_MODEL")
+    if re.search(r"oauth|not logged in|log ?in again|/login|authenticat|unauthori[sz]ed|\b401\b|invalid api key", o):
+        return "the claude CLI is not logged in (or its login expired): run `claude` in a terminal and /login"
+    if re.search(r"credit balance|usage limit|rate.?limit|\b429\b|overloaded|\b529\b", o):
+        return "the claude CLI hit a usage or rate limit; the next turn retries"
+    tail = " ".join(output.split())[-160:]
+    return "the model call failed" + (f": {tail}" if tail else "")
 
 
 # ---- checks ----
@@ -446,24 +490,41 @@ def _claim(con):
 
 
 def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=extract) -> tuple[int, list[int], float]:
-    """Scan transcript lines past `offset`. -> (new offset, stored ids, cost). Raises on a model failure."""
+    """Scan transcript lines past `offset`, a chunk of at most MAX_CHARS condensed text per model call, oldest first.
+    The offset and cost are saved after each chunk, so a failure (or the session budget running out) never skips
+    text that was not sent (#34). -> (new offset, stored ids, cost). Raises on a model failure."""
     try:
         with open(path, errors="replace") as fh:
             lines = fh.read().splitlines()
     except OSError:
         return offset, [], 0.0
-    spent = con.execute("SELECT cost_usd FROM transcript_scans WHERE session=?", (session,)).fetchone()
-    if spent and spent[0] >= MAX_SESSION_USD:
-        return len(lines), [], 0.0                      # this session's budget is spent: skip, never queue up
     new = lines[offset:]
     condensed = condense(new)
     if len(condensed) < MIN_NEW_CHARS and "[user] " not in condensed:
         return offset, [], 0.0                          # too little yet: kept for the next scan, never skipped
-    res = extract_fn(condensed[-MAX_CHARS:], briefing(con, root, session))
-    if res is None:
-        raise RuntimeError("model call failed")
-    ids = store_items(con, root, session, res["items"], condensed, res.get("model", ""))
-    return len(lines), ids, res.get("cost_usd", 0.0)
+    spent = con.execute("SELECT cost_usd FROM transcript_scans WHERE session=?", (session,)).fetchone()
+    total = spent[0] if spent else 0.0
+    ids: list[int] = []
+    cost, start = 0.0, offset
+    for end, piece in chunks(new):
+        if total + cost >= MAX_SESSION_USD:             # this session's budget is spent: skip the rest, and say so
+            _skipped(con, session, len(lines) - offset)
+            return len(lines), ids, cost
+        res = extract_fn(piece, briefing(con, root, session))
+        if res is None or "error" in res:
+            raise RuntimeError((res or {}).get("error") or "model call failed")
+        ids += store_items(con, root, session, res["items"], piece, res.get("model", ""))
+        cost += res.get("cost_usd", 0.0)
+        offset = start + end
+        con.execute("UPDATE transcript_scans SET offset=?, cost_usd=? WHERE session=?",
+                    (offset, total + cost, session))
+        con.commit()
+    return offset, ids, cost
+
+
+def _skipped(con, session: str, n: int) -> None:
+    con.execute("UPDATE transcript_scans SET result=json_set(COALESCE(result, '{}'), '$.skipped_lines', ?) "
+                "WHERE session=?", (n, session))
 
 
 def run_worker(root: str, extract_fn=extract) -> int:
@@ -476,19 +537,49 @@ def run_worker(root: str, extract_fn=extract) -> int:
             if not row:
                 return stored
             session, path, offset, attempts = row
+            from . import activity
             try:
-                off, ids, cost = scan_one(con, root, session, path, offset, extract_fn)
+                off, ids, _ = scan_one(con, root, session, path, offset, extract_fn)   # saves cost per chunk
                 stored += len(ids)
+                prev = con.execute("SELECT result FROM transcript_scans WHERE session=?", (session,)).fetchone()
+                skipped = (_json(prev[0]) if prev else {}).get("skipped_lines")
                 con.execute("UPDATE transcript_scans SET offset=?, status=CASE WHEN status='working' THEN 'idle' "
-                            "ELSE status END, cost_usd=cost_usd+?, result=? WHERE session=?",
-                            (off, cost, json.dumps({"stored": ids}), session))
+                            "ELSE status END, result=? WHERE session=?",
+                            (off, json.dumps({"stored": ids, **({"skipped_lines": skipped} if skipped else {})}),
+                             session))
+                activity.problem(con, "capture", None)
             except Exception as e:  # noqa: BLE001
                 status = "pending" if attempts + 1 < MAX_ATTEMPTS else "error"
                 con.execute("UPDATE transcript_scans SET status=?, result=? WHERE session=?",
-                            (status, json.dumps({"error": str(e)[:200]}), session))
+                            (status, json.dumps({"error": str(e)[:300]}), session))
+                if status == "error":                   # say so where the user looks: status bar, /memcode:status
+                    activity.problem(con, "capture", f"memory agent: {str(e)[:200]}")
             con.commit()
     finally:
         con.close()
+
+
+def _json(s) -> dict:
+    try:
+        v = json.loads(s or "{}")
+    except ValueError:
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
+def health(con) -> str | None:
+    """One line for `memcode stats` / `/memcode:status` when the memory agent is failing or skipped text, else None."""
+    ensure(con)
+    row = con.execute("SELECT session, status, result, ts FROM transcript_scans ORDER BY ts DESC LIMIT 1").fetchone()
+    if row is None:
+        return None
+    res = _json(row["result"])
+    if row["status"] == "error" or (row["status"] == "pending" and res.get("error")):
+        return f"memory agent FAILING: {res.get('error') or 'unknown error'} (session {row['session'][:8]})"
+    if res.get("skipped_lines"):
+        return (f"memory agent: session {row['session'][:8]} spent its budget (MEMCODE_CAPTURE_BUDGET_USD="
+                f"{MAX_SESSION_USD:g}); {res['skipped_lines']} transcript lines were not scanned")
+    return None
 
 
 if __name__ == "__main__":

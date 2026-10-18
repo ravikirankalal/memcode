@@ -1,7 +1,8 @@
 """Activity feed for status displays: `.memcode/activity.json`, rewritten whenever memcode saves or injects memory.
 
   {"version": 1, "updated": <epoch s>, "counts": {"memories", "rules", "notes", "facts"},
-   "events": [{"ts", "kind", "text", "n"}, ...]}            newest last, at most MAX_EVENTS
+   "events": [{"ts", "kind", "text", "n"}, ...],            newest last, at most MAX_EVENTS
+   "problems": {"capture": "<why>"}}                         what is broken right now; absent when nothing is
 
 kind: saved (a memory was captured or added), start (session-start block), recalled (per-prompt retrieval),
 touch (scoped memories on a first read), held (a first write refused with the folder's rules), forgot (memories
@@ -38,6 +39,15 @@ def _counts(con) -> dict:
 
 def note(con, kind: str, text: str, n: int = 1) -> None:
     """Append one event and refresh the counts (atomic replace)."""
+    _write(con, {"ts": time.time(), "kind": kind, "text": " ".join(str(text).split())[:160], "n": n})
+
+
+def problem(con, key: str, text: str | None) -> None:
+    """Set (text) or clear (None) a standing problem, shown until it is cleared (#34: a failing memory agent)."""
+    _write(con, None, (key, " ".join(text.split())[:240] if text else None))
+
+
+def _write(con, event: dict | None, prob: tuple[str, str | None] | None = None) -> None:
     try:
         p = _path(con)
         if not p:
@@ -45,15 +55,27 @@ def note(con, kind: str, text: str, n: int = 1) -> None:
         try:
             with open(p) as fh:
                 data = json.load(fh)
-            events = data.get("events") if isinstance(data, dict) else None
+            data = data if isinstance(data, dict) else {}
         except (OSError, ValueError):
-            events = None
-        events = [e for e in (events or []) if isinstance(e, dict)][-(MAX_EVENTS - 1):]
+            data = {}
+        events = [e for e in (data.get("events") or []) if isinstance(e, dict)]
+        problems = data.get("problems") if isinstance(data.get("problems"), dict) else {}
+        if prob:
+            if prob[1]:
+                problems[prob[0]] = prob[1]
+            elif prob[0] in problems:
+                problems.pop(prob[0])
+            else:
+                return                     # nothing to clear: no rewrite
+        if event:
+            events = events[-(MAX_EVENTS - 1):] + [event]
         now = time.time()
-        events.append({"ts": now, "kind": kind, "text": " ".join(str(text).split())[:160], "n": n})
         tmp = f"{p}.{os.getpid()}.tmp"
+        out = {"version": 1, "updated": now, "counts": _counts(con), "events": events}
+        if problems:
+            out["problems"] = problems
         with open(tmp, "w") as fh:
-            json.dump({"version": 1, "updated": now, "counts": _counts(con), "events": events}, fh)
+            json.dump(out, fh)
         os.replace(tmp, p)
     except Exception:  # noqa: BLE001  a status feed must never break a hook
         pass
