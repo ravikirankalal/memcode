@@ -3,7 +3,8 @@
 A memory records one event ("the user corrected X"). A fact is keyed and updated in place as evidence accumulates:
 
   command    shell commands the agent runs, per simple command, classified by role (test, build, lint, typecheck,
-             format, run, install) or kept because they recur; with run / ok / fail counts and last use
+             format, run, install) or kept because they recur; with run / ok / fail counts and last use. Keyed by
+             cmd_key (flag variants merge); scripts and one-off actions are never recorded (#36)
   repo       read from the working tree at session start: package.json scripts, Makefile targets, pyproject, Cargo,
              go.mod, CI `run:` steps, main languages, test directory. Each carries its source file's hash and is
              rebuilt when that file changes
@@ -40,7 +41,9 @@ CREATE TABLE IF NOT EXISTS facts (
   last_seen REAL NOT NULL,
   source_hash TEXT                -- repo facts: hash of the file they were read from
 );
+CREATE TABLE IF NOT EXISTS facts_meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL);
 """
+FACTS_VERSION = 2                 # 2: command facts keyed by cmd_key, one-offs and compound pieces dropped (#36)
 
 # role -> patterns on the normalized simple command
 _ROLES = [
@@ -65,7 +68,7 @@ _ROLES = [
 # never facts: navigation, reading, git plumbing, shell control
 _TRIVIAL = re.compile(r"^(?:cd|ls|ll|pwd|cat|head|tail|less|more|grep|rg|ag|find|fd|sed|awk|cut|sort|uniq|wc|tr|tee|xargs|"
                       r"echo|printf|true|false|sleep|until|while|for|if|then|do|done|fi|test|\[|export|set|unset|source|\.|"
-                      r"mkdir|rm|cp|mv|touch|chmod|ln|stat|file|which|type|env|clear|diff|git|history|exit|wait|kill|ps|"
+                      r"mkdir|rmdir|rm|cp|mv|touch|chmod|ln|stat|file|which|type|env|clear|diff|git|history|exit|wait|kill|ps|"
                       r"date|basename|dirname|realpath|readlink|du|df|uptime|nproc|whoami|id|jq|tar|unzip|gzip|curl|wget)$")
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*$")
 # env prefixes that change only how output looks: dropped from a fact. Any other VAR=value prefix is kept, because the
@@ -90,6 +93,65 @@ MAX_COMMAND_FACTS = 300
 
 def ensure(con) -> None:
     con.executescript(SCHEMA)
+    row = con.execute("SELECT v FROM facts_meta WHERE k='version'").fetchone()
+    if not row or row[0] < FACTS_VERSION:
+        _migrate(con)
+
+
+def _migrate(con) -> None:
+    """Bring command facts written by older versions to today's rules: drop what normalize/one_off would not record
+    now, and merge variants that share a cmd_key (#36). Counts are summed; the newest passing variant is shown."""
+    rows = con.execute("SELECT * FROM facts WHERE category='command' ORDER BY ok>0, last_seen").fetchall()
+    con.execute("DELETE FROM facts WHERE category='command'")
+    for r in rows:
+        v = r["value"]
+        if normalize(v) != v or one_off(v):
+            continue
+        _upsert(con, f"cmd:{cmd_key(v)}", "command", role_of(v), v, r["source"], ok=r["ok"], fail=r["fail"],
+                runs=r["runs"], ts=r["last_seen"])
+    con.execute("INSERT INTO facts_meta(k, v) VALUES('version', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                (FACTS_VERSION,))
+    con.commit()
+
+
+# A Bash call that is a script, not a command: loops, conditionals, functions, substitutions, subshells, several
+# lines. Its pieces are not commands anyone would rerun ("b8dcf40 34302cd" from a for-list, "mvn -v)" from a $( )).
+_SCRIPT = re.compile(r"(?:^|[;&|({\n]\s*)(?:for|while|until|if|case|select|function)\s|\$\(|`|<\(|>\(|"
+                     r"(?:^|[;&|\n]\s*)\(|\b[\w-]+\s*\(\)\s*\{|\n\s*\S")
+# Commands that act on one thing once, or manage tools rather than the repo: never a repo workflow fact (#36)
+_ONE_OFF = re.compile(
+    r"^(?:gh|glab|hub|claude|pgrep|pidof|ssh|scp|sftp|rsync|open|xdg-open|code|cursor|osascript|brew|apt(?:-get)?|yum|dnf|"
+    r"pacman|snap|man|tldr|tmux|screen|pkill|killall|lsof|netstat|ping|dig|nslookup|telnet|nc|psql|mysql|"
+    r"sqlite3|redis-cli|mongo(?:sh)?)\b"
+    r"|^(?:kubectl|oc)\b.*\s(?:exec|logs|port-forward|describe|get|top|cp|attach|debug|edit|delete)\b"
+    r"|^docker(?:\s+compose)?\b.*\s(?:exec|logs|ps|inspect|rm|stop|kill|attach|images|pull)\b"
+    r"|^(?:npm|pnpm|yarn)\s+(?:view|info|outdated|ls|why|search)\b|^pip3?\s+(?:show|list|freeze|download)\b"
+    r"|(?:^|\s)(?:--help|-h|help|--version|-V)(?:\s|$)")
+_SHA = re.compile(r"^[0-9a-f]{7,40}$")
+_KEY_VALUE_FLAGS = {"-k", "-n", "-j", "-T", "--tb", "--maxfail", "--timeout", "-t", "--namespace", "--context"}
+
+
+def one_off(cmd: str) -> bool:
+    """A normalized command that is a one-time action or a tool probe, not a way to build/test/run the repo."""
+    toks = re.sub(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+", "", cmd).split()
+    return bool(_ONE_OFF.search(" ".join(toks))) or any(_SHA.match(t) and re.search(r"\d", t) for t in toks[1:])
+
+
+def cmd_key(cmd: str) -> str:
+    """Variants that differ only by flags share a fact: flags dropped (and the value of a flag that takes one), but
+    `-m` kept so `python3 -m pytest` stays itself. `pytest -q` and `pytest -x` -> one fact, shown as the newest
+    passing variant."""
+    out, prev = [], ""
+    for t in cmd.split():
+        if prev in _KEY_VALUE_FLAGS or (prev.startswith("--") and "=" not in prev
+                                        and re.fullmatch(r"[a-z][a-z0-9_-]*", t)):
+            prev = ""                                   # the value of the flag before it (`--output-format concise`)
+            continue
+        prev = t
+        if t.startswith("-") and t != "-m":
+            continue
+        out.append(t)
+    return " ".join(out)
 
 
 _FD_DUP = re.compile(r"\d*>&\d+|&>>?|>&\d*")                # 2>&1, &>, >&2: redirections, not operators
@@ -139,11 +201,15 @@ def normalize(seg: str, root: str | None = None) -> str | None:
         return None
     if any("$" in t or "`" in t or t in ("(", ")", "{", "}") or (t.endswith("...") and not t.endswith("/...")) for t in toks):
         return None                                     # shell variables / subshells / clipped text: not reusable
+    if seg.count("(") != seg.count(")") or seg.count("{") != seg.count("}"):
+        return None                                     # a piece cut out of $( ... ) or { ... }: `mvn -v)` (#36)
     if toks[0] in ("python", "python3", "node", "deno", "bun", "ruby", "perl") and len(toks) > 1 \
             and toks[1] in ("-c", "-e", "-", "-p"):
         return None                                     # inline or stdin scripts are one-offs
     if toks[0] == "claude" and toks[1:2] == ["-p"]:
         return None
+    if toks[0] in ("bash", "sh", "zsh", "dash") and "-c" in toks[1:3]:
+        return None                                     # an inline shell script: a one-off (#36)
     if any("$" in a or "`" in a or "[REDACTED]" in a for a in env):
         return None                                     # a variable or a secret in the prefix: not a reusable command
     toks = env + toks
@@ -189,7 +255,8 @@ def _upsert(con, key, category, role, value, source, ok=0, fail=0, runs=0, ts=No
         """INSERT INTO facts(key,category,role,value,source,runs,ok,fail,first_seen,last_seen,source_hash)
            VALUES(?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(key) DO UPDATE SET runs=runs+excluded.runs, ok=ok+excluded.ok, fail=fail+excluded.fail,
-             last_seen=MAX(last_seen, excluded.last_seen), value=excluded.value, role=excluded.role,
+             last_seen=MAX(last_seen, excluded.last_seen), role=excluded.role,
+             value=CASE WHEN excluded.ok>0 OR facts.ok=0 THEN excluded.value ELSE facts.value END,
              source=excluded.source, source_hash=COALESCE(excluded.source_hash, source_hash)""",
         (key, category, role, value, source, runs, ok, fail, ts, ts, source_hash))
 
@@ -205,6 +272,7 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
     cmd = redact(str(ev["command"]))
     if "<<" in cmd:                                     # heredoc: the body is data, only the first line is a command
         cmd = cmd.split("\n", 1)[0]
+    script = bool(_SCRIPT.search(cmd.strip()))          # loops, $( ), functions, several lines: no command facts
     parts = split_ops(cmd)
     segs, outside = [], False
     rootp = os.path.realpath(root).rstrip("/")
@@ -215,7 +283,8 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
             outside = ("$" in target or "`" in target or target.startswith("~")    # unknown place: assume outside
                        or (target.startswith("/") and not (os.path.realpath(target) + "/").startswith(rootp + "/")))
             continue
-        segs.append((s, op, None if outside else normalize(s, root)))
+        n = None if outside or script else normalize(s, root)
+        segs.append((s, op, None if n is None or one_off(n) else n))
     # exit 0 proves a command passed only when nothing after it could mask a failure: not followed by || or |
     # a command followed by || came with a prepared fallback: its outcome is unknown and it is weak evidence
     useful = [(s, op, n) for s, op, n in segs if n and op != "||"]
@@ -245,11 +314,13 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
                         break
                 verdict = _piped_verdict(rest, str(ev.get("output") or ""))
                 ok, fail = (1, 0) if verdict else (0, 1) if verdict is False else (0, 0)
-            _upsert(con, f"cmd:{n}", "command", role_of(n), n, "observed", runs=1, ok=ok, fail=fail, ts=ts)
+            if role_of(n) is None and len(segs) > 1:
+                continue                                # a plain piece of a chain is no workflow; roles still count
+            _upsert(con, f"cmd:{cmd_key(n)}", "command", role_of(n), n, "observed", runs=1, ok=ok, fail=fail, ts=ts)
             touched += 1
     elif len(useful) == 1 and len(segs) == 1:           # a failure is attributable only to a lone command
         n = useful[0][2]
-        _upsert(con, f"cmd:{n}", "command", role_of(n), n, "observed", runs=1, fail=1, ts=ts)
+        _upsert(con, f"cmd:{cmd_key(n)}", "command", role_of(n), n, "observed", runs=1, fail=1, ts=ts)
         touched += 1
     if touched:
         _prune_commands(con)
@@ -446,8 +517,8 @@ def lines(con, max_lines: int = 14) -> list[str]:
     for r in con.execute("SELECT * FROM facts WHERE category IN ('command','repo') AND role IN (%s)"
                          % ",".join("?" * len(ROLE_ORDER)), ROLE_ORDER):
         score = (r["ok"] * 2 + r["runs"] - r["fail"] * 3 + (1 if r["category"] == "repo" else 0), r["last_seen"])
-        if r["category"] == "command" and (r["fail"] > r["ok"] or r["runs"] == 0):
-            continue
+        if r["category"] == "command" and (r["fail"] > r["ok"] or r["ok"] == 0):
+            continue                                    # never confirmed to pass: not shown (#36)
         if r["role"] not in best or score > best[r["role"]][0]:
             best[r["role"]] = (score, r)
     for role in ROLE_ORDER:
@@ -455,13 +526,11 @@ def lines(con, max_lines: int = 14) -> list[str]:
             r = best[role][1]
             if r["category"] != "command":
                 how = f"from {r['source']}"
-            elif r["ok"]:
-                how = f"ran {r['runs']}x, {r['ok']} confirmed ok" + (f", {r['fail']} failed" if r["fail"] else "")
             else:
-                how = f"ran {r['runs']}x; exit status not confirmed (piped)"
+                how = f"ran {r['runs']}x, {r['ok']} confirmed ok" + (f", {r['fail']} failed" if r["fail"] else "")
             out.append(f"- {role}: `{r['value']}` ({how})")
-    for r in con.execute("SELECT value FROM facts WHERE category='command' AND role IS NULL AND runs>=? "
-                         "AND fail<=ok ORDER BY runs DESC LIMIT 3", (RECUR_MIN,)):
+    for r in con.execute("SELECT value FROM facts WHERE category='command' AND role IS NULL AND ok>=? "
+                         "AND fail<=ok ORDER BY ok DESC LIMIT 3", (RECUR_MIN,)):
         out.append(f"- often used: `{r['value']}`")
     for r in con.execute("SELECT value FROM facts WHERE category IN ('env','inference') ORDER BY category, last_seen DESC"):
         out.append(f"- {r['value']}")

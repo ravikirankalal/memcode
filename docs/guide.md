@@ -142,7 +142,7 @@ accumulates, and shown in a short `## Facts` section at session start.
 
 | kind | where it comes from | example |
 |---|---|---|
-| command | shell commands the agent runs, split into simple commands and classified (test, build, lint, typecheck, format, run, install), or kept because they recur | test: `python3 -m unittest discover -s tests` (ran 31x, 31 confirmed ok) |
+| command | shell commands the agent runs, classified (test, build, lint, typecheck, format, run, install) or kept because they recur and pass. Variants that differ only by flags are one fact. Scripts (loops, `$( )`, functions, several lines) and one-off actions (an MR/PR by number, `--help`, plugin management, `kubectl exec` probes) are never recorded. Only commands confirmed to pass are shown at session start | test: `python3 -m unittest discover -s tests` (ran 31x, 31 confirmed ok) |
 | repo | build manifests read at session start (package.json scripts, Makefile targets, pyproject, Cargo, go.mod, CI `run:` steps), main languages, test directory; refreshed when the file changes | build: `npm run build` (from package.json) |
 | env | limitations seen here: a command not installed (exit 127 and not on PATH) | `sqlite3` is not installed in this environment |
 | inference | aggregated: fragile folders, commands that keep failing | `make deploy` has failed 3x and never passed here |
