@@ -56,7 +56,7 @@ class Counters(unittest.TestCase):
         text = pinned.render_pinned(self.con, self.root)
         self.assertEqual(pinned.count_injected(text), (1, 1))
         self.con.close()
-        env = dict(os.environ, PYTHONPATH=str(ROOT))
+        env = dict(os.environ, PYTHONPATH=str(ROOT), MEMCODE_TRANSCRIPT_CAPTURE="0")   # never a real model call
         subprocess.run([sys.executable, "-m", "memcode.hook_cli", "SessionStart"], env=env, capture_output=True,
                        input=json.dumps({"session_id": "abc12345", "cwd": self.root}), text=True)
         con = store.connect(self.root)

@@ -25,8 +25,9 @@ Update with `/plugin marketplace update memcode` then `/plugin update memcode@me
 ## What it does
 
 **Extract.** Pattern triggers catch what is plain from single events: you correct the agent, an edit is reverted, a
-failing command passes after a fix, a command is retried, dependencies change. After each turn, the memory agent's model
-reads the whole turn and collects what patterns miss: rules you state as description, workflows that work, pitfalls
+failing command passes after a fix, a command is retried, dependencies change. The memory agent works beside the
+session as a running conversation: briefed when the coding agent starts, it reads each turn as it finishes and collects
+what patterns miss: rules you state as description, workflows that work, pitfalls
 written as their fix, how the environment behaves, design decisions, and the state of ongoing work you decide ("G16 is
 parked until the end"). It rates every candidate and keeps the best few, and only what passes its checks: quoted
 evidence, your own words for rules and decisions, no requests for right now, no repeats. Facts track the commands that

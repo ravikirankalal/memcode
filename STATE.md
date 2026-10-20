@@ -9,7 +9,7 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.12.1 (2026-10-20, PR #46) | 0.12.2 |
+| memcode | 0.12.2 (2026-10-20, PR #47) | 0.13.0 |
 | memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
 
 ## What works
@@ -17,7 +17,7 @@ _Last updated: 2026-10-20._
 | Duty | Feature | Since | Notes |
 |---|---|---|---|
 | Extract | Pattern triggers: correction, revert, fail-to-fix, retry, dependency change | 0.1 | instant; requests for now are never rules (#33) |
-| Extract | Memory agent: reads each turn, candidates of every kind rated 1–5, best kept | 0.9 (ranking 0.11) | Haiku through the user's `claude` login; per-session budget $0.10–0.50 |
+| Extract | Memory agent: a running conversation per coding session (opened at SessionStart, resumed each turn); candidates of every kind rated 1–5, best kept | 0.9 (ranking 0.11, conversation 0.13) | Haiku through the user's `claude` login; per-session budget $0.10–0.50; restarts after 30 calls or ~40k tokens |
 | Extract | Decisions about ongoing work, with subject keys, dated, expire after 30 days | 0.11 | never the agent's own progress (0.11.1) |
 | Extract | Facts: confirmed commands, repo manifests, missing tools, fragile folders | 0.5 | scripts and one-off commands are not recorded (#36) |
 | Store | One store per repository, shared by worktrees; files read from the session's checkout | 0.10.4 | #32, #37, #39 |
@@ -29,12 +29,25 @@ _Last updated: 2026-10-20._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.12.2)
+## Unreleased (memcode 0.13.0)
+
+- The memory agent keeps a running conversation per coding session (agent/conversation.py, table agent_sessions).
+  Every SessionStart (startup, resume, clear, compact) opens a fresh one: the worker sends the role and the full
+  briefing at once. Each turn resumes it (`claude -p --resume`) with only the new log and a delta: which of its
+  proposals memcode applied, memories changed by other paths, memories newly shown to the coding agent. It starts over
+  after 30 calls or ~40k tokens; the opening's cost counts toward the session budget; a replaced conversation's saved
+  file is deleted. Conversations live in `.memcode/agent/` (Claude Code saves them per working directory).
+- Live check (temp repo, Haiku): opening $0.00035; a stated convention saved on turn 1; on turn 2 "same convention as
+  I said earlier" proposed nothing new; context 3.9k -> 4.8k tokens over three calls.
+- Tests no longer start real memory-agent calls: every test that runs a hook switches the agent off.
+- Tests: 224 Python, 13 mod.
+
+## Latest release (memcode 0.12.2)
 
 - The memory agent's scan line counts environment facts as kept: `4 candidates, kept 3 (2 memories, 1 fact)`
   (agent.worker.scan_line). Tests: 220 Python, 13 mod.
 
-## Latest release (memcode 0.12.1, memcode-status 0.3.0)
+## Previous release (memcode 0.12.1, memcode-status 0.3.0)
 
 - Status bar: compact counts; routine scans ("kept 0") never take the headline; the memory agent's state on the right
   (`🔍 reading...` while it reads a turn, else when it last read one); this session's tally (`+2 saved`); on a narrow
@@ -76,7 +89,7 @@ _Last updated: 2026-10-20._
 ## How to verify and release
 
 ```text
-python3 -m unittest discover -s tests          # 220 tests, offline
+python3 -m unittest discover -s tests          # 224 tests, offline
 claude plugin test mods/memcode-status         # 13 mod tests
 claude plugin validate .claude-plugin/plugin.json --strict
 ```

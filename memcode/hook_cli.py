@@ -65,6 +65,16 @@ def _log_error(root: str, e: BaseException) -> None:
         pass
 
 
+def _start_memory_agent(con, root: str, session: str) -> None:
+    try:
+        from . import agent
+        if agent.enabled(root):
+            agent.start_session(con, session)
+            agent.spawn_worker(root)               # sends the opening briefing in the background
+    except Exception as e:  # noqa: BLE001  never break the agent
+        _log_error(root, e)
+
+
 def main(argv: list[str]) -> int:
     if os.environ.get("MEMCODE_DISABLE"):          # set by memcode's own model calls: never recurse
         return 0
@@ -117,6 +127,8 @@ def main(argv: list[str]) -> int:
                 out = engine.tool_result(con, root, tool_event(d, failed=(action == "tool_failure")))
             elif action in ("start", "prepare"):
                 out = engine.session_start(con, root, session, prepare_only=(action == "prepare"))
+                if action == "start":                  # the coding agent (re)starts: so does its memory agent
+                    _start_memory_agent(con, root, session)
             if out:
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": name, "additionalContext": out}}))
         finally:

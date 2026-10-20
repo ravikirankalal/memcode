@@ -150,7 +150,7 @@ class FirstTouchHook(unittest.TestCase):
         import json, subprocess, sys
         root = str(Path(__file__).resolve().parent.parent)
         e = {k: v for k, v in os.environ.items() if not k.startswith("MEMCODE_") and k != "CLAUDE_PROJECT_DIR"}
-        e.update(PYTHONPATH=root, MEMCODE_HIER="0")
+        e.update(PYTHONPATH=root, MEMCODE_HIER="0", MEMCODE_TRANSCRIPT_CAPTURE="0")   # never a real model call
         e.update(flags)
         p = subprocess.run([sys.executable, "-m", "memcode.hook_cli", _event], env=e, text=True,
                            capture_output=True, input=json.dumps(dict(payload, cwd=d)))

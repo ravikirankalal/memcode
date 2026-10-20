@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def start(root, session):
-    env = dict(os.environ, PYTHONPATH=str(ROOT))
+    env = dict(os.environ, PYTHONPATH=str(ROOT), MEMCODE_TRANSCRIPT_CAPTURE="0")   # never a real model call
     return subprocess.run([sys.executable, "-m", "memcode.hook_cli", "SessionStart"], env=env, capture_output=True,
                           input=json.dumps({"session_id": session, "cwd": root}), text=True)
 

@@ -50,7 +50,8 @@ class Repo(unittest.TestCase):
         payload = dict(payload, cwd=cwd or self.root, session_id="s1")
         out = io.StringIO()
         with mock.patch("sys.stdin", io.StringIO(json.dumps(payload))), \
-                mock.patch("sys.stdout", out):
+                mock.patch("sys.stdout", out), \
+                mock.patch.dict(os.environ, {"MEMCODE_TRANSCRIPT_CAPTURE": "0"}):   # never a real model call
             hook_cli.main(["hook_cli", name])
         return out.getvalue()
 
