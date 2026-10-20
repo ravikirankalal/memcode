@@ -9,7 +9,7 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.13.0 (2026-10-20, PR #48) | 0.14.0 |
+| memcode | 0.14.0 (2026-10-20, PR #49) | none |
 | memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
 
 ## What works
@@ -30,7 +30,7 @@ _Last updated: 2026-10-20._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.14.0)
+## Latest release (memcode 0.14.0)
 
 - Facts know Maven (`pom.xml`, `./mvnw` when present) and Gradle (`build.gradle[.kts]`, `./gradlew`) builds, and show
   "built with Maven" next to the languages.
@@ -43,7 +43,7 @@ _Last updated: 2026-10-20._
 - Arrows (`->`) survive the start block's bracket guard (shown as →).
 - Tests: 227 Python, 13 mod.
 
-## Latest release (memcode 0.13.0)
+## Previous release (memcode 0.13.0)
 
 - The memory agent keeps a running conversation per coding session (agent/conversation.py, table agent_sessions).
   Every SessionStart (startup, resume, clear, compact) opens a fresh one: the worker sends the role and the full
