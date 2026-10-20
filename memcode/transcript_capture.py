@@ -111,7 +111,9 @@ SYSTEM = (
     "way it is.\n"
     "- decision: the state of ongoing work that the USER stated or confirmed: scope ('console login is out of G15'), "
     "parked or deferred items ('G16 is parked until the end'), holds and gates ('the develop MR waits until I say "
-    "go'), an agreed approach, or a result verified or disproven in a [ran] line. Give it a short subject key "
+    "go'), an agreed approach, or a result verified or disproven in a [ran] line that settles a question raised in "
+    "the session (a hypothesis, a check the user asked for). Never the coding agent's own progress or status (what "
+    "it built, tested, committed, pushed or released): that is in git, not a decision. Give it a short subject key "
     "('G16', 'develop-merge') so a later decision on the same subject replaces it. When the user changes one ('go "
     "ahead with the develop MR'), retire or update it. A request to do something now is never a rule, but the "
     "state it sets can be a decision ('Park G16. Start a review' -> decision 'G16 parked').\n\n"
@@ -396,6 +398,14 @@ def _terms(s: str) -> set:
     return terms(s)
 
 
+# a decision backed only by a [ran] line must read as a settled question, not as the agent's progress (#42 follow-up:
+# "#42 is implemented and its tests pass ... pushed ... not released yet" was stored from a passing test run)
+_RESULT = re.compile(r"(?i)\b(?:verified|disprove[nd]|confirmed|ruled out|reproduce[sd]?|does not reproduce|"
+                     r"root cause|turned out|is caused by|caused by)\b")
+_PROGRESS = re.compile(r"(?i)\b(?:implemented|pushed|committed|merged|released|unreleased|branch|tests? pass(?:es|ed)?|"
+                       r"PR|pull request|version \d|is (?:done|finished|complete))\b")
+
+
 def _self_repo(root) -> bool:
     """memcode's own source tree: there "memcode" is the product, not the agent's memory tooling."""
     return bool(root) and os.path.isfile(os.path.join(str(root), "memcode", "transcript_capture.py"))
@@ -415,7 +425,11 @@ def verified(item: dict, condensed: str, root=None) -> str | None:
     if not hits:
         return None
     if item.get("kind") == "decision":      # the user's words, or a result a command showed; never the agent's plan
-        return "decision" if any(l.startswith(("[user]", "[ran]")) for l in hits) else None
+        if any(l.startswith("[user]") for l in hits):
+            return "decision"
+        # only command output: a settled question ("hypothesis X disproven"), never the agent's progress report
+        ran = any(l.startswith("[ran]") for l in hits)
+        return "decision" if ran and _RESULT.search(text) and not _PROGRESS.search(text) else None
     if item.get("kind") == "rule":
         users = [l for l in hits if l.startswith("[user]")]
         if not users:
