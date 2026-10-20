@@ -1,5 +1,5 @@
 """Scanner recall on a real session log: how many of the memories a careful reader would keep does the memory agent
-(memcode/transcript_capture.py) propose, and what else does it propose?
+(memcode/agent/) propose, and what else does it propose?
 
 Runs every MAX_CHARS piece of one transcript through `extract` with an EMPTY memory briefing (so "already known" never
 hides a candidate) and matches the proposals against GOLD: things a future session in this repo should know, each with
@@ -20,7 +20,8 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memcode import store, transcript_capture as tc  # noqa: E402
+from memcode import store  # noqa: E402
+from memcode.agent import checks, curate, model, transcript  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the session's repo (memcode itself)
 
@@ -58,22 +59,22 @@ def main(argv=None) -> int:
                     help="real use: pieces in order, each briefed with the memory the earlier ones stored (temp store)")
     a = ap.parse_args(argv)
     lines = open(a.transcript, errors="replace").read().splitlines()
-    pieces = [p for _, p in tc.chunks(lines)]
+    pieces = [p for _, p in transcript.chunks(lines)]
     if a.pieces:
         lo, hi = (int(x) for x in a.pieces.split("-"))
         pieces = pieces[lo:hi + 1]
     d = tempfile.mkdtemp()
     con = store.connect(d)
-    brief = tc.briefing(con, d, "eval")
+    brief = model.briefing(con, d, "eval")
     if a.sequential:
         return sequential(con, pieces, a.out)
     con.close()
 
     def one(i):
-        r = tc.extract(pieces[i], brief) or {"error": "none"}
+        r = model.extract(pieces[i], brief) or {"error": "none"}
         items = r.get("items", [])
         for it in items:
-            it["verified"] = tc.verified(it, pieces[i], REPO)
+            it["verified"] = checks.verified(it, pieces[i], REPO)
         return {"piece": i, "error": r.get("error"), "cost": r.get("cost_usd", 0.0),
                 "candidates": r.get("candidates", len(items)), "items": items}
 
@@ -81,15 +82,15 @@ def main(argv=None) -> int:
         res = list(ex.map(one, range(len(pieces))))
     def rating(it):
         try:
-            return int(it.get("importance", tc.MIN_IMPORTANCE))
+            return int(it.get("importance", curate.MIN_IMPORTANCE))
         except (TypeError, ValueError):
-            return tc.MIN_IMPORTANCE
+            return curate.MIN_IMPORTANCE
     kept = []                                   # what store_items would keep: verified, rated high enough, top few
     for r in res:
         ok = sorted((it for it in r["items"] if it.get("verified") and it.get("op", "add") == "add"
-                     and rating(it) >= (tc.MIN_RULE_IMPORTANCE if it.get("kind") == "rule" else tc.MIN_IMPORTANCE)),
+                     and rating(it) >= (curate.MIN_RULE_IMPORTANCE if it.get("kind") == "rule" else curate.MIN_IMPORTANCE)),
                     key=lambda it: -rating(it))
-        kept += ok[:tc.MAX_ITEMS]
+        kept += ok[:curate.MAX_ITEMS]
     hits = {g: [it["text"] for it in kept if re.search(rx, it["text"], re.I)] for g, rx in GOLD.items()}
     found = [g for g, h in hits.items() if h]
     out = {"pieces": len(pieces), "cost": round(sum(r["cost"] for r in res), 4),
@@ -112,9 +113,9 @@ def sequential(con, pieces, out_path) -> int:
     at this repo for anchors), as the worker does. Reports what the store holds at the end."""
     cost, log = 0.0, []
     for i, piece in enumerate(pieces):
-        r = tc.extract(piece, tc.briefing(con, REPO, "eval")) or {"error": "none"}
+        r = model.extract(piece, model.briefing(con, REPO, "eval")) or {"error": "none"}
         cost += r.get("cost_usd", 0.0)
-        ids = tc.store_items(con, REPO, "eval", r.get("items", []), piece, r.get("model", ""))
+        ids = curate.store_items(con, REPO, "eval", r.get("items", []), piece, r.get("model", ""))
         log.append({"piece": i, "error": r.get("error"), "proposed": len(r.get("items", [])), "changed": ids})
         print(f"piece {i}: proposed {len(r.get('items', []))}, changed {ids}", flush=True)
     rows = [dict(r) for r in con.execute("SELECT id, trigger, text, anchor_path FROM memories WHERE stale=0 ORDER BY id")]

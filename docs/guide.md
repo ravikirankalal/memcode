@@ -100,7 +100,7 @@ Every memory also gets topic **labels** (testing, build, style, naming, git, dep
 ci) for filtering only: `memcode list --label testing`, `memory_search(label=...)`, `memcode label ID +perf -style`.
 Labels never change ranking or injected text.
 
-### Transcript capture (on by default since 0.9.0)
+### The memory agent (on by default since 0.9.0)
 
 Pattern triggers miss rules you state only as description ("every public function here starts with qx_") and
 things the agent finds out on its own ("the checks only run through tools/ci/verify.sh"). After each finished turn,
@@ -117,7 +117,7 @@ decisions, decisions about ongoing work) and rates each 1-5 by what a future ses
 keeps the best few per scan (notes rated 4+, your rules and decisions 3+). Each scan shows on the status bar as
 `🔍 SCANNED  N candidates, kept K`, also when nothing was kept.
 
-It sends transcript text to the model. Turn it off per repo with `python3 -m memcode config transcript-capture off`, or
+It sends transcript text to the model. Turn it off per repo with `python3 -m memcode config memory-agent off`, or
 everywhere with `MEMCODE_TRANSCRIPT_CAPTURE=0`; it is off wherever the `claude` CLI is not installed. What it stored is
 listed by `/memcode:list` (trigger `transcript`, or rules with source `transcript` in `memcode show ID`).
 

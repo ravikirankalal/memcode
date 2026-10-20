@@ -15,7 +15,7 @@
   config [KEY on|off] show or set switches: memory-agent, decision-capture, retrieval, hierarchy
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
-  history [-n N]      what the memory agent (transcript capture) added, updated or retired, with the old text
+  history [-n N]      what the memory agent added, updated or retired, with the old text
   rescope             recompute every memory's scope; `list --scope DIR` lists memories scoped under DIR
   consolidate [--dry-run|--undo]  group redundant agent notes under one lesson (MEMCODE_CONSOLIDATE=1 does it
                       at session start and shows lessons instead of their notes)
@@ -119,8 +119,8 @@ def cmd_stats(con, a) -> int:
     for t, n, st in by:
         print(f"  {t:<10} {n:>4}  ({st or 0} stale)")
     one = lambda q: con.execute(q).fetchone()[0]
-    from . import transcript_capture
-    h = transcript_capture.health(con)
+    from . import agent
+    h = agent.health(con)
     if h:
         print(h)
     rep = one("SELECT COALESCE(SUM(repeated_corrections),0) FROM session_stats")
@@ -241,17 +241,17 @@ ALIASES = {"transcript-capture": "memory-agent"}
 
 
 def cmd_config(con, a, root: str) -> int:
-    from . import config, transcript_capture
+    from . import agent, config
     if a.key is None:
         cfg = config.read(root)
-        live = {"memory-agent": transcript_capture.enabled(root), "decision-capture": transcript_capture.decisions_enabled(root)}
+        live = {"memory-agent": agent.enabled(root), "decision-capture": agent.decisions_enabled(root)}
         for key, ck, env, default, _ in SWITCHES:
             on = live[key] if key in live else config.switch(root, env, ck, default)
             stored = cfg.get(ck)
             print(f"{key}: {'on' if on else 'off'} (config {'unset' if stored is None else 'on' if stored else 'off'}, "
                   f"default {'on' if default else 'off'}; env {env} overrides)")
-        print(f"memory agent: model {os.environ.get('MEMCODE_CAPTURE_MODEL') or transcript_capture.DEFAULT_MODEL}, needs the "
-              f"claude CLI; decisions expire after {transcript_capture.decision_days():g} days (MEMCODE_DECISION_DAYS)")
+        print(f"memory agent: model {os.environ.get('MEMCODE_CAPTURE_MODEL') or agent.DEFAULT_MODEL}, needs the "
+              f"claude CLI; decisions expire after {agent.decision_days():g} days (MEMCODE_DECISION_DAYS)")
         return 0
     if a.key == "model-capture":
         print("model capture was removed in 0.12: the memory agent reads every turn (memcode config memory-agent on|off)",
@@ -308,9 +308,9 @@ def cmd_list_scope(con, a) -> int:
 
 
 def cmd_history(con, a) -> int:
-    """`memcode history [-n N]`: what the memory agent (transcript capture) added, updated or retired."""
-    from . import transcript_capture
-    transcript_capture.ensure(con)
+    """`memcode history [-n N]`: what the memory agent added, updated or retired."""
+    from .agent import db
+    db.ensure(con)
     rows = con.execute("SELECT * FROM memory_log ORDER BY id DESC LIMIT ?", (a.n,)).fetchall()
     if not rows:
         print("no memory-agent changes yet")

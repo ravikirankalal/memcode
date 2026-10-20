@@ -115,7 +115,7 @@ def claude(cwd: Path, prompt: str, model: str, config: str, resume: str | None =
         env["MEMCODE_RANK"] = "relevance"
     if config == "memcode_salience":
         env["MEMCODE_RANK"] = "salience"
-    if config == "memcode_tc":                  # + opt-in transcript capture (memcode/transcript_capture.py)
+    if config == "memcode_tc":                  # + the memory agent (memcode/agent/)
         env.update(MEMCODE_RETRIEVAL="1", MEMCODE_TRANSCRIPT_CAPTURE="1", MEMCODE_CAPTURE_MODEL="claude-haiku-5-5")
     env.update(extra_env or {})                 # arm-specific switches on top (e.g. MEMCODE_HIER for hier1)
     waited = 0

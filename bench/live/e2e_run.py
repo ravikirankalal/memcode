@@ -71,7 +71,7 @@ def env_for(arm: str) -> dict:
         env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
     if arm in ("memcode", "memcode_tc"):
         env["MEMCODE_RETRIEVAL"] = "1"
-    if arm == "memcode_tc":                # + opt-in transcript capture (memcode/transcript_capture.py)
+    if arm == "memcode_tc":                # + the memory agent (memcode/agent/)
         env["MEMCODE_TRANSCRIPT_CAPTURE"] = "1"
         env["MEMCODE_CAPTURE_MODEL"] = "claude-haiku-5-5"
     return env

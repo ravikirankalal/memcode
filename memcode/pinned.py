@@ -77,8 +77,8 @@ MAX_DECISIONS = 8
 
 def decision_lines(con) -> list[str]:
     """`- 2026-10-18: G16 parked until the end` for live decisions (#42), newest first; expired ones are left out
-    (transcript_capture.expire_decisions deletes them)."""
-    from .transcript_capture import decision_days
+    (agent.curate.expire_decisions deletes them)."""
+    from .agent import decision_days
     cutoff = time.time() - decision_days() * 86400
     rows = con.execute("SELECT text, updated_at FROM memories WHERE trigger='decision' AND stale=0 AND updated_at>=? "
                        "ORDER BY updated_at DESC, id DESC LIMIT ?", (cutoff, MAX_DECISIONS)).fetchall()
