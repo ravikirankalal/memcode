@@ -531,6 +531,17 @@ class Decisions(unittest.TestCase):
         tc.store_items(self.con, self.d, "s", [plan, result], self.PARK, "m")
         self.assertEqual(self.decisions(), ["Hypothesis X is disproven on staging: latency is from the DB pool."])
 
+    def test_the_agents_own_progress_is_never_a_decision(self):
+        cond = ("[agent] #42 is implemented; pushing the branch.\n"
+                "[ran] `python3 -m unittest discover -s tests` -> ok | Ran 32 tests in 0.822s OK\n"
+                "[ran] `git push -u origin feat` -> ok | branch feat set up to track origin/feat")
+        progress = self.item(subject="#42", text="#42 is implemented and its tests pass; pushed to the branch, not released yet.",
+                             evidence="Ran 32 tests in 0.822s OK")
+        self.assertIsNone(tc.verified(progress, cond))
+        said = "[user] #42 is released now, tell the reporter.\n" + cond                # the user's words still count
+        self.assertEqual(tc.verified(dict(progress, text="#42 is released.", evidence="#42 is released now"), said),
+                         "decision")
+
     def test_same_subject_replaces_and_the_users_words_retire(self):
         tc.store_items(self.con, self.d, "s", [self.item()], self.PARK, "m")
         later = "[user] G16 is back in scope for this milestone, plan it after G15.\n[user] un-park G16, start it"
