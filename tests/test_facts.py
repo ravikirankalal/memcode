@@ -226,6 +226,30 @@ class Noise(unittest.TestCase):
         self.assertEqual(self.con.execute("SELECT v FROM facts_meta").fetchone()[0], facts.FACTS_VERSION)
 
 
+class JavaBuilds(unittest.TestCase):
+    def test_maven_and_gradle_are_known_from_the_build_file(self):
+        d = tempfile.mkdtemp()
+        Path(d, "pom.xml").write_text("<project/>")
+        Path(d, "mvnw").write_text("#!/bin/sh")
+        con = store.connect(d)
+        facts.scan_repo(con, d)
+        out = "\n".join(facts.lines(con))
+        self.assertIn("build: `./mvnw package` (from pom.xml)", out)
+        self.assertIn("test: `./mvnw test` (from pom.xml)", out)
+        self.assertIn("built with Maven", out)
+        self.assertEqual(facts.role_of("./mvnw -q verify"), "test")
+        self.assertEqual(facts.role_of("mvn clean install -DskipTests"), "build")
+        con.close()
+        g = tempfile.mkdtemp()
+        Path(g, "build.gradle.kts").write_text("plugins {}")
+        con = store.connect(g)
+        facts.scan_repo(con, g)
+        out = "\n".join(facts.lines(con))
+        self.assertIn("build: `gradle build` (from build.gradle.kts)", out)
+        self.assertIn("built with Gradle", out)
+        con.close()
+
+
 class InferUserRender(unittest.TestCase):
     def test_lines_prefer_confirmed_commands_and_include_everything(self):
         d = tempfile.mkdtemp()
