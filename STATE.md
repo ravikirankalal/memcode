@@ -9,7 +9,7 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–3 of 7 done) |
+| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–4 of 7 done) |
 | memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
 
 ## What works
@@ -42,8 +42,12 @@ _Last updated: 2026-10-20._
   in `stats`), read through the `fact_rows` view; old stores move their facts table into memories and drop it. Until
   one delivery (step 5), note paths (start block notes, recall, the agent's briefing, `memcode list`) skip keyed
   memories and facts still render as `## Facts`.
-- Pending: steps 4–7 (embeddings and links, one delivery, flat agent output, surfaces).
-- Tests: 229 Python, 13 mod.
+- Step 4: `embed.py` (local hashed TF-IDF vectors over words, identifier parts and paths; stored per memory with the
+  hash of its text, IDF applied when compared; `search`) and `graph.py` (automatic `same_file` and `similar` links
+  rebuilt for new or changed memories; agent links kept; `neighbours`, `degree`). Run at session start and after the
+  memory agent writes. On this repo's store: 74 memories embedded and linked in 0.01 s.
+- Pending: steps 5–7 (one delivery, flat agent output, surfaces).
+- Tests: 235 Python, 13 mod.
 
 ## Latest release (memcode 0.14.0)
 

@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS memory_links (    -- the memory graph: related memori
 CREATE INDEX IF NOT EXISTS links_dst ON memory_links(dst);
 CREATE TABLE IF NOT EXISTS memory_vectors (  -- local embedding per memory (embed.py)
   memory_id INTEGER PRIMARY KEY,
-  vec TEXT NOT NULL,                      -- JSON {dimension: weight}, L2-normalised, sparse
+  vec TEXT NOT NULL,                      -- JSON {bucket: 1 + log(count)}, sparse; IDF applied when compared
   src_hash TEXT NOT NULL                  -- hash of the text it was computed from
 );
 CREATE TABLE IF NOT EXISTS retrievals (      -- for reinforce-on-success only

@@ -33,6 +33,8 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     _safely(con, lambda: (facts.scan_repo(con, root), facts.infer(con)))
     from . import scope
     _safely(con, lambda: scope.rescope_new(con, root))    # where each new or re-anchored memory applies
+    from . import graph
+    _safely(con, lambda: graph.update(con))               # vectors and links of new or changed memories
     text = pinned.render_pinned(con, root)
     rules, notes = pinned.count_injected(text)
     store.bump(con, session, "rules_injected", rules)
@@ -137,10 +139,10 @@ def touch(con, root: str, ev: dict) -> str:
 
 
 def _safely(con, fn) -> None:
-    """Facts are an extra: a failure there is rolled back and reported, and never blocks capture or the block."""
+    """Extras (facts, scopes, the graph): a failure there is rolled back and reported, and never blocks capture or the block."""
     try:
         fn()
     except Exception as e:                    # noqa: BLE001
         con.rollback()
         import sys
-        print(f"memcode facts: {e}", file=sys.stderr)
+        print(f"memcode: {e}", file=sys.stderr)

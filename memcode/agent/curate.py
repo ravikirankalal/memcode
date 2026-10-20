@@ -191,4 +191,9 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         ids.append(mid)
         added += 1
     con.commit()
+    try:
+        from .. import graph
+        graph.update(con)                      # vectors and links of what changed (session start catches up otherwise)
+    except Exception:  # noqa: BLE001
+        pass
     return ids
