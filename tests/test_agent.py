@@ -64,6 +64,32 @@ class Condense(unittest.TestCase):
         self.assertIn("[agent] Done. The tests in this repo run with make check", text)
 
 
+class SeesCode(unittest.TestCase):
+    """The memory agent sees what the coding agent read and wrote, so it can describe central classes, enums, SDKs."""
+
+    def test_reads_edits_and_writes_carry_their_text(self):
+        read = {"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "/repo/src/OrderState.java"}}
+        body = "     1\tpublic enum OrderState {\n     2\t    NEW, PAID, SHIPPED, CANCELLED\n     3\t}\n"
+        edit = {"type": "tool_use", "id": "e1", "name": "Edit", "input": {"file_path": "/repo/src/Pay.java",
+                "old_string": "client.charge(a)", "new_string": "stripe.paymentIntents().create(params)"}}
+        write = {"type": "tool_use", "id": "w1", "name": "Write", "input": {"file_path": "/repo/README.md",
+                 "content": "# Shop\nOrders flow NEW -> PAID -> SHIPPED."}}
+        lines = [json.dumps(e) for e in (agent(read), result("r1", body), agent(edit), agent(write),
+                                         agent({"type": "tool_use", "id": "r2", "name": "Read",
+                                                "input": {"file_path": "/repo/missing.java"}}),
+                                         result("r2", "File does not exist", err=True))]
+        c = transcript.condense(lines)
+        self.assertIn("[read] /repo/src/OrderState.java | public enum OrderState { NEW, PAID, SHIPPED, CANCELLED }", c)
+        self.assertIn("[edited] /repo/src/Pay.java | stripe.paymentIntents().create(params)", c)
+        self.assertIn("[wrote] /repo/README.md | # Shop Orders flow NEW -> PAID -> SHIPPED.", c)
+        self.assertNotIn("missing.java", c)                                 # a failed read shows nothing
+        self.assertTrue(all("\n" not in e for e in c.split("\n")))          # one event per line
+        long = result("r3", "x" * 9000)
+        c2 = transcript.condense([json.dumps(agent({"type": "tool_use", "id": "r3", "name": "Read",
+                                                     "input": {"file_path": "/repo/big.txt"}})), json.dumps(long)])
+        self.assertLessEqual(len(c2), len("[read] /repo/big.txt | ") + transcript.READ_CHARS)
+
+
 class Checks(unittest.TestCase):
     condensed = transcript.condense([json.dumps(e) for e in SESSION])
 
