@@ -9,8 +9,8 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.11.1 | 0.12.0 |
-| memcode-status (mod) | 0.2.4 | 0.2.4 |
+| memcode | 0.12.0 (2026-10-20, PR #45) | none |
+| memcode-status (mod) | 0.2.4 | none |
 
 ## What works
 
@@ -29,7 +29,7 @@ _Last updated: 2026-10-20._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, PROBLEM / BUDGET / SCANNED badges | mod 0.2 | |
 
-## Unreleased (0.12.0)
+## Latest release (0.12.0)
 
 - The memory agent is the `memcode/agent/` package (transcript, model, checks, curate, worker, db); started as
   `python3 -m memcode.agent`.
@@ -54,7 +54,7 @@ _Last updated: 2026-10-20._
 
 - The only timely trigger during work is the held first write; everything else arrives at session start, per prompt or
   on first read (Guardian is the next phase).
-- No shipped way to measure the memory agent after prompt changes (PLAN, next step 3).
+- No shipped way to measure the memory agent after prompt changes (PLAN, next step 2).
 - Checkouts share the store, so staleness and the map follow whichever checkout last started a session.
 - Pattern triggers see only the last 200 events per session.
 

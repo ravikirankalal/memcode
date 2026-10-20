@@ -31,17 +31,15 @@ agent never edits code or talks to the user; a failure in memcode never blocks t
 
 ## Next steps
 
-1. **Release 0.12.0** (the cleanup): the `memcode/agent/` package, model capture and experiment-only code removed,
-   Claude Code only, no redaction.
-2. **Guardian, first slice**: at `PreToolUse` for Bash, match the command against facts and pitfalls (for example
+1. **Guardian, first slice**: at `PreToolUse` for Bash, match the command against facts and pitfalls (for example
    `pytest` in a repo whose tests only run through `make check`) and add a one-line reminder before it runs. Today the
    only timely trigger is the held first write into a folder.
-3. **A small recall check that ships with the repo**: the benchmarks were removed in 0.12; a short, offline-replayable
+2. **A small recall check that ships with the repo**: the benchmarks were removed in 0.12; a short, offline-replayable
    check of the memory agent (a fixed log, its expected memories, the model call mocked or recorded) so prompt changes
    can be judged without a paid run.
-4. **Auditor, first slice**: when a note's file changes, ask the memory agent whether the note still holds (update or
+3. **Auditor, first slice**: when a note's file changes, ask the memory agent whether the note still holds (update or
    retire) instead of only marking it stale.
-5. Near-duplicate merging (Librarian) once the store grows enough to need it.
+4. Near-duplicate merging (Librarian) once the store grows enough to need it.
 
 ## Open questions
 
