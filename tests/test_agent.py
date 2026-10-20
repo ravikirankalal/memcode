@@ -388,6 +388,18 @@ class Store(unittest.TestCase):
         self.assertTrue(seen and seen[0])                     # set while the model call runs
         self.assertNotIn("busy", feed())                      # cleared when the worker is done
 
+    def test_scan_line_counts_facts_as_kept(self):
+        from memcode import activity
+        self.assertEqual(worker.scan_line(15, 6, 0), "15 candidates, kept 6")
+        self.assertEqual(worker.scan_line(4, 2, 1), "4 candidates, kept 3 (2 memories, 1 fact)")
+        self.assertEqual(worker.scan_line(1, 0, 1), "1 candidate, kept 1 (0 memories, 1 fact)")
+        env = {"op": "add", "kind": "env", "importance": 4, "text": "Chained shell commands need approval here.",
+               "evidence": "Ran 0 tests in 0.000s NO TESTS RAN", "path": "", "conflicts": False}
+        worker.enqueue(self.con, "s1", write_transcript(SESSION))
+        worker.run_worker(self.d, lambda text, ctx=None: {"items": [env], "model": "f", "cost_usd": 0})
+        ev = [e for e in json.loads(Path(self.d, ".memcode", activity.FILE).read_text())["events"] if e["kind"] == "scanned"]
+        self.assertEqual(ev[-1]["text"], "1 candidate, kept 1 (0 memories, 1 fact)")
+
     def test_why_failed_names_the_fix(self):
         self.assertIn("claude update", model.why_failed("API Error [claude-code:unrecognized_model] no such model", "m"))
         self.assertIn("/login", model.why_failed("Not logged in · Please run /login", "m"))

@@ -98,7 +98,7 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=mo
         res = extract_fn(piece, model.briefing(con, root, session))
         if res is None or "error" in res:
             raise RuntimeError((res or {}).get("error") or "model call failed")
-        ids += curate.store_items(con, root, session, res["items"], piece, res.get("model", ""))
+        ids += curate.store_items(con, root, session, res["items"], piece, res.get("model", ""), stats)
         cost += res.get("cost_usd", 0.0)
         if stats is not None:
             stats["candidates"] = stats.get("candidates", 0) + len(res["items"])
@@ -139,8 +139,8 @@ def run_worker(root: str, extract_fn=model.extract) -> int:
                 off, ids, _ = scan_one(con, root, session, path, offset, extract_fn, stats)   # saves cost per chunk
                 stored += len(ids)
                 if stats.get("pieces"):          # the agent looked: say so, also when it kept nothing
-                    activity.note(con, "scanned", f"{stats['candidates']} candidate"
-                                  f"{'s' * (stats['candidates'] != 1)}, kept {len(ids)}", stats["candidates"])
+                    activity.note(con, "scanned", scan_line(stats["candidates"], len(ids), stats.get("facts", 0)),
+                                  stats["candidates"])
                 prev = con.execute("SELECT result FROM transcript_scans WHERE session=?", (session,)).fetchone()
                 last = db.loads(prev[0]) if prev else {}
                 keep = {k: last[k] for k in ("skipped_lines", "budget_usd") if k in last and last.get("skipped_lines")}
@@ -164,6 +164,16 @@ def run_worker(root: str, extract_fn=model.extract) -> int:
     finally:
         activity.busy(con, "agent", False)
         con.close()
+
+
+def scan_line(candidates: int, memories: int, facts: int) -> str:
+    """'15 candidates, kept 6', or with facts 'kept 3 (2 memories, 1 fact)': kept counts every memory added or changed
+    and every environment fact saved."""
+    kept = memories + facts
+    line = f"{candidates} candidate{'s' * (candidates != 1)}, kept {kept}"
+    if facts:
+        line += f" ({memories} memor{'y' if memories == 1 else 'ies'}, {facts} fact{'s' * (facts != 1)})"
+    return line
 
 
 def health(con) -> str | None:

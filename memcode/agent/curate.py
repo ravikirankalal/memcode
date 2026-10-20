@@ -100,7 +100,8 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
         return target
     return None
 
-def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "") -> list[int]:
+def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "",
+                stats: dict | None = None) -> list[int]:
     """Apply the memory agent's operations: add (default), update, retire. -> ids added or changed."""
     from .. import activity
     ids = []
@@ -138,6 +139,8 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
                            WHERE key LIKE 'env:obs:%' ORDER BY last_seen DESC LIMIT ?)""", (MAX_ENV_FACTS,))
             activity.note(con, "saved", f"env fact: {text}")
             added += 1
+            if stats is not None:                 # kept, though not a memory row: counted for the scan line
+                stats["facts"] = stats.get("facts", 0) + 1
             continue
         if kind == "decision":
             if not decisions_enabled(root):

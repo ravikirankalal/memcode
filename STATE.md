@@ -9,8 +9,8 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.12.0 (2026-10-20, PR #45) | 0.12.1 |
-| memcode-status (mod) | 0.2.4 | 0.3.0 |
+| memcode | 0.12.1 (2026-10-20, PR #46) | 0.12.2 |
+| memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
 
 ## What works
 
@@ -29,7 +29,12 @@ _Last updated: 2026-10-20._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.12.1, memcode-status 0.3.0)
+## Unreleased (memcode 0.12.2)
+
+- The memory agent's scan line counts environment facts as kept: `4 candidates, kept 3 (2 memories, 1 fact)`
+  (agent.worker.scan_line). Tests: 220 Python, 13 mod.
+
+## Latest release (memcode 0.12.1, memcode-status 0.3.0)
 
 - Status bar: compact counts; routine scans ("kept 0") never take the headline; the memory agent's state on the right
   (`🔍 reading...` while it reads a turn, else when it last read one); this session's tally (`+2 saved`); on a narrow
@@ -39,7 +44,7 @@ _Last updated: 2026-10-20._
 - memcode: the activity feed carries `busy: {agent: <since>}` while the worker reads (activity.busy).
 - Tests: 219 Python, 13 mod.
 
-## Latest release (0.12.0)
+## Previous release (0.12.0)
 
 - The memory agent is the `memcode/agent/` package (transcript, model, checks, curate, worker, db); started as
   `python3 -m memcode.agent`.
@@ -71,7 +76,7 @@ _Last updated: 2026-10-20._
 ## How to verify and release
 
 ```text
-python3 -m unittest discover -s tests          # 219 tests, offline
+python3 -m unittest discover -s tests          # 220 tests, offline
 claude plugin test mods/memcode-status         # 13 mod tests
 claude plugin validate .claude-plugin/plugin.json --strict
 ```

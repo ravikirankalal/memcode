@@ -61,8 +61,10 @@ rated 3 or more, best first, at most 4 per piece of log, and only when the check
 - it is not a request for now, not the agent's own progress report, not about memcode's own tools;
 - it does not repeat a memory, or something the coding agent was already shown this session.
 
-Every change is logged: `memcode history` lists what it added, updated or retired, with the old text. Each scan shows
-on the status bar as `🔍 SCANNED  N candidates, kept K`, also when it kept nothing.
+Every change is logged: `memcode history` lists what it added, updated or retired, with the old text. Each scan is
+logged as `N candidates, kept K`: the candidates the model proposed, and how many memcode stored or applied (memories
+added, updated or retired, and environment facts, broken down when facts are among them: `kept 3 (2 memories, 1
+fact)`); `/memcode-status` lists it, and the status bar shows when the agent last read a turn.
 
 **Decisions** are the state of ongoing work you stated or confirmed: scope, parked items, holds and gates, an agreed
 approach, a hypothesis a command verified or disproved. Each carries a short subject key, so a later decision on the
