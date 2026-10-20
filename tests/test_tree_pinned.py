@@ -174,19 +174,6 @@ class TestSalience(Base):
         # one revert: weight 1 -> 0.5 after a half-life
         self.assertAlmostEqual(r14["src"], 1 - (2.718281828459045 ** -0.5), places=3)
         self.assertLess(r14["src"], r0["src"])
-        self.assertEqual(salience.log_all(self.con, now), 3)
-        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM salience_log").fetchone()[0], 3)
-
-    def test_reinforce_cap(self):
-        mid = store.add_memory(self.con, "manual", "m", "", confidence=0.5)
-        prev = 0.5
-        for _ in range(100):
-            c = salience.reinforce(self.con, mid)
-            self.assertGreaterEqual(c, prev)
-            prev = c
-        self.assertLessEqual(prev, 0.95)
-        self.assertAlmostEqual(prev, 0.95)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,14 +4,14 @@
     "name": "Ravikiran Kalal"
   },
   "metadata": {
-    "description": "Memory for coding agents that learns from corrections."
+    "description": "A memory agent for Claude Code."
   },
   "plugins": [
     {
       "name": "memcode",
       "source": "./",
-      "description": "Event-triggered, repo-anchored memory: the agent stops repeating mistakes it was corrected on.",
-      "version": "0.11.1",
+      "description": "A memory agent beside Claude Code: it extracts what is worth remembering, keeps it true, and delivers it when it matters.",
+      "version": "0.12.0",
       "category": "productivity"
     },
     {

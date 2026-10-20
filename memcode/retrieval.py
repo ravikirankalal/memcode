@@ -13,19 +13,14 @@ Relevance (stdlib, deterministic), summed per memory:
     parse_items / ParseItems / "parse items" match), normalised by the prompt's term weight (0..TERM_W);
     counts only with >= MIN_SHARED_TERMS shared terms
 Only memories scoring >= MIN_SCORE are shown, at most TOP_K, under TOKEN_CAP, never one already shown
-in this session (pinned or retrieved), never a stale one. Ranking (MEMCODE_RANK) defaults to split,
-adopted after Gate 2b (bench/live/RESULTS.md, Run 11):
-  relevance relevance only, ties broken by recency (the pre-Phase-2 behaviour)
-  salience  relevance x (1 + salience) decides the top TOP_K (Gate 2 / Run 10: wins on restated rules, but can
-            push out a cheap memory the task needs)
-  split     the relevance top TOP_K is kept unchanged, and up to PROMOTE_K EXTRA slots go to relevant memories
-            outside it with strong cost evidence (restated by the user or a recurring failure, decayed weight
-            >= PROMOTE_MIN), best salience first
+in this session (pinned or retrieved), never a stale one. Ranking: the relevance top TOP_K, plus up to PROMOTE_K extra slots
+for relevant memories outside it with strong cost evidence (restated by the user or a recurring failure, decayed weight
+>= PROMOTE_MIN), best salience first.
 Framing matches the pinned block: user rules as rules, everything else inside the untrusted wrapper.
 
-MEMCODE_HIER=1 (scope hierarchy, see scope.py): only memories whose scope is the repo, on or inside the request's
+Scope hierarchy (scope.py, on unless MEMCODE_HIER=0): only memories whose scope is the repo, on or inside the request's
 working set (prompt paths + files edited this session), or named by the prompt are candidates; an on-chain scope earns
-+SCOPE_W; TOP_K is allocated one slot per scope level nearest first, the rest by score. Off: unchanged.
++SCOPE_W; TOP_K is allocated one slot per scope level nearest first, the rest by score.
 """
 from __future__ import annotations
 
@@ -38,7 +33,7 @@ import time
 from . import pinned, scope, store
 
 TOP_K = 5
-PROMOTE_K = 2             # MEMCODE_RANK=split: extra slots for costly memories outside the relevance top-k
+PROMOTE_K = 2             # extra slots for costly memories outside the relevance top-k
 PROMOTE_MIN = 1.0         # decayed restatements + recurrences needed to qualify for promotion
 TOKEN_CAP = 600
 MIN_SCORE = 0.8
@@ -53,11 +48,8 @@ _CAMEL = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
 
 
 def enabled(root) -> bool:
-    from .model_capture import read_config
-    env = os.environ.get("MEMCODE_RETRIEVAL", "").lower()
-    if env in ("0", "false", "off"):
-        return False
-    return env in ("1", "true", "on") or bool(read_config(root).get("retrieval"))
+    from . import config
+    return config.switch(root, "MEMCODE_RETRIEVAL", "retrieval", False)
 
 
 def terms(text: str) -> set[str]:
@@ -155,8 +147,7 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     # block already listed it; a start-block mention among many was followed less often than one beside the request
     again = lambda r: (hier and src.get(r["id"]) == {"pinned"} and bool(r["anchor_path"])
                        and _mentions(prompt_l, r["anchor_path"], r["anchor_symbol"]))
-    rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0 AND m.trigger!='decision'"
-                                         + store.injectable_sql("m"))
+    rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0 AND m.trigger!='decision'")
             if r["id"] not in src or again(r)]
     if not rows:
         return []
@@ -173,8 +164,6 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     active = _active_files(con, session)
     rootp = os.path.realpath(root).replace(os.sep, "/") + "/"
     prompt_paths = path_tokens(prompt)
-    salience_rank = os.environ.get("MEMCODE_RANK") == "salience"
-    sal_idx = None
     if hier:
         ws = scope.working_set(con, session, prompt, root, active=active)
         chain = scope.chains(ws)
@@ -200,11 +189,6 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
             s += SCOPE_W
         if active_hit:
             s += ACTIVE_W
-        if salience_rank and s > 0:                       # MEMCODE_RANK=salience experiments only
-            from . import salience
-            if sal_idx is None:
-                sal_idx = salience.Index(con)
-            s *= 1 + salience.score(con, r, index=sal_idx)
         if s >= MIN_SCORE:
             out.append((s, r))
     out.sort(key=lambda x: (-x[0], -x[1]["updated_at"], -x[1]["id"]))
@@ -214,9 +198,10 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
 
 
 def select(con, scored: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
-    """The memories to show, in order: the top TOP_K, plus (MEMCODE_RANK=split) up to PROMOTE_K promotions."""
+    """The memories to show, in order: the top TOP_K by relevance, plus up to PROMOTE_K costly ones (repeated or
+    recurring mistakes) from further down."""
     top = scored[:TOP_K]
-    if os.environ.get("MEMCODE_RANK", "split") != "split" or con is None:
+    if con is None:
         return top
     rest = scored[TOP_K:]
     if not rest:
@@ -233,7 +218,7 @@ def select(con, scored: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
 
 
 def render(scored: list[tuple[float, dict]], con=None) -> tuple[str, list[int]]:
-    """con enables MEMCODE_RANK=split promotions (see select)."""
+    """con enables the promotions of costly memories (see select)."""
     rules, notes, ids, used = [], [], [], 0
     for s, r in select(con, scored):
         if r["trigger"] == "correction":

@@ -64,8 +64,8 @@ def apply_config(root) -> None:
     becomes MEMCODE_HIER=0 for this process unless the environment already sets MEMCODE_HIER."""
     if "MEMCODE_HIER" in os.environ:
         return
-    from .model_capture import read_config
-    if read_config(root).get("hierarchy") is False:
+    from . import config
+    if config.read(root).get("hierarchy") is False:
         os.environ["MEMCODE_HIER"] = "0"
 
 
@@ -312,7 +312,7 @@ def has_unseen_rules(con, session: str, path: str, root=None) -> bool:
     if not chain:
         return False
     return con.execute(f"""SELECT 1 FROM memories m WHERE m.stale=0 AND m.trigger='correction'
-                           AND m.scope_path IN ({",".join("?" * len(chain))}){store.injectable_sql("m")}
+                           AND m.scope_path IN ({",".join("?" * len(chain))})
                            AND m.id NOT IN (SELECT memory_id FROM injections WHERE session=?) LIMIT 1""",
                        (*chain, session)).fetchone() is not None
 
@@ -331,7 +331,7 @@ def rules_for_path(con, session: str, path: str, root=None, token_cap: int = TOU
     if not chain:
         return "", []
     marks = ",".join("?" * len(chain))
-    rows = con.execute(f"""SELECT * FROM memories m WHERE m.stale=0 AND m.scope_path IN ({marks}){store.injectable_sql("m")}
+    rows = con.execute(f"""SELECT * FROM memories m WHERE m.stale=0 AND m.scope_path IN ({marks})
                            AND m.id NOT IN (SELECT memory_id FROM injections WHERE session=?)""",
                        (*chain, session)).fetchall()
     rows.sort(key=lambda r: (level_key(r), r["trigger"] != "correction", -r["updated_at"], -r["id"]))

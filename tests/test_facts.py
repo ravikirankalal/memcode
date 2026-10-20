@@ -27,7 +27,6 @@ class Splitting(unittest.TestCase):
             self.assertIsNone(facts.normalize(seg), seg)
         self.assertEqual(facts.normalize("FOO=1 timeout 60 npm test >out.txt"), "FOO=1 npm test")
         self.assertEqual(facts.normalize("NO_COLOR=1 CI=true npm test"), "npm test")          # cosmetic: dropped
-        self.assertIsNone(facts.normalize("API_TOKEN=[REDACTED] npm test"))                   # secret: not reusable
         self.assertIsNone(facts.normalize("DATA=$HOME/x npm test"))
         self.assertEqual(facts.normalize("TALLY_DATA=/r/ledger python3 -m tally", "/r"), "TALLY_DATA=ledger python3 -m tally")
         self.assertIsNone(facts.normalize("TALLY_DATA=/tmp/x python3 -m tally", "/r"))       # outside the repo
@@ -128,12 +127,6 @@ class Observe(unittest.TestCase):
         r = self.row("cmd:TALLY_DATA=ledger python3 -m tally report 2026-02")
         self.assertEqual((r["role"], r["ok"]), ("run", 1))
         self.assertIn("run: `TALLY_DATA=ledger python3 -m tally report 2026-02`", "\n".join(facts.lines(self.con)))
-
-    def test_redaction(self):
-        facts.observe(self.con, self.d, bash("deploy --token=abcd1234secret9876 --env prod"))
-        for (v,) in self.con.execute("SELECT value FROM facts"):
-            self.assertNotIn("abcd1234secret9876", v)
-
 
 class RepoScan(unittest.TestCase):
     def test_manifests_refresh_on_change_and_vanish(self):

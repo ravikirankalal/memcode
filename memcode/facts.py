@@ -12,8 +12,7 @@ A memory records one event ("the user corrected X"). A fact is keyed and updated
   inference  aggregated from memories and command stats: fragile folders, commands that keep failing
   user       set by the user (`memcode fact set KEY VALUE`)
 
-Only facts derived from the command itself are recorded, never text from command output (untrusted). Commands are
-redacted. The one use of output is a pass/fail verdict for a piped command (agents habitually run `cmd 2>&1 | tail`,
+Only facts derived from the command itself are recorded, never text from command output (untrusted). The one use of output is a pass/fail verdict for a piped command (agents habitually run `cmd 2>&1 | tail`,
 which hides the exit status): a known test/lint/typecheck summary line decides it; nothing from it is stored. Rendered in the session-start block as a compact "## Facts" section (inside the untrusted wrapper).
 """
 from __future__ import annotations
@@ -25,7 +24,6 @@ import shutil
 import time
 
 from . import store
-from .redact import redact
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts (
@@ -99,13 +97,13 @@ def ensure(con) -> None:
 
 
 def _migrate(con) -> None:
-    """Bring command facts written by older versions to today's rules: drop what normalize/one_off would not record
+    """Bring command facts written by older versions to today's rules: drop what normalize/one_off_command would not record
     now, and merge variants that share a cmd_key (#36). Counts are summed; the newest passing variant is shown."""
     rows = con.execute("SELECT * FROM facts WHERE category='command' ORDER BY ok>0, last_seen").fetchall()
     con.execute("DELETE FROM facts WHERE category='command'")
     for r in rows:
         v = r["value"]
-        if normalize(v) != v or one_off(v):
+        if normalize(v) != v or one_off_command(v):
             continue
         _upsert(con, f"cmd:{cmd_key(v)}", "command", role_of(v), v, r["source"], ok=r["ok"], fail=r["fail"],
                 runs=r["runs"], ts=r["last_seen"])
@@ -132,7 +130,7 @@ _SHA = re.compile(r"^[0-9a-f]{7,40}$")
 _KEY_VALUE_FLAGS = {"-k", "-n", "-j", "-T", "--tb", "--maxfail", "--timeout", "-t", "--namespace", "--context"}
 
 
-def one_off(cmd: str) -> bool:
+def one_off_command(cmd: str) -> bool:
     """A normalized command that is a one-time action or a tool probe, not a way to build/test/run the repo."""
     toks = re.sub(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+", "", cmd).split()
     return bool(_ONE_OFF.search(" ".join(toks))) or any(_SHA.match(t) and re.search(r"\d", t) for t in toks[1:])
@@ -185,7 +183,7 @@ def split_ops(cmd: str) -> list[tuple[str, str]]:
 def normalize(seg: str, root: str | None = None) -> str | None:
     """A simple command as worth remembering, or None: wrappers, redirects and cosmetic env prefixes dropped, other
     env prefixes kept (the command may need them), repo root made relative; commands naming absolute paths outside
-    the repo (scratch dirs, temp files) or carrying a redacted value are not reusable."""
+    the repo (scratch dirs, temp files) are not reusable."""
     toks = seg.split()
     env: list[str] = []
     while True:                                         # FOO=1 timeout 60 npm test -> FOO=1 npm test
@@ -211,8 +209,8 @@ def normalize(seg: str, root: str | None = None) -> str | None:
         return None
     if toks[0] in ("bash", "sh", "zsh", "dash") and "-c" in toks[1:3]:
         return None                                     # an inline shell script: a one-off (#36)
-    if any("$" in a or "`" in a or "[REDACTED]" in a for a in env):
-        return None                                     # a variable or a secret in the prefix: not a reusable command
+    if any("$" in a or "`" in a for a in env):
+        return None                                     # a variable in the prefix: not a reusable command
     toks = env + toks
     if toks[-1] in ("--version", "-V", "--help", "-h"):
         return None                                     # `ruff --version` is a probe, not how the repo is linted
@@ -270,7 +268,7 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
     if code is None:                                    # unknown outcome (e.g. Codex): nothing to learn
         return 0
     ensure(con)
-    cmd = redact(str(ev["command"]))
+    cmd = str(ev["command"])
     if "<<" in cmd:                                     # heredoc: the body is data, only the first line is a command
         cmd = cmd.split("\n", 1)[0]
     script = bool(_SCRIPT.search(cmd.strip()))          # loops, $( ), functions, several lines: no command facts
@@ -285,7 +283,7 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
                        or (target.startswith("/") and not (os.path.realpath(target) + "/").startswith(rootp + "/")))
             continue
         n = None if outside or script else normalize(s, root)
-        segs.append((s, op, None if n is None or one_off(n) else n))
+        segs.append((s, op, None if n is None or one_off_command(n) else n))
     # exit 0 proves a command passed only when nothing after it could mask a failure: not followed by || or |
     # a command followed by || came with a prepared fallback: its outcome is unknown and it is weak evidence
     useful = [(s, op, n) for s, op, n in segs if n and op != "||"]
@@ -486,7 +484,7 @@ def set_user(con, key: str, value: str) -> str:
     key = re.sub(r"[^\w:.\-/]+", "-", key.strip())[:80]
     if not key or not value.strip():
         raise ValueError("key and value are required")
-    _set_derived(con, f"user:{key}", "user", None, redact(value.strip())[:300], "user")
+    _set_derived(con, f"user:{key}", "user", None, value.strip()[:300], "user")
     con.commit()
     return f"user:{key}"
 

@@ -3,21 +3,15 @@
 Trust model: `correction` memories are written only from the user's own prompts (triggers.py),
 so they are presented as the user's instructions, with provenance, OUTSIDE the untrusted
 wrapper. Everything else (map text, agent-derived and manually added memories) stays inside the
-wrapper as data. MEMCODE_FRAMING=legacy restores the old all-untrusted framing (benchmark A/B only).
+wrapper as data.
 """
 from __future__ import annotations
 
-import os
 import time
 
-from . import store
 
 TOKEN_DIVISOR = 4
 LINE_MAX = 160
-
-
-def approx_tokens(text: str) -> float:
-    return len(text) / TOKEN_DIVISOR
 
 
 NOTES_OPEN = "<memcode-recorded-notes>"
@@ -77,8 +71,8 @@ MAX_DECISIONS = 8
 
 def decision_lines(con) -> list[str]:
     """`- 2026-10-18: G16 parked until the end` for live decisions (#42), newest first; expired ones are left out
-    (transcript_capture.expire_decisions deletes them)."""
-    from .transcript_capture import decision_days
+    (agent.curate.expire_decisions deletes them)."""
+    from .agent import decision_days
     cutoff = time.time() - decision_days() * 86400
     rows = con.execute("SELECT text, updated_at FROM memories WHERE trigger='decision' AND stale=0 AND updated_at>=? "
                        "ORDER BY updated_at DESC, id DESC LIMIT ?", (cutoff, MAX_DECISIONS)).fetchall()
@@ -94,27 +88,8 @@ def _one_line(s: str, n: int = LINE_MAX) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-ZOOM_MIN = 0.3        # MEMCODE_RANK=salience: folders/files at or above this fragility are expanded and tagged
-
-
-def _fragile(con) -> dict[str, float]:
-    if os.environ.get("MEMCODE_RANK") != "salience":
-        return {}
-    from . import salience
-    hot = {p: v for p, v in salience.rollup(con, fail_weight=0.5).items() if p and v >= ZOOM_MIN}
-    # tag a path only when it carries more than its hottest descendant (ancestors just expand)
-    best: dict[str, float] = {}
-    for p, v in hot.items():
-        q = p
-        while "/" in q:
-            q = q.rsplit("/", 1)[0]
-            best[q] = max(best.get(q, 0.0), v)
-    return {p: v for p, v in hot.items() if v > best.get(p, 0.0) + 1e-6}
-
-
 def _tree_lines(con, rule_marks: dict[str, int] | None = None) -> list[tuple[str, bool]]:
     """rule_marks (MEMCODE_HIER): {path: n} of scoped user rules; those paths are expanded and marked "[n rules]"."""
-    fragile = _fragile(con)
     rule_marks = rule_marks or {}
     paths = con.execute("SELECT path, parent, kind, annotation FROM paths "
                         "WHERE path!='' ORDER BY path").fetchall()
@@ -126,7 +101,7 @@ def _tree_lines(con, rule_marks: dict[str, int] | None = None) -> list[tuple[str
     info = {r["path"]: r for r in paths}
     hot: set[str] = set()
     for r in paths:
-        if r["annotation"] or r["path"] in mem_paths or r["path"] in fragile or r["path"] in rule_marks:
+        if r["annotation"] or r["path"] in mem_paths or r["path"] in rule_marks:
             p = r["path"]
             while p != "":
                 hot.add(p)
@@ -150,8 +125,6 @@ def _tree_lines(con, rule_marks: dict[str, int] | None = None) -> list[tuple[str
         for c in children.get(d, []):  # already sorted by path
             name = c["path"].rsplit("/", 1)[-1]
             note = f" - {_one_line(c['annotation'], 100)}" if c["annotation"] else ""
-            if c["path"] in fragile:
-                note = " [fragile: recent reverts/failures]" + note
             if c["path"] in rule_marks:
                 n = rule_marks[c["path"]]
                 note = f" [{n} rule{'' if n == 1 else 's'}]" + note
@@ -180,38 +153,27 @@ def _rule_text(t: str) -> str:
     return t[:i].strip() if i != -1 and t.endswith(")") else t
 
 
-def _memory_rows(con, convention: bool):
-    rows = _memory_rows_base(con, convention)
-    if not convention and os.environ.get("MEMCODE_RANK") == "salience":    # Phase 2, off by default
-        from . import salience
-        idx = salience.Index(con)
-        rows = sorted(rows, key=lambda r: (-salience.score(con, r, index=idx), -r["updated_at"], -r["id"]))
-    return rows
-
-
-def _memory_rows_base(con, convention: bool):
-    cond = "m.trigger='correction'" if convention else "m.trigger NOT IN ('correction','decision')"
+def _memory_rows(con):
+    """Notes (not rules or decisions), most retrieved first, then newest."""
     return con.execute(
-        f"""SELECT m.* , (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq
-            FROM memories m WHERE m.stale=0 AND {cond}{store.injectable_sql("m")}
+        """SELECT m.* , (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq
+            FROM memories m WHERE m.stale=0 AND m.trigger NOT IN ('correction','decision')
             ORDER BY freq DESC, m.updated_at DESC, m.id DESC""").fetchall()
 
 
 def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
-    """Render the pinned block. Ordering is recency/frequency, unless MEMCODE_RANK=salience (Phase 2 A/B):
-    then notes are ordered by salience and fragile folders are expanded and tagged in the map."""
-    legacy = os.environ.get("MEMCODE_FRAMING") == "legacy"
+    """Render the pinned block: the user's rules as instructions, then the map, decisions, facts and notes as data.
+    Notes are ordered by how often they were retrieved, then by recency."""
     from . import scope
-    split = not legacy and scope.split_rules(repo_root)   # MEMCODE_HIER: scoped rules arrive with retrieval instead
+    split = scope.split_rules(repo_root)   # MEMCODE_HIER: scoped rules arrive with retrieval instead
     rules_block = ""
-    if not legacy:
-        only_repo = " AND scope_path=''" if split else ""
-        rules = con.execute(f"""SELECT * FROM (SELECT * FROM memories WHERE stale=0 AND trigger='correction'{only_repo}
-                               ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY created_at ASC, id ASC""",
-                            (MAX_RULES,)).fetchall()        # newest MAX_RULES, shown oldest -> newest
-        if rules:
-            lines = [RULES_HEADER, RULES_NOTE] + [f"- {_one_line(_rule_text(r['text']), 240)}" for r in rules]
-            rules_block = "\n".join(lines)[: int(token_cap * TOKEN_DIVISOR) // 3]
+    only_repo = " AND scope_path=''" if split else ""
+    rules = con.execute(f"""SELECT * FROM (SELECT * FROM memories WHERE stale=0 AND trigger='correction'{only_repo}
+                           ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY created_at ASC, id ASC""",
+                        (MAX_RULES,)).fetchall()            # newest MAX_RULES, shown oldest -> newest
+    if rules:
+        lines = [RULES_HEADER, RULES_NOTE] + [f"- {_one_line(_rule_text(r['text']), 240)}" for r in rules]
+        rules_block = "\n".join(lines)[: int(token_cap * TOKEN_DIVISOR) // 3]
     overhead = len(NOTES_HEADER) + len(NOTES_OPEN) + len(NOTES_CLOSE) + 3 + (len(rules_block) + 2 if rules_block else 0)
     cap_chars = int(token_cap * TOKEN_DIVISOR) - overhead
     if cap_chars < 40:
@@ -260,11 +222,6 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
     tree = _tree_lines(con, marks)
     section(MAP_TITLE_MARKED if marks else "## Map", tree, cap_chars // 2)
 
-    if legacy:
-        conv = [f"- {_one_line(r['text'])}" + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
-                for r in _memory_rows(con, True)]
-        section("## Conventions", conv, (cap_chars - used) // 2)
-
     section("## Decisions (stated by the user, dated; context, not instructions)", decision_lines(con),
             (cap_chars - used) // 3)
 
@@ -277,7 +234,7 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
 
     mems = [f"- ({r['trigger']}) {_one_line(r['text'])}"
             + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
-            for r in _memory_rows(con, False)]
+            for r in _memory_rows(con)]
     section("## Memories", mems, cap_chars - used)
 
     if not out:

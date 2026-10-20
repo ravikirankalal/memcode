@@ -1,4 +1,10 @@
-"""Agent-neutral core: what memcode does at each point of an agent session (Phase 4: scale out).
+"""The memory agent at each moment of the coding agent's session (docs/architecture.md).
+
+  session_start   deliver: your rules, then the map, decisions, facts and notes; refresh staleness first
+  prompt          extract rules you state (pattern triggers); deliver the notes relevant to this request
+  tool_result     extract from what the agent ran and edited (triggers, facts); deliver a folder's memory on first read
+  before_write    deliver: hold a first write into a folder once, with its unseen rules as the reason
+  (Stop hook)     extract: the model-backed memory agent reads the turn (agent/, queued by hook_cli)
 
 Adapters (hook_cli.py for Claude Code, and others) translate their agent's hook payloads into these calls and the
 returned context into their agent's output format. Tool events use one normalized shape:
@@ -22,11 +28,11 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     tree.mark_stale(con, root)
     if prepare_only:
         return ""
-    from . import facts, outcomes, pinned, salience
+    from . import facts, outcomes, pinned
     outcomes.score_finished_sessions(con, root, current_session=session)
     _safely(con, lambda: (facts.scan_repo(con, root), facts.infer(con)))
-    from . import maintenance
-    _safely(con, lambda: maintenance.run(con, root))      # scope, labels, consolidation, storage budget
+    from . import scope
+    _safely(con, lambda: scope.rescope_new(con, root))    # where each new or re-anchored memory applies
     text = pinned.render_pinned(con, root)
     rules, notes = pinned.count_injected(text)
     store.bump(con, session, "rules_injected", rules)
@@ -38,8 +44,7 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     from . import activity
     activity.note(con, "start", f"{rules} rule{'s' * (rules != 1)}, {notes} note{'s' * (notes != 1)} at session start",
                   rules + notes)
-    salience.log_all(con)                          # shadow log
-    store.prune_salience_log(con)
+    store.prune_orphans(con)
     return text
 
 
@@ -71,11 +76,6 @@ def prompt(con, root: str, session: str, text: str) -> str:
     from . import retrieval
     if retrieval.enabled(root):
         ctx = retrieval.for_prompt(con, root, session, text)
-    if not any(ids):
-        from . import model_capture                # opt-in: let a model judge what the patterns missed
-        if model_capture.enabled(root) and model_capture.should_queue(con, session, text):
-            model_capture.enqueue(con, session, text)
-            model_capture.spawn_worker(root)
     return ctx
 
 

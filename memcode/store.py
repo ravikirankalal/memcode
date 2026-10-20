@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS paths (
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   trigger TEXT NOT NULL,          -- correction|revert|fail_to_fix|retry|dep_change|manual
-  text TEXT NOT NULL,             -- redacted summary
+  text TEXT NOT NULL,             -- summary
   anchor_path TEXT NOT NULL,      -- paths.path this memory is attached to ('' = repo-wide)
   anchor_hash TEXT,               -- content hash of the anchor when written
   anchor_symbol TEXT,             -- optional Python symbol (Class.method) inside the anchor file
@@ -40,14 +40,7 @@ CREATE TABLE IF NOT EXISTS memories (
   updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS memories_anchor ON memories(anchor_path);
-CREATE TABLE IF NOT EXISTS salience_log (   -- shadow mode: logged, never used for ranking
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  memory_id INTEGER NOT NULL,
-  surprise REAL NOT NULL, friction REAL NOT NULL,
-  fragility REAL NOT NULL, confidence REAL NOT NULL,
-  logged_at REAL NOT NULL
-);
-CREATE TABLE IF NOT EXISTS events (          -- raw (redacted) hook events for trigger detection
+CREATE TABLE IF NOT EXISTS events (          -- hook events for trigger detection (fields capped)
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, ts REAL NOT NULL
 );
@@ -70,10 +63,6 @@ CREATE TABLE IF NOT EXISTS outcomes (         -- reinforcement signal per (sessi
   PRIMARY KEY (session, memory_id)
 );
 CREATE TABLE IF NOT EXISTS scored_sessions (session TEXT PRIMARY KEY, ts REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS capture_queue (    -- opt-in model capture (model_capture.py)
-  id INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, text TEXT NOT NULL,
-  status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, result TEXT, memory_id INTEGER, ts REAL NOT NULL
-);
 CREATE TABLE IF NOT EXISTS retrievals (      -- for reinforce-on-success only
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL
@@ -174,6 +163,8 @@ def _ensure_ignored(repo_root: Path, memdir: Path) -> None:
 
 
 def _migrate(con) -> None:
+    for gone in ("capture_queue", "salience_log"):       # model capture and the salience shadow log (removed in 0.12)
+        con.execute(f"DROP TABLE IF EXISTS {gone}")
     cols = {r[1] for r in con.execute("PRAGMA table_info(paths)")}
     for col in ("mtime_ns", "size"):
         if col not in cols:
@@ -226,10 +217,14 @@ def scope_chain(path: str) -> list[str]:
     return out
 
 
-def injectable_sql(alias: str = "m") -> str:
-    """Extra WHERE clause for memories that may be injected. With MEMCODE_CONSOLIDATE on, consolidated children are
-    hidden (their lesson is shown instead); off, nothing changes."""
-    return f" AND {alias}.parent_id IS NULL" if os.environ.get("MEMCODE_CONSOLIDATE") == "1" else ""
+def delete_ids(con, ids) -> int:
+    """Delete memories and the rows that reference them (retrievals, injections). The caller commits."""
+    ids = [(i,) for i in ids]
+    if not ids:
+        return 0
+    for t in ("retrievals", "injections", "outcomes"):
+        con.executemany(f"DELETE FROM {t} WHERE memory_id=?", ids)
+    return sum(con.execute("DELETE FROM memories WHERE id=?", i).rowcount for i in ids)
 
 
 def connect(repo_root: str | os.PathLike) -> sqlite3.Connection:
@@ -323,14 +318,8 @@ def bump(con, session: str, field: str, n: int = 1, commit: bool = True) -> None
         con.commit()
 
 
-SALIENCE_KEEP = 30   # salience_log rows kept per memory (shadow-mode time series)
-
-
-def prune_salience_log(con) -> None:
-    con.execute("""DELETE FROM salience_log WHERE id IN (
-                     SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY memory_id ORDER BY id DESC) AS rn
-                                     FROM salience_log) WHERE rn > ?)""", (SALIENCE_KEEP,))
-    con.execute("DELETE FROM salience_log WHERE memory_id NOT IN (SELECT id FROM memories)")
-    con.execute("DELETE FROM injections WHERE memory_id NOT IN (SELECT id FROM memories)")
-    con.execute("DELETE FROM outcomes WHERE memory_id NOT IN (SELECT id FROM memories)")
+def prune_orphans(con) -> None:
+    """Injection and outcome rows of memories that no longer exist."""
+    for t in ("injections", "outcomes"):
+        con.execute(f"DELETE FROM {t} WHERE memory_id NOT IN (SELECT id FROM memories)")
     con.commit()

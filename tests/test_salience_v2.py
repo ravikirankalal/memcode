@@ -1,12 +1,11 @@
 import io
-import os
 import tempfile
 import time
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
 
-from memcode import cli, pinned, salience, store
+from memcode import cli, salience, store
 
 DAY = 86400.0
 
@@ -109,88 +108,6 @@ class Evidence(unittest.TestCase):
         self.assertIn("under billing", text)
 
 
-class Ordering(unittest.TestCase):
-    def setUp(self):
-        self.root = tempfile.mkdtemp()
-        self.con = store.connect(self.root)
-        self.low = store.add_memory(self.con, "dep_change", "low note", "", None, {})
-        time.sleep(0.01)
-        self.high = store.add_memory(self.con, "fail_to_fix", "high note", "", None, {})
-        time.sleep(0.01)
-        self.newest = store.add_memory(self.con, "dep_change", "newest low note", "", None, {})
-
-    def tearDown(self):
-        self.con.close()
-
-    def ids(self):
-        return [r["id"] for r in pinned._memory_rows(self.con, convention=False)]
-
-    def test_default_order_is_unchanged(self):
-        with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("MEMCODE_RANK", None)
-            self.assertEqual(self.ids(), [r["id"] for r in pinned._memory_rows_base(self.con, False)])
-
-    def test_flag_orders_by_score(self):
-        with mock.patch.dict(os.environ, {"MEMCODE_RANK": "salience"}):
-            ids = self.ids()
-        self.assertEqual(ids[0], self.high)
-        self.assertEqual(ids[1:], [self.newest, self.low])   # tie broken by recency
-
-    def test_rules_keep_chronological_order(self):
-        a = store.add_memory(self.con, "correction", "Rule from user correction: A.", "", None, {})
-        b = store.add_memory(self.con, "correction", "Rule from user correction: B.", "", None, {})
-        os.environ.pop("MEMCODE_RANK", None)
-        base = [r["id"] for r in pinned._memory_rows(self.con, convention=True)]
-        with mock.patch.dict(os.environ, {"MEMCODE_RANK": "salience"}):
-            flagged = [r["id"] for r in pinned._memory_rows(self.con, convention=True)]
-        self.assertEqual(base, flagged)
-        self.assertEqual(set(flagged), {a, b})
-
-
-class MapZoom(unittest.TestCase):
-    def setUp(self):
-        self.root = tempfile.mkdtemp()
-        self.con = store.connect(self.root)
-        for d in ("billing", "billing/core", "web"):
-            store.upsert_path(self.con, d, "dir")
-        for f in ("billing/core/a.py", "billing/core/b.py", "web/v.py"):
-            store.upsert_path(self.con, f, "file")
-        os.environ.pop("MEMCODE_RANK", None)
-
-    def tearDown(self):
-        self.con.close()
-
-    def lines(self, rank):
-        env = {"MEMCODE_RANK": "salience"} if rank else {}
-        with mock.patch.dict(os.environ, env):
-            return [t for t, _ in pinned._tree_lines(self.con)]
-
-    def test_off_by_default_and_no_tags_without_evidence(self):
-        self.assertEqual(self.lines(False), ["billing/ (2 files)", "web/ (1 files)"])
-        self.assertEqual(self.lines(True), self.lines(False))
-
-    def test_revert_expands_and_tags_only_the_most_specific_path(self):
-        store.add_memory(self.con, "revert", "reverted", "billing/core/a.py", None, {})
-        off, on = self.lines(False), self.lines(True)
-        self.assertNotIn("fragile", "\n".join(off))
-        self.assertEqual([t.replace(" [fragile: recent reverts/failures]", "") for t in on], off)
-        tagged = [t.strip() for t in on if "fragile" in t]
-        self.assertEqual(tagged, ["a.py [fragile: recent reverts/failures]"])   # ancestors expand, untagged
-
-    def test_folder_with_repeated_trouble_is_tagged(self):
-        for f in ("billing/core/a.py", "billing/core/a.py", "billing/core/b.py"):
-            store.add_memory(self.con, "revert", "reverted", f, None, {})
-        tagged = [t.strip() for t in self.lines(True) if "fragile" in t]
-        self.assertTrue(tagged and tagged[0].startswith("core/"), tagged)
-        self.assertFalse(any(t.startswith("billing/") for t in tagged))
-
-    def test_stale_and_old_evidence_do_not_zoom(self):
-        m = store.add_memory(self.con, "revert", "reverted", "web/v.py", None, {})
-        self.con.execute("UPDATE memories SET created_at=? WHERE id=?", (time.time() - 120 * DAY, m))
-        self.con.commit()
-        self.assertFalse(any("fragile" in t for t in self.lines(True)))
-
-
 class Why(unittest.TestCase):
     def test_why_prints_score_and_reasons(self):
         root = tempfile.mkdtemp()
@@ -209,21 +126,6 @@ class Why(unittest.TestCase):
         root = tempfile.mkdtemp()
         with redirect_stdout(io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
             self.assertEqual(cli.main(["--root", root, "why", "999"]), 1)
-
-
-class Gate2Predictions(unittest.TestCase):
-    """Pre-registered, deterministic predictions for the Gate 2 set (bench/live/salience1_candidates.py).
-    If ranking code changes these, the set's predictions must be re-registered before any model run."""
-    EXPECTED = {   # name: (recency surfaces the needed rule, salience surfaces it)
-        "s_billing_header": (False, True), "s_data_all": (True, True), "s_search_suffix": (False, True),
-        "s_reports_ctx": (False, True), "c_tools_flags": (True, True), "c_queue_version": (True, False),
-    }
-
-    def test_offline_predictions(self):
-        from bench.live import salience1_candidates as s1
-        got = {sc["name"]: (o["relevance_surfaced"], o["salience_surfaced"])
-               for sc in s1.CANDIDATES for o in [s1.offline_check(sc)]}
-        self.assertEqual(got, self.EXPECTED)
 
 
 if __name__ == "__main__":
