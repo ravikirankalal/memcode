@@ -120,9 +120,10 @@ class ProjectProfile(unittest.TestCase):
         enum = self.con.execute("SELECT * FROM memories WHERE anchor_path='src/OrderState.java'").fetchone()
         self.assertIsNone(enum["anchor_hash"])                             # an edit does not hide it
         block = pinned.render_pinned(self.con, self.d)
-        project = block.split("## Project")[1]
-        self.assertLess(project.index("(stack) Java project built with Maven"), project.index("(domain) OrderState"))
-        self.assertNotIn("(transcript)", block)                             # not repeated under ## Memories
+        memory = block.split(pinned.MEMORY_TITLE)[1]
+        self.assertIn("- (stack) Java project built with Maven", memory)    # labelled by topic, in the one list
+        self.assertIn("- (domain) OrderState", memory)
+        self.assertNotIn("(note)", block)
         self.assertEqual(sorted(pinned.shown_ids(self.con, block)), sorted(ids))
         self.assertIn("note/domain", model.briefing(self.con, self.d, "s"))  # the agent sees what to update
         self.assertIn("NEW then PAID", block)
@@ -609,9 +610,8 @@ class Decisions(unittest.TestCase):
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories WHERE from_user=1").fetchone()[0], 0)
         from memcode import pinned
         block = pinned.render_pinned(self.con, self.d)
-        self.assertIn("## Decisions", block.split(pinned.NOTES_OPEN)[1])           # context, not under rules
-        self.assertIn(f"- {time.strftime('%Y-%m-%d')}: G16 is parked until the end.", block)
-        self.assertNotIn("(decision)", block)                                       # not repeated under ## Memories
+        self.assertIn(f"- (decision, {time.strftime('%Y-%m-%d')}) G16 is parked until the end.",
+                      block.split(pinned.NOTES_OPEN)[1])                            # context, not with the user's words
         mid = self.con.execute("SELECT id FROM memories WHERE topic='decision'").fetchone()[0]
         self.assertIn(mid, pinned.shown_ids(self.con, block))
 
@@ -651,7 +651,7 @@ class Decisions(unittest.TestCase):
         curate.store_items(self.con, self.d, "s", [self.item()], self.PARK, "m")
         self.con.execute("UPDATE memories SET updated_at=updated_at-31*86400, expires_at=expires_at-31*86400"); self.con.commit()
         from memcode import pinned
-        self.assertNotIn("## Decisions", pinned.render_pinned(self.con, self.d))
+        self.assertNotIn("(decision", pinned.render_pinned(self.con, self.d))
         self.assertEqual(curate.expire_decisions(self.con), 1)
         self.assertEqual(self.decisions(), [])
         self.assertEqual(self.con.execute("SELECT op FROM memory_log").fetchall()[-1][0], "expire")

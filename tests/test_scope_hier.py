@@ -117,7 +117,7 @@ class Seeded(unittest.TestCase):
             text, ids = scope.rules_for_path(self.con, "s", os.path.join(self.d, "billing/api/refunds.py"), self.d)
             self.assertEqual(ids[:2], [self.api_rule, self.billing_rule])
             self.assertNotIn(self.repo_rule, ids); self.assertNotIn(self.web_rule, ids)
-            self.assertIn("Project rules for billing/api/refunds.py", text)
+            self.assertIn("From you, for billing/api/refunds.py", text)
             self.assertEqual(scope.rules_for_path(self.con, "s", "billing/api/refunds.py", self.d), ("", []))
             self.assertNotIn(self.api_rule, self.ids("billing/api/refunds.py handlers return dicts"))  # skip shown
             t2, ids2 = scope.rules_for_path(self.con, "s", "billing/invoice.py", self.d)

@@ -270,7 +270,8 @@ class InferUserRender(unittest.TestCase):
         self.assertIn("`make deploy` has failed 2x and never passed", out)
         self.assertIn("billing is fragile", out)
         block = pinned.render_pinned(con, d)
-        self.assertIn("## Facts", block.split(pinned.NOTES_OPEN)[1])           # inside the untrusted wrapper
+        self.assertIn("- (manual) Deploys only from release/* branches", block.split(pinned.NOTES_OPEN)[1])  # data
+        self.assertIn("- (test) `npx jest --ci` (ran 2x, 2 confirmed ok)", block)
         self.assertEqual(facts.remove(con, "deploy"), 1)
         con.close()
 

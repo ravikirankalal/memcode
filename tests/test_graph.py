@@ -78,5 +78,48 @@ class Graph(unittest.TestCase):
         self.assertTrue(embed.search(self.con, "make check"))          # still found by search
 
 
+
+class Delivery(unittest.TestCase):
+    """Recall and first touch bring a memory's neighbours in the graph along."""
+    def setUp(self):
+        from pathlib import Path
+        from memcode import tree
+        self.d = tempfile.mkdtemp()
+        Path(self.d, "billing").mkdir()
+        Path(self.d, "billing", "gateway.py").write_text("class PaymentGateway: pass\n")
+        self.con = store.connect(self.d)
+        tree.scan_repo(self.con, self.d)
+        self.gateway = store.add_memory(self.con, "agent", "PaymentGateway wraps the Stripe SDK for charges.",
+                                        "billing/gateway.py", None, {})
+        self.retry = store.add_memory(self.con, "agent", "Webhooks are verified with the signing secret before use.",
+                                      "", None, {})
+        from memcode import scope
+        for mid in (self.gateway,):
+            sp, sk = scope.assign(self.con, "agent", "", "billing/gateway.py")
+            self.con.execute("UPDATE memories SET scope_path=?, scope_kind=? WHERE id=?", (sp, sk, mid))
+        graph.update(self.con)
+        graph.link(self.con, self.gateway, self.retry, "related")
+        self.con.commit()
+
+    def test_recall_adds_a_neighbour(self):
+        from memcode import retrieval
+        self.con.execute("UPDATE memories SET scope_path='', scope_kind='repo'")     # folder-scoped ones come by touch
+        text, ids = retrieval.render(retrieval.score(self.con, self.d, "s", "how are Stripe charges made?"),
+                                     self.con, "s")
+        self.assertEqual(ids, [self.gateway, self.retry])
+        self.assertIn("## Memory relevant to this request", text)
+        self.assertIn("- (note) Webhooks are verified", text)
+
+    def test_first_touch_adds_a_neighbour(self):
+        from memcode import scope
+        os.environ["MEMCODE_HIER"] = "1"
+        try:
+            text, ids = scope.rules_for_path(self.con, "s", "billing/gateway.py", self.d)
+        finally:
+            os.environ.pop("MEMCODE_HIER")
+        self.assertEqual(ids, [self.gateway, self.retry])
+        self.assertIn("## Memory for billing/gateway.py", text)
+
+
 if __name__ == "__main__":
     unittest.main()

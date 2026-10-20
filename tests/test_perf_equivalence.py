@@ -69,7 +69,7 @@ class Equivalence(unittest.TestCase):
             con.close()
 
 
-class TermsCache(unittest.TestCase):
+class VectorCache(unittest.TestCase):
     def test_cached_scores_equal_fresh_scores_and_edits_refresh(self):
         from memcode import retrieval
         d = tempfile.mkdtemp()
@@ -80,7 +80,7 @@ class TermsCache(unittest.TestCase):
                          "billing/invoice.py", None, {})
         q = "how do billing invoices round totals in billing/invoice.py"
         first = [(round(s, 9), r["id"]) for s, r in retrieval.score(con, d, "s1", q)]
-        self.assertTrue(all(r[0] for r in con.execute("SELECT terms FROM memories")))      # cache filled
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM memory_vectors").fetchone()[0], 2)   # vectors stored
         second = [(round(s, 9), r["id"]) for s, r in retrieval.score(con, d, "s2", q)]
         self.assertEqual(first, second)
         con.execute("UPDATE memories SET text=? WHERE id=?", ("shipping labels are A6.", a))

@@ -9,7 +9,7 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–4 of 7 done) |
+| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–5 of 7 done) |
 | memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
 
 ## What works
@@ -24,7 +24,7 @@ _Last updated: 2026-10-20._
 | Store | One store per repository, shared by worktrees; files read from the session's checkout | 0.10.4 | #32, #37, #39 |
 | Store | Staleness per file or Python function; how-tos stay shown across edits | 0.10.4 | |
 | Store | Scopes (repo, folder, file, symbol); every agent change in `memcode history` | 0.8 / 0.9 | |
-| Trigger | Start block: rules as instructions; map, decisions, facts, notes as data | 0.1 (decisions 0.11) | ~1500-token cap |
+| Trigger | Start block: rules as instructions; map, decisions, facts, notes as data | 0.1 (decisions 0.11) | ~1500-token cap; on the branch: From you, then one ranked Memory list, then the map |
 | Trigger | Per-prompt recall with promotions for costly memories | 0.3 | off by default (`config retrieval on`) |
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
@@ -46,8 +46,14 @@ _Last updated: 2026-10-20._
   hash of its text, IDF applied when compared; `search`) and `graph.py` (automatic `same_file` and `similar` links
   rebuilt for new or changed memories; agent links kept; `neighbours`, `degree`). Run at session start and after the
   memory agent writes. On this repo's store: 74 memories embedded and linked in 0.01 s.
-- Pending: steps 5–7 (one delivery, flat agent output, surfaces).
-- Tests: 235 Python, 13 mod.
+- Step 5: one delivery. The start block is `## From you` (the user's words, as instructions), then one `## Memory`
+  list (data) where every other memory is `- (label) text [anchor]`: the label is its topic, `decision, <date>`, a
+  fact's role, or where it came from; ranked by importance, graph connections, recalls and recency; then the map.
+  Per-prompt recall scores by embedding cosine (plus the path boosts) and adds up to 2 graph neighbours of its top
+  memories; first touch of a folder adds up to 3 neighbours of that folder's memories. Expired memories are never
+  delivered; facts are recalled only when worth showing (facts.shown).
+- Pending: steps 6–7 (flat agent output, surfaces and docs).
+- Tests: 237 Python, 13 mod.
 
 ## Latest release (memcode 0.14.0)
 

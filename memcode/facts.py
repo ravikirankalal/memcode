@@ -527,13 +527,14 @@ def list_facts(con) -> list:
 ROLE_ORDER = ["install", "build", "test", "lint", "typecheck", "format", "run"]
 
 
-def lines(con, max_lines: int = 14) -> list[str]:
-    """Compact fact lines for the session-start block, most useful first."""
+def shown(con, max_lines: int = 14) -> list[tuple]:
+    """The facts worth showing, most useful first: [(fact_rows row, label, text)]. label is the role for the one
+    command shown per role (observed-and-passing beats declared), else None."""
     ensure(con)
     out = []
-    for r in con.execute("SELECT value FROM fact_rows WHERE category='user' ORDER BY last_seen"):
-        out.append(f"- {r['value']}")
-    best: dict[str, tuple] = {}                         # one command per role: observed-and-passing beats declared
+    for r in con.execute("SELECT * FROM fact_rows WHERE category='user' ORDER BY last_seen"):
+        out.append((r, None, r["value"]))
+    best: dict[str, tuple] = {}
     for r in con.execute("SELECT * FROM fact_rows WHERE category IN ('command','repo') AND role IN (%s)"
                          % ",".join("?" * len(ROLE_ORDER)), ROLE_ORDER):
         score = (r["ok"] * 2 + r["runs"] - r["fail"] * 3 + (1 if r["category"] == "repo" else 0), r["last_seen"])
@@ -548,16 +549,21 @@ def lines(con, max_lines: int = 14) -> list[str]:
                 how = f"from {r['source']}"
             else:
                 how = f"ran {r['runs']}x, {r['ok']} confirmed ok" + (f", {r['fail']} failed" if r["fail"] else "")
-            out.append(f"- {role}: `{r['value']}` ({how})")
-    for r in con.execute("SELECT value FROM fact_rows WHERE category='command' AND role IS NULL AND ok>=? "
+            out.append((r, role, f"`{r['value']}` ({how})"))
+    for r in con.execute("SELECT * FROM fact_rows WHERE category='command' AND role IS NULL AND ok>=? "
                          "AND fail<=ok ORDER BY ok DESC LIMIT 3", (RECUR_MIN,)):
-        out.append(f"- often used: `{r['value']}`")
-    for r in con.execute("SELECT value FROM fact_rows WHERE category IN ('env','inference') ORDER BY category, last_seen DESC"):
-        out.append(f"- {r['value']}")
-    for r in con.execute("SELECT value FROM fact_rows WHERE key IN ('repo:languages','repo:build_system','repo:tests_dir') "
+        out.append((r, "often used", f"`{r['value']}`"))
+    for r in con.execute("SELECT * FROM fact_rows WHERE category IN ('env','inference') ORDER BY category, last_seen DESC"):
+        out.append((r, None, r["value"]))
+    for r in con.execute("SELECT * FROM fact_rows WHERE key IN ('repo:languages','repo:build_system','repo:tests_dir') "
                          "ORDER BY key"):
-        out.append(f"- {r['value']}")
+        out.append((r, None, r["value"]))
     return out[:max_lines]
+
+
+def lines(con, max_lines: int = 14) -> list[str]:
+    """Compact fact lines (`memcode facts`, the memory agent's briefing), most useful first."""
+    return [f"- {label}: {text}" if label else f"- {text}" for _, label, text in shown(con, max_lines)]
 
 
 def backfill(con, root: str, force: bool = False) -> int:

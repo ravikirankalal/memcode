@@ -13,6 +13,9 @@ import zlib
 from . import retrieval, store
 
 DIM = 1 << 20
+# retrieval.STOP minus words that carry meaning in a memory (IDF already weighs down the common ones)
+STOP = retrieval.STOP - {"test", "tests", "fix", "change", "update", "file", "files", "code", "function", "functions",
+                         "new", "add", "make", "get", "set", "use", "using"}
 
 
 def tokens(text: str, anchor: str = "") -> list[str]:
@@ -21,7 +24,7 @@ def tokens(text: str, anchor: str = "") -> list[str]:
     for w in retrieval._WORD.findall(text or ""):
         for part in dict.fromkeys([w] + w.split("_") + retrieval._CAMEL.findall(w)):
             p = part.lower()
-            if len(p) >= 3 and p not in retrieval.STOP:
+            if len(p) >= 3 and p not in STOP:
                 plural = p.endswith("s") and len(p) > 4 and not p.endswith(("ss", "us", "is", "ys"))
                 out.append(p[:-1] if plural else p)
     for path in retrieval.path_tokens(text or "") | ({anchor} if anchor else set()):

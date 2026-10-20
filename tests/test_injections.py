@@ -29,7 +29,8 @@ class Injections(unittest.TestCase):
     def test_session_start_records_what_each_session_was_shown(self):
         start(self.root, "s1"); start(self.root, "s2")
         con = store.connect(self.root)
-        shown = {(r[0], r[1]) for r in con.execute("SELECT session, memory_id FROM injections")}
+        shown = {(r[0], r[1]) for r in con.execute("SELECT session, memory_id FROM injections JOIN memories m "
+                                                   "ON m.id=memory_id WHERE m.mkey IS NULL")}   # facts aside
         self.assertEqual(shown, {("s1", self.rule), ("s1", self.note), ("s2", self.rule), ("s2", self.note)})
         con.close()
 
@@ -37,7 +38,8 @@ class Injections(unittest.TestCase):
         (Path(self.root) / "a.py").write_text("x = 2\n")           # file changed -> note stale at start-up
         start(self.root, "s1")
         con = store.connect(self.root)
-        ids = {r[0] for r in con.execute("SELECT memory_id FROM injections")}
+        ids = {r[0] for r in con.execute("SELECT memory_id FROM injections JOIN memories m ON m.id=memory_id "
+                                         "WHERE m.mkey IS NULL")}
         self.assertEqual(ids, {self.rule})
         con.close()
 

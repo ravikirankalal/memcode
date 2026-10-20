@@ -319,10 +319,29 @@ def has_unseen_rules(con, session: str, path: str, root=None) -> bool:
                        (*chain, session)).fetchone() is not None
 
 
+TOUCH_HOPS = 3
+
+
+def _neighbours(con, session: str, ids: list[int]) -> list:
+    """Up to TOUCH_HOPS memories linked to `ids` in the memory graph, not shown this session, not the user's words
+    (a rule applies where it is scoped), not expired; strongest link first."""
+    from . import graph
+    out, now = [], time.time()
+    for o, w, _ in graph.neighbours(con, ids, limit=TOUCH_HOPS * 4):
+        r = con.execute("""SELECT * FROM memories WHERE id=? AND stale=0 AND from_user=0 AND mkey IS NULL
+                           AND (expires_at IS NULL OR expires_at>?) AND id NOT IN
+                           (SELECT memory_id FROM injections WHERE session=?)""", (o, now, session)).fetchone()
+        if r is not None:
+            out.append(r)
+        if len(out) >= TOUCH_HOPS:
+            break
+    return out
+
+
 def rules_for_path(con, session: str, path: str, root=None, token_cap: int = TOUCH_TOKEN_CAP) -> tuple[str, list[int]]:
     """Context for a path the agent just touched (read or edited): the live memories scoped on its scope_chain (repo
     scope excluded: the start block shows it) not yet shown this session, nearest first (rules before notes within a
-    level, then newest), within `token_cap`, framed like retrieval (rules outside the untrusted wrapper, notes
+    level, then newest), then their neighbours in the memory graph, within `token_cap`, framed like retrieval (rules outside the untrusted wrapper, notes
     inside). Records them in `injections` (source 'touch'), so each is injected once per session and retrieval
     skips it later. ('', []) when MEMCODE_HIER is off or nothing applies."""
     if not hier_enabled():
@@ -336,13 +355,13 @@ def rules_for_path(con, session: str, path: str, root=None, token_cap: int = TOU
     rows = con.execute(f"""SELECT * FROM memories m WHERE m.stale=0 AND m.scope_path IN ({marks})
                            AND m.id NOT IN (SELECT memory_id FROM injections WHERE session=?)""",
                        (*chain, session)).fetchall()
+    now = time.time()
+    rows = [r for r in rows if r["expires_at"] is None or r["expires_at"] > now]
     rows.sort(key=lambda r: (level_key(r), not r["from_user"], -r["updated_at"], -r["id"]))
+    rows += _neighbours(con, session, [r["id"] for r in rows])
     rules, notes, ids, used = [], [], [], 0
     for r in rows:
-        if r["from_user"]:
-            line = f"- {pinned._one_line(pinned._rule_text(r['text']), 240)}"
-        else:
-            line = f"- ({r['trigger']}) {pinned._one_line(r['text'])}" + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
+        line = pinned._from_you_line(r) if r["from_user"] else pinned.memory_line(r)
         if (used + len(line)) / pinned.TOKEN_DIVISOR > token_cap:
             break
         used += len(line) + 1
@@ -352,11 +371,10 @@ def rules_for_path(con, session: str, path: str, root=None, token_cap: int = TOU
         return "", []
     parts = []
     if rules:
-        parts.append(f"## Project rules for {rel} (stated by the user earlier; follow them)\n" + "\n".join(rules))
+        parts.append(f"## From you, for {rel} (stated by the user earlier; follow them)\n" + "\n".join(rules))
     if notes:
-        parts.append("\n".join([pinned.NOTES_HEADER, pinned.NOTES_OPEN, f"## Notes for {rel}", *notes,
+        parts.append("\n".join([pinned.NOTES_HEADER, pinned.NOTES_OPEN, f"## Memory for {rel}", *notes,
                                 pinned.NOTES_CLOSE]))
-    now = time.time()
     con.executemany("INSERT INTO injections(session,memory_id,ts,source) VALUES(?,?,?,'touch')",
                     [(session, i, now) for i in ids])
     con.commit()

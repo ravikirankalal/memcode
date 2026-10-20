@@ -61,7 +61,7 @@ class Counters(unittest.TestCase):
                        input=json.dumps({"session_id": "abc12345", "cwd": self.root}), text=True)
         con = store.connect(self.root)
         r = row(con, "abc12345")
-        self.assertEqual((r["rules_injected"], r["notes_injected"]), (1, 1))
+        self.assertEqual((r["rules_injected"], r["notes_injected"]), (1, 2))     # + the languages fact
         con.close()
 
     def test_cli_sessions_and_stats(self):
