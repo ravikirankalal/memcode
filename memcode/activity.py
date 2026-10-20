@@ -2,7 +2,8 @@
 
   {"version": 1, "updated": <epoch s>, "counts": {"memories", "rules", "notes", "facts"},
    "events": [{"ts", "kind", "text", "n"}, ...],            newest last, at most MAX_EVENTS
-   "problems": {"capture": "<why>"}}                         what is broken right now; absent when nothing is
+   "problems": {"capture": "<why>"},                         what is broken right now; absent when nothing is
+   "busy": {"agent": <since epoch s>}}                       what is working right now (the memory agent reading)
 
 kind: saved (a memory was captured or added), start (session-start block), recalled (per-prompt retrieval),
 touch (scoped memories on a first read), held (a first write refused with the folder's rules), forgot (memories
@@ -48,7 +49,14 @@ def problem(con, key: str, text: str | None) -> None:
     _write(con, None, (key, " ".join(text.split())[:240] if text else None))
 
 
-def _write(con, event: dict | None, prob: tuple[str, str | None] | None = None) -> None:
+def busy(con, key: str, on: bool) -> None:
+    """Mark (on) or clear a piece of memcode as working right now, e.g. the memory agent reading a turn; the status bar
+    shows it while it lasts (and ignores a mark left behind by a worker that died)."""
+    _write(con, None, busy=(key, time.time() if on else None))
+
+
+def _write(con, event: dict | None, prob: tuple[str, str | None] | None = None,
+           busy: tuple[str, float | None] | None = None) -> None:
     try:
         p = _path(con)
         if not p:
@@ -61,6 +69,14 @@ def _write(con, event: dict | None, prob: tuple[str, str | None] | None = None) 
             data = {}
         events = [e for e in (data.get("events") or []) if isinstance(e, dict)]
         problems = data.get("problems") if isinstance(data.get("problems"), dict) else {}
+        working = data.get("busy") if isinstance(data.get("busy"), dict) else {}
+        if busy:
+            if busy[1]:
+                working[busy[0]] = busy[1]
+            elif busy[0] in working:
+                working.pop(busy[0])
+            else:
+                return
         if prob:
             if prob[1]:
                 problems[prob[0]] = prob[1]
@@ -75,6 +91,8 @@ def _write(con, event: dict | None, prob: tuple[str, str | None] | None = None) 
         out = {"version": 1, "updated": now, "counts": _counts(con), "events": events}
         if problems:
             out["problems"] = problems
+        if working:
+            out["busy"] = working
         with open(tmp, "w") as fh:
             json.dump(out, fh)
         os.replace(tmp, p)
