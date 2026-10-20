@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS paths (
 );
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  trigger TEXT NOT NULL,          -- correction|revert|fail_to_fix|retry|dep_change|manual
+  trigger TEXT NOT NULL,          -- where it came from: correction|revert|fail_to_fix|retry|dep_change|agent|manual
   text TEXT NOT NULL,             -- summary
   anchor_path TEXT NOT NULL,      -- paths.path this memory is attached to ('' = repo-wide)
   anchor_hash TEXT,               -- content hash of the anchor when written
@@ -237,6 +237,10 @@ def _migrate(con) -> None:
                    WHERE importance=3 AND json_valid(provenance) AND json_extract(provenance, '$.importance') BETWEEN 1 AND 5""")
     con.execute("UPDATE memories SET topic='decision' WHERE trigger='decision' AND topic=''")
     con.execute("UPDATE memories SET expires_at=updated_at+30*86400 WHERE trigger='decision' AND expires_at IS NULL")
+    con.execute("""UPDATE memories SET trigger='agent' WHERE trigger IN ('transcript', 'decision') OR (trigger='correction'
+                   AND json_valid(provenance) AND json_extract(provenance, '$.source')='transcript')""")
+    con.execute("""UPDATE memories SET text=substr(text, 28) WHERE text LIKE 'Rule from user correction: %'""")
+
     for idx, cols in (("idx_mem_scope", "scope_path"), ("idx_mem_parent", "parent_id")):
         try:
             con.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON memories({cols})")

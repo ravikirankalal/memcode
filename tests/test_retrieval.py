@@ -23,7 +23,7 @@ class Retrieval(unittest.TestCase):
         self.inv = add("fail_to_fix", "rounding of invoice totals broke tests until cents were integers", "billing/invoice.py", "total_cents")
         self.auth = add("revert", "agent change to session expiry was reverted", "auth/session.py")
         self.dates = add("fail_to_fix", "naive datetimes failed the timezone tests", "util/dates.py")
-        self.rule = add("correction", "Rule from user correction: Always store money as integer cents.")
+        self.rule = add("correction", "Always store money as integer cents.")
         self.chatter = add("retry", "Command `make lint` needed multiple attempts")
 
     def ids(self, prompt, session="s"):
@@ -115,8 +115,8 @@ class Scope(unittest.TestCase):
 
     def test_directory_scoped_rule_matches_paths_inside_it_only(self):
         root = tempfile.mkdtemp(); con = store.connect(root)
-        rid = store.add_memory(con, "correction", "Rule from user correction: Every new module under billing/ starts with '# PCI'.", "", None, {})
-        store.add_memory(con, "correction", "Rule from user correction: Components in frontend/ use named exports.", "", None, {})
+        rid = store.add_memory(con, "correction", "Every new module under billing/ starts with '# PCI'.", "", None, {})
+        store.add_memory(con, "correction", "Components in frontend/ use named exports.", "", None, {})
         got = [r["id"] for _, r in retrieval.score(con, root, "s", "Create billing/refunds.py with a refund function")]
         self.assertEqual(got, [rid])
         self.assertEqual(retrieval.score(con, root, "s", "Create payments/refunds.py with a refund function"), [])

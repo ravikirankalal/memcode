@@ -9,7 +9,7 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.14.0 (2026-10-20, PR #49) | none |
+| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–2 of 7 done) |
 | memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
 
 ## What works
@@ -29,6 +29,17 @@ _Last updated: 2026-10-20._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (flat memory graph, 0.15.0)
+
+- Step 1: memories gain `from_user`, `topic`, `importance`, `mkey`, `expires_at`, `stats`; new tables `memory_links`
+  and `memory_vectors`; old rows migrate (corrections -> from_user, categories -> topic, decisions -> expiry).
+- Step 2: one rule concept. Every "is this a rule" check reads `from_user` (start block, folder scopes, held writes,
+  recall, salience, the memory agent, status counts). The memory agent writes origin `agent` with from_user / topic /
+  importance / expires_at; decisions are `topic='decision'` with an expiry, refreshed when updated. Rule text is plain
+  (the "Rule from user correction:" prefix is gone, stripped from old rows).
+- Pending: steps 3–7 (facts as keyed memories, embeddings and links, one delivery, flat agent output, surfaces).
+- Tests: 228 Python, 13 mod.
 
 ## Latest release (memcode 0.14.0)
 

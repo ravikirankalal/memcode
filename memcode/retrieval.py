@@ -147,12 +147,12 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     # block already listed it; a start-block mention among many was followed less often than one beside the request
     again = lambda r: (hier and src.get(r["id"]) == {"pinned"} and bool(r["anchor_path"])
                        and _mentions(prompt_l, r["anchor_path"], r["anchor_symbol"]))
-    rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0 AND m.trigger!='decision'")
+    rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0 AND m.topic!='decision'")
             if r["id"] not in src or again(r)]
     if not rows:
         return []
     pt = terms(prompt)
-    body = lambda r: pinned._rule_text(r["text"]) if r["trigger"] == "correction" else r["text"]   # drop boilerplate
+    body = lambda r: pinned._rule_text(r["text"]) if r["from_user"] else r["text"]   # drop boilerplate
     docs = _doc_terms(con, rows, body)
     n = len(rows) + 1
     df: dict[str, int] = {}
@@ -221,14 +221,14 @@ def render(scored: list[tuple[float, dict]], con=None) -> tuple[str, list[int]]:
     """con enables the promotions of costly memories (see select)."""
     rules, notes, ids, used = [], [], [], 0
     for s, r in select(con, scored):
-        if r["trigger"] == "correction":
+        if r["from_user"]:
             line = f"- {pinned._one_line(pinned._rule_text(r['text']), 240)}"
         else:
             line = f"- ({r['trigger']}) {pinned._one_line(r['text'])}" + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
         if (used + len(line)) / pinned.TOKEN_DIVISOR > TOKEN_CAP:
             break
         used += len(line) + 1
-        (rules if r["trigger"] == "correction" else notes).append(line)
+        (rules if r["from_user"] else notes).append(line)
         ids.append(r["id"])
     parts = []
     if rules:

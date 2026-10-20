@@ -17,7 +17,7 @@ class Outcomes(unittest.TestCase):
         self.con = store.connect(self.root)
         self.note = store.add_memory(self.con, "fail_to_fix", "pytest failed until a.py fixed", "a.py",
                                      store.sha1(b"x = 1\n"), {"session": "old"}, confidence=0.5)
-        self.rule = store.add_memory(self.con, "correction", "Rule from user correction: Always use tabs.", "", None,
+        self.rule = store.add_memory(self.con, "correction", "Always use tabs.", "", None,
                                      {"session": "old"}, confidence=0.5)
 
     def shown(self, sess, *ids, ts=OLD):

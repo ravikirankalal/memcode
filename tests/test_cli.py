@@ -18,7 +18,7 @@ class Cli(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
         con = store.connect(self.root)
-        self.a = store.add_memory(con, "correction", "Rule from user correction: Always use tabs.", "", None, {"s": 1})
+        self.a = store.add_memory(con, "correction", "Always use tabs.", "", None, {"s": 1})
         self.b = store.add_memory(con, "fail_to_fix", "pytest failed then passed", "a.py", "h", {})
         con.execute("UPDATE memories SET stale=1 WHERE id=?", (self.b,))
         con.execute("INSERT INTO retrievals(session,memory_id,ts) VALUES('x',?,0)", (self.a,))

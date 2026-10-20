@@ -87,11 +87,11 @@ def delta(con, session: str, since: float) -> str:
     for r in con.execute("SELECT op, memory_id, after FROM memory_log WHERE session=? AND ts>? ORDER BY id",
                          (session, since)):
         lines.append(f"- memcode applied your {r['op']} #{r['memory_id']}: {' '.join(str(r['after'] or '').split())[:200]}")
-    for r in con.execute("SELECT id, trigger, text, anchor_path FROM memories WHERE stale=0 AND updated_at>? AND "
+    for r in con.execute("SELECT id, trigger, text, anchor_path, from_user, topic FROM memories WHERE stale=0 AND updated_at>? AND "
                          "id NOT IN (SELECT memory_id FROM memory_log WHERE ts>? AND memory_id IS NOT NULL) ORDER BY id",
                          (since, since)):
-        kind = {"correction": "rule", "decision": "decision"}.get(r["trigger"], "note")
-        text = r["text"].replace("Rule from user correction: ", "", 1)
+        kind = "rule" if r["from_user"] else "decision" if r["topic"] == "decision" else "note"
+        text = r["text"]
         lines.append(f"- new or changed #{r['id']} {kind} [{r['anchor_path'] or 'repo'}] ({r['trigger']}): "
                      f"{' '.join(text.split())[:200]}")
     shown = [r[0] for r in con.execute("SELECT DISTINCT memory_id FROM injections WHERE session=? AND ts>? ORDER BY 1",

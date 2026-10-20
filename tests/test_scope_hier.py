@@ -7,7 +7,7 @@ from unittest import mock
 
 from memcode import pinned, retrieval, scope, store, tree
 
-RULE = "Rule from user correction: "
+RULE = ""
 
 
 def repo(files=("billing/invoice.py", "billing/api/refunds.py", "web/views.py", "README.md")):

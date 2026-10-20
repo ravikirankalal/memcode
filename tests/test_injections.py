@@ -22,7 +22,7 @@ class Injections(unittest.TestCase):
         self.root = tempfile.mkdtemp()
         (Path(self.root) / "a.py").write_text("x = 1\n")
         con = store.connect(self.root)
-        self.rule = store.add_memory(con, "correction", "Rule from user correction: Always use tabs.", "", None, {})
+        self.rule = store.add_memory(con, "correction", "Always use tabs.", "", None, {})
         self.note = store.add_memory(con, "fail_to_fix", "pytest failed then passed", "a.py", store.sha1(b"x = 1\n"), {})
         con.close()
 

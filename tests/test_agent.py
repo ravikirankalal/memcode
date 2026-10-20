@@ -166,10 +166,11 @@ class Store(unittest.TestCase):
     def test_stores_verified_items_as_rule_and_note(self):
         ids = curate.store_items(self.con, self.d, "s", self.items(), self.condensed, "m")
         self.assertEqual(len(ids), 2)                                   # the unverified one is dropped
-        rows = {r["trigger"]: r for r in self.con.execute("SELECT * FROM memories")}
-        self.assertEqual(rows["transcript"]["anchor_path"], "Makefile")
-        self.assertTrue(rows["correction"]["text"].startswith("Rule from user correction: Every module"))
-        self.assertEqual(json.loads(rows["transcript"]["provenance"])["source"], "transcript")
+        rows = {r["from_user"]: r for r in self.con.execute("SELECT * FROM memories")}
+        self.assertEqual({r["trigger"] for r in rows.values()}, {"agent"})
+        self.assertEqual(rows[0]["anchor_path"], "Makefile")
+        self.assertTrue(rows[1]["text"].startswith("Every module"))                 # plain text, flagged from_user
+        self.assertEqual(json.loads(rows[0]["provenance"])["source"], "agent")
         again = curate.store_items(self.con, self.d, "s2", self.items(), self.condensed, "m")
         self.assertEqual(again, [])                                     # repeats of live memories are skipped
 
@@ -183,7 +184,7 @@ class Store(unittest.TestCase):
                  {"kind": "rule", "text": "Keep backward compatibility in mind in reviews.",
                   "evidence": "keep the backwork compatibility in mind", "path": ""}]
         self.assertEqual(curate.store_items(self.con, self.d, "s", items, condensed, "m"), [])
-        rid = store.add_memory(self.con, "correction", "Rule from user correction: Indent with tabs.", "", None, {})
+        rid = store.add_memory(self.con, "correction", "Indent with tabs.", "", None, {})
         upd = {"op": "update", "target": rid, "kind": "rule", "text": "Start a review subagent on main.",
                "evidence": "Park G16. Start a review subagent", "path": ""}
         self.assertIsNone(curate.change(self.con, "s", upd, condensed))
@@ -208,7 +209,7 @@ class Store(unittest.TestCase):
     def test_short_user_turn_is_scanned_and_small_ones_wait(self):
         seen = []
         fake = lambda text, rules=None: seen.append((text, rules)) or {"items": [], "model": "f", "cost_usd": 0}  # noqa: E731
-        store.add_memory(self.con, "correction", "Rule from user correction: Indent with tabs.", "", None, {})
+        store.add_memory(self.con, "correction", "Indent with tabs.", "", None, {})
         path = write_transcript([agent({"type": "text", "text": "ok"})])
         worker.enqueue(self.con, "s1", path)
         worker.run_worker(self.d, fake)
@@ -227,7 +228,7 @@ class Store(unittest.TestCase):
     def test_update_and_retire_follow_the_evidence_rules(self):
         cond = transcript.condense([json.dumps(e) for e in SESSION] + [json.dumps(user(
             "Actually we dropped the SPDX header requirement last week, new files do not need it anymore."))])
-        rule = store.add_memory(self.con, "correction", "Rule from user correction: Every module starts with SPDX.",
+        rule = store.add_memory(self.con, "correction", "Every module starts with SPDX.",
                                 "", None, {})
         note = store.add_memory(self.con, "transcript", "Run the tests with pytest.", "", None, {})
         agent_ev = "unittest finds nothing here; the Makefile has a check target"
@@ -252,7 +253,7 @@ class Store(unittest.TestCase):
 
     def test_memories_in_the_agents_context_are_not_relearned(self):
         rule = store.add_memory(self.con, "correction",
-                                "Rule from user correction: New code gets the date from shelf.clock, never datetime.",
+                                "New code gets the date from shelf.clock, never datetime.",
                                 "", None, {})
         self.con.execute("INSERT INTO injections(session, memory_id, ts, source) VALUES('s', ?, 0, 'pinned')", (rule,))
         self.con.commit()
@@ -267,7 +268,7 @@ class Store(unittest.TestCase):
                  "text": "Importers skip blank rows silently.", "evidence": "Our importers always skip blank rows silently"}
         self.assertEqual(len(curate.store_items(self.con, self.d, "s", [echo, fresh], cond)), 1)   # only the new one
         texts = [r[0] for r in self.con.execute("SELECT text FROM memories")]
-        self.assertIn("Rule from user correction: Importers skip blank rows silently.", texts)
+        self.assertIn("Importers skip blank rows silently.", texts)
         self.assertEqual(len(curate.store_items(self.con, self.d, "other", [echo], cond)), 1)      # not shown there
 
     def test_short_fact_is_not_a_repeat(self):                          # tc1 (Run 16): a fact "shelf" ate a rule
@@ -404,9 +405,9 @@ class Store(unittest.TestCase):
     def test_old_pinned_howtos_are_unpinned_and_revive(self):
         from memcode import tree
         Path(self.d, "plugin.json").write_text('{"version": "2"}')
-        mid = store.add_memory(self.con, "transcript", "Validate plugin.json before merging.", "plugin.json",
+        mid = store.add_memory(self.con, "agent", "Validate plugin.json before merging.", "plugin.json",
                                "oldhash", {})
-        code = store.add_memory(self.con, "transcript", "f returns 1.", "Makefile", "oldhash", {})
+        code = store.add_memory(self.con, "agent", "f returns 1.", "Makefile", "oldhash", {})
         tree.mark_stale(self.con, self.d)
         self.assertEqual(curate.unpin_howtos(self.con), 2)                    # both: Makefile is not a code file
         tree.mark_stale(self.con, self.d)
@@ -599,20 +600,20 @@ class Decisions(unittest.TestCase):
         return base
 
     def decisions(self):
-        return [r[0] for r in self.con.execute("SELECT text FROM memories WHERE trigger='decision'")]
+        return [r[0] for r in self.con.execute("SELECT text FROM memories WHERE topic='decision'")]
 
     def test_park_gives_a_decision_shown_dated_and_no_rule(self):
         rule = self.item(kind="rule", category="rule", subject="", text="Start a review subagent on main.",
                          evidence="Start a review subagent on multitenant main")
         curate.store_items(self.con, self.d, "s", [self.item(), rule], self.PARK, "m")
         self.assertEqual(self.decisions(), ["G16 is parked until the end."])
-        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories WHERE trigger='correction'").fetchone()[0], 0)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories WHERE from_user=1").fetchone()[0], 0)
         from memcode import pinned
         block = pinned.render_pinned(self.con, self.d)
         self.assertIn("## Decisions", block.split(pinned.NOTES_OPEN)[1])           # context, not under rules
         self.assertIn(f"- {time.strftime('%Y-%m-%d')}: G16 is parked until the end.", block)
         self.assertNotIn("(decision)", block)                                       # not repeated under ## Memories
-        mid = self.con.execute("SELECT id FROM memories WHERE trigger='decision'").fetchone()[0]
+        mid = self.con.execute("SELECT id FROM memories WHERE topic='decision'").fetchone()[0]
         self.assertIn(mid, pinned.shown_ids(self.con, block))
 
     def test_evidence_must_be_the_users_words_or_a_result(self):
@@ -639,7 +640,7 @@ class Decisions(unittest.TestCase):
         curate.store_items(self.con, self.d, "s", [self.item(text="G16 is planned after G15.",
                                                          evidence="G16 is back in scope for this milestone")], later, "m")
         self.assertEqual(self.decisions(), ["G16 is planned after G15."])
-        mid = self.con.execute("SELECT id FROM memories WHERE trigger='decision'").fetchone()[0]
+        mid = self.con.execute("SELECT id FROM memories WHERE topic='decision'").fetchone()[0]
         agent_only = {"op": "retire", "target": mid, "kind": "decision", "text": "done", "evidence": "Parked G16; starting"}
         self.assertIsNone(curate.change(self.con, "s", agent_only, self.PARK))         # the agent's words cannot retire it
         retire = {"op": "retire", "target": mid, "kind": "decision", "text": "the user un-parked G16",
@@ -649,7 +650,7 @@ class Decisions(unittest.TestCase):
 
     def test_decisions_expire(self):
         curate.store_items(self.con, self.d, "s", [self.item()], self.PARK, "m")
-        self.con.execute("UPDATE memories SET updated_at=updated_at-31*86400"); self.con.commit()
+        self.con.execute("UPDATE memories SET updated_at=updated_at-31*86400, expires_at=expires_at-31*86400"); self.con.commit()
         from memcode import pinned
         self.assertNotIn("## Decisions", pinned.render_pinned(self.con, self.d))
         self.assertEqual(curate.expire_decisions(self.con), 1)

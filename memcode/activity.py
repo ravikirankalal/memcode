@@ -30,7 +30,7 @@ def _path(con) -> str | None:
 
 
 def _counts(con) -> dict:
-    live, rules = con.execute("SELECT COUNT(*), COALESCE(SUM(trigger='correction'), 0) FROM memories "
+    live, rules = con.execute("SELECT COUNT(*), COALESCE(SUM(from_user), 0) FROM memories "
                               "WHERE stale=0").fetchone()
     try:
         facts = con.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
@@ -100,8 +100,8 @@ def _write(con, event: dict | None, prob: tuple[str, str | None] | None = None,
         pass
 
 
-def saved(con, trigger: str, text: str, anchor: str = "") -> None:
-    if trigger == "correction":
+def saved(con, trigger: str, text: str, anchor: str = "", from_user: bool | None = None) -> None:
+    if trigger == "correction" if from_user is None else from_user:
         from .pinned import _rule_text
         note(con, "saved", f"rule: {_rule_text(text)}")
     else:

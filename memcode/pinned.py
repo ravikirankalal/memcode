@@ -1,6 +1,6 @@
 """Deterministic pinned context: user rules, then a compact tree + annotations + memories.
 
-Trust model: `correction` memories are written only from the user's own prompts (triggers.py),
+Trust model: `from_user` memories are written only from the user's own words (triggers.py, the memory agent's checks),
 so they are presented as the user's instructions, with provenance, OUTSIDE the untrusted
 wrapper. Everything else (map text, agent-derived and manually added memories) stays inside the
 wrapper as data.
@@ -54,15 +54,15 @@ def shown_ids(con, text: str) -> list[int]:
             heads.add(l[:i])
             i = l.find(" [", i + 1)
     shown = []
-    for r in con.execute("SELECT id, trigger, text, provenance FROM memories WHERE stale=0 ORDER BY id"):
+    for r in con.execute("SELECT id, trigger, text, from_user, topic FROM memories WHERE stale=0 ORDER BY id"):
         cat = _knowledge(r)
         if cat:
             if f"- ({cat}) {_one_line(r['text'])}" in heads:
                 shown.append(r["id"])
-        elif r["trigger"] == "correction":
+        elif r["from_user"]:
             if f"- {_one_line(_rule_text(r['text']), 240)}" in lines:
                 shown.append(r["id"])
-        elif r["trigger"] == "decision":
+        elif r["topic"] == "decision":
             if any(l.startswith("- ") and l.endswith(f": {_one_line(r['text'])}") for l in lines):
                 shown.append(r["id"])
         elif f"- ({r['trigger']}) {_one_line(r['text'])}" in heads:
@@ -75,24 +75,16 @@ KNOWLEDGE_ORDER = ("stack", "structure", "component", "domain", "integration", "
 
 
 def _knowledge(row) -> str | None:
-    """The project-profile category of a memory the memory agent inferred (stack, component, ...), else None."""
-    if row["trigger"] != "transcript":
-        return None
-    import json
-    try:
-        cat = (json.loads(row["provenance"] or "{}") or {}).get("category")
-    except (ValueError, TypeError, AttributeError):
-        return None
-    return cat if cat in KNOWLEDGE_ORDER else None
+    """The project-profile topic of a memory (stack, component, ...), else None."""
+    return None if row["from_user"] or row["topic"] not in KNOWLEDGE_ORDER else row["topic"]
 
 
 def decision_lines(con) -> list[str]:
     """`- 2026-10-18: G16 parked until the end` for live decisions (#42), newest first; expired ones are left out
     (agent.curate.expire_decisions deletes them)."""
-    from .agent import decision_days
-    cutoff = time.time() - decision_days() * 86400
-    rows = con.execute("SELECT text, updated_at FROM memories WHERE trigger='decision' AND stale=0 AND updated_at>=? "
-                       "ORDER BY updated_at DESC, id DESC LIMIT ?", (cutoff, MAX_DECISIONS)).fetchall()
+    rows = con.execute("SELECT text, updated_at FROM memories WHERE topic='decision' AND stale=0 AND from_user=0 AND "
+                       "(expires_at IS NULL OR expires_at>?) ORDER BY updated_at DESC, id DESC LIMIT ?",
+                       (time.time(), MAX_DECISIONS)).fetchall()
     return [_decision_line(r["text"], r["updated_at"]) for r in rows]
 
 
@@ -165,8 +157,8 @@ def _tree_lines(con, rule_marks: dict[str, int] | None = None) -> list[tuple[str
 
 
 def _rule_text(t: str) -> str:
-    """Strip the 'Rule from user correction:' prefix and the '(context: path)' tail."""
-    t = t.replace("Rule from user correction:", "", 1).strip()
+    """Strip the '(context: path)' tail."""
+    t = t.strip()
     i = t.rfind(" (context:")
     return t[:i].strip() if i != -1 and t.endswith(")") else t
 
@@ -175,7 +167,7 @@ def _memory_rows(con):
     """Notes (not rules or decisions), most retrieved first, then newest."""
     return con.execute(
         """SELECT m.* , (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq
-            FROM memories m WHERE m.stale=0 AND m.trigger NOT IN ('correction','decision')
+            FROM memories m WHERE m.stale=0 AND m.from_user=0 AND m.topic!='decision'
             ORDER BY freq DESC, m.updated_at DESC, m.id DESC""").fetchall()
 
 
@@ -186,7 +178,7 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
     split = scope.split_rules(repo_root)   # MEMCODE_HIER: scoped rules arrive with retrieval instead
     rules_block = ""
     only_repo = " AND scope_path=''" if split else ""
-    rules = con.execute(f"""SELECT * FROM (SELECT * FROM memories WHERE stale=0 AND trigger='correction'{only_repo}
+    rules = con.execute(f"""SELECT * FROM (SELECT * FROM memories WHERE stale=0 AND from_user=1{only_repo}
                            ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY created_at ASC, id ASC""",
                         (MAX_RULES,)).fetchall()            # newest MAX_RULES, shown oldest -> newest
     if rules:

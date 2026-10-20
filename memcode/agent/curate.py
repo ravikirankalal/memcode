@@ -33,9 +33,8 @@ def decision_days() -> float:
         return DECISION_DAYS
 
 def expire_decisions(con, session: str = "") -> int:
-    """Delete decisions not restated for decision_days(); each is kept in memory_log ('expire')."""
-    cutoff = time.time() - decision_days() * 86400
-    rows = con.execute("SELECT * FROM memories WHERE trigger='decision' AND updated_at < ?", (cutoff,)).fetchall()
+    """Delete decisions past their expiry (decision_days() after last stated); each is kept in memory_log ('expire')."""
+    rows = con.execute("SELECT * FROM memories WHERE topic='decision' AND expires_at < ?", (time.time(),)).fetchall()
     for r in rows:
         _log(con, session, "expire", r["id"], before=r, after=f"expired after {decision_days():g} days")
     if rows:
@@ -46,7 +45,7 @@ def expire_decisions(con, session: str = "") -> int:
 def unpin_howtos(con) -> int:
     """Notes stored before pins_content existed: drop the content pin of how-tos and non-code notes, so a still-true
     note stops going stale on every edit (session start revives the ones staled that way)."""
-    rows = con.execute("SELECT id, text, anchor_path FROM memories WHERE trigger='transcript' "
+    rows = con.execute("SELECT id, text, anchor_path FROM memories WHERE trigger='agent' "
                        "AND anchor_hash IS NOT NULL").fetchall()
     ids = [r["id"] for r in rows if not checks.pins_content(r["text"], r["anchor_path"])]
     if ids:
@@ -81,10 +80,11 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
         return None
     if op == "update" and checks.echoes_context(con, session, item, condensed):
         return None
-    is_rule = row["trigger"] in ("correction", "manual")
+    is_rule = bool(row["from_user"])
     if is_rule and (not checks.user_evidence(item, condensed) or checks.verified(dict(item, kind="rule"), condensed) != "rule"):
         return None
-    if row["trigger"] == "decision" and checks.verified(dict(item, kind="decision"), condensed) != "decision":
+    is_decision = row["topic"] == "decision"
+    if is_decision and checks.verified(dict(item, kind="decision"), condensed) != "decision":
         return None
     text = " ".join(str(item.get("text", "")).split())[:300]
     ev = item.get("evidence", "")
@@ -94,11 +94,12 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
         activity.note(con, "retired", f"retired #{target}: {text}")
         return target
     if op == "update":
-        new = f"Rule from user correction: {text}" if row["trigger"] == "correction" else text
-        if new == row["text"]:
+        if text == row["text"]:
             return None
-        _log(con, session, "update", target, before=row, after=new, evidence=ev)
-        con.execute("UPDATE memories SET text=?, updated_at=? WHERE id=?", (new, time.time(), target))
+        _log(con, session, "update", target, before=row, after=text, evidence=ev)
+        now = time.time()
+        con.execute("UPDATE memories SET text=?, updated_at=?, expires_at=? WHERE id=?",
+                    (text, now, now + decision_days() * 86400 if is_decision else row["expires_at"], target))
         activity.note(con, "updated", f"updated #{target}: {text}")
         return target
     return None
@@ -131,14 +132,14 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         text = " ".join(str(item.get("text", "")).split())[:300]
         if kind is None or checks.is_repeat(con, text) or checks.echoes_context(con, session, item, condensed):
             continue
-        prov = {"session": session, "source": "transcript", "model": model, "ts": time.time(),
+        prov = {"session": session, "source": "agent", "model": model, "ts": time.time(),
                 "evidence": str(item.get("evidence", ""))[:200],
                 "category": str(item.get("category", ""))[:20], "importance": rating(item)}
         if kind == "env":                  # the agent's environment, not the repo: an env fact (facts.py), not a memory
             from .. import facts
             facts.ensure(con)
             facts._set_derived(con, f"env:obs:{hashlib.sha1(text.lower().encode()).hexdigest()[:10]}", "env",
-                               "observed", text, "transcript")
+                               "observed", text, "agent")
             con.execute("""DELETE FROM facts WHERE key LIKE 'env:obs:%' AND key NOT IN (SELECT key FROM facts
                            WHERE key LIKE 'env:obs:%' ORDER BY last_seen DESC LIMIT ?)""", (MAX_ENV_FACTS,))
             activity.note(con, "saved", f"env fact: {text}")
@@ -152,32 +153,36 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             subject = " ".join(str(item.get("subject", "")).split())[:40].lower()
             prov["subject"] = subject
             if subject:                    # a newer decision on the same subject replaces the older one
-                old = [r for r in con.execute("SELECT * FROM memories WHERE trigger='decision'")
+                old = [r for r in con.execute("SELECT * FROM memories WHERE topic='decision'")
                        if (db.loads(r["provenance"]).get("subject") or "") == subject]
                 for r in old:
                     _log(con, session, "retire", r["id"], before=r, after=f"replaced by a newer decision on {subject}",
                          evidence=item.get("evidence", ""))
                 if old:
                     store.delete_ids(con, [r["id"] for r in old])
-            mid = store.add_memory(con, "decision", text, "", None, prov, 0.6, commit=False)
+            mid = store.add_memory(con, "agent", text, "", None, prov, 0.6, commit=False, from_user=False,
+                                   topic="decision", importance=rating(item),
+                                   expires_at=time.time() + decision_days() * 86400)
             activity.note(con, "saved", f"decision: {text}")
         elif kind == "rule":
-            body = f"Rule from user correction: {text}"
-            mid = store.add_memory(con, "correction", body, "", None, prov, 0.6, commit=False)
-            activity.saved(con, "correction", body)
+            mid = store.add_memory(con, "agent", text, "", None, prov, 0.6, commit=False, from_user=True,
+                                   importance=rating(item))
+            activity.saved(con, "agent", text, from_user=True)
         else:
             a = _anchor(root, item.get("path", ""))
             h = None
             if a and os.path.isfile(os.path.join(root, a)) and checks.pins_content(text, a) and not knowledge:
                 with open(os.path.join(root, a), "rb") as fh:
                     h = store.sha1(fh.read())
-            mid = store.add_memory(con, "transcript", text, a, h, prov, 0.5, commit=False)
-            activity.saved(con, "transcript", text, a)
+            cat = str(item.get("category", ""))[:20]
+            mid = store.add_memory(con, "agent", text, a, h, prov, 0.5, commit=False, from_user=False,
+                                   topic="" if cat in ("rule", "decision") else cat, importance=rating(item))
+            activity.saved(con, "agent", text, a, from_user=False)
         try:
             from .. import scope
             if kind != "decision":             # decisions are repo-wide context: no folder scope
-                sp, sk = scope.assign(con, "correction" if kind == "rule" else "transcript", text,
-                                      "" if kind == "rule" else a, None)
+                sp, sk = scope.assign(con, "agent", text, "" if kind == "rule" else a, None,
+                                      from_user=kind == "rule")
                 con.execute("UPDATE memories SET scope_path=?, scope_kind=? WHERE id=?", (sp, sk, mid))
         except Exception:  # noqa: BLE001  rescope_new retries at session start
             pass

@@ -11,8 +11,8 @@ Assignment, `assign` (at capture in triggers._write, and at every session start 
 flag says, so turning MEMCODE_HIER on needs no migration):
   * anchor_path set (any trigger): the anchor itself; kind 'symbol' if anchor_symbol, 'dir' if `paths` says so,
     otherwise 'file'.
-  * no anchor, trigger correction/manual (user rules): the path tokens of the rule text (retrieval's path regex; for
-    corrections the "Rule from user correction:" prefix and "(context: ...)" tail are dropped) that exist in `paths`
+  * no anchor, from_user or trigger manual (user rules): the path tokens of the rule text (retrieval's path regex; the
+    "(context: ...)" tail is dropped) that exist in `paths`
     (exact, else ASCII case-insensitive). A file token stands for its directory, so rules are never file-scoped.
     One directory -> that dir; several -> their deepest common ancestor; none, or a common ancestor of '' -> repo.
   * anything else (retry notes, unanchored notes): repo.
@@ -137,7 +137,7 @@ def _common_ancestor(dirs: list[str]) -> str:
 
 
 def assign(con, trigger: str, text: str, anchor_path: str, anchor_symbol: str | None = None,
-           _paths: _Paths | None = None) -> tuple[str, str]:
+           _paths: _Paths | None = None, from_user: bool | None = None) -> tuple[str, str]:
     """(scope_path, scope_kind) for a memory; see the module docstring."""
     paths = _paths or _Paths(con)
     a = anchor_path or ""
@@ -146,10 +146,11 @@ def assign(con, trigger: str, text: str, anchor_path: str, anchor_symbol: str | 
             return a, "symbol"
         hit = paths.get(norm(a))
         return a, ("dir" if hit and hit[1] == "dir" else "file")
-    if trigger not in RULE_TRIGGERS:
+    rule = (trigger == "correction") if from_user is None else from_user
+    if not (rule or trigger in RULE_TRIGGERS):
         return "", "repo"
     from .pinned import _rule_text
-    body = _rule_text(text or "") if trigger == "correction" else (text or "")
+    body = _rule_text(text or "")
     dirs = []
     for tok in _text_paths(body):
         hit = paths.get(tok)
@@ -160,14 +161,15 @@ def assign(con, trigger: str, text: str, anchor_path: str, anchor_symbol: str | 
     return (common, "dir") if common else ("", "repo")
 
 
-_COLS = "id, trigger, text, anchor_path, anchor_symbol, scope_path, scope_kind, level"
+_COLS = "id, trigger, text, anchor_path, anchor_symbol, scope_path, scope_kind, level, from_user"
 
 
 def _apply(con, rows) -> dict:
     paths = _Paths(con, preload=len(rows) > 20)
     upd, kinds = [], {}
     for r in rows:
-        sp, sk = assign(con, r["trigger"], r["text"], r["anchor_path"], r["anchor_symbol"], _paths=paths)
+        sp, sk = assign(con, r["trigger"], r["text"], r["anchor_path"], r["anchor_symbol"], _paths=paths,
+                        from_user=bool(r["from_user"]))
         kinds[sk] = kinds.get(sk, 0) + 1
         if (sp, sk) != (r["scope_path"], r["scope_kind"]):
             upd.append((sp, sk, r["id"]))
@@ -182,9 +184,9 @@ def rescope_new(con, root=None) -> dict:
     scope (any level; a lesson whose scope was set by consolidation is left alone), level-0 rows re-anchored since
     (rename), and rules whose scope directory no longer exists. Idempotent; a second run updates nothing."""
     rows = con.execute(f"""SELECT {_COLS} FROM memories m WHERE
-          (m.scope_path='' AND m.scope_kind='repo' AND (m.anchor_path!='' OR m.trigger IN ('correction','manual')))
+          (m.scope_path='' AND m.scope_kind='repo' AND (m.anchor_path!='' OR m.from_user=1 OR m.trigger='manual'))
        OR (m.level=0 AND m.anchor_path!='' AND m.scope_path!=m.anchor_path)
-       OR (m.anchor_path='' AND m.scope_path!='' AND m.trigger IN ('correction','manual')
+       OR (m.anchor_path='' AND m.scope_path!='' AND (m.from_user=1 OR m.trigger='manual')
            AND NOT EXISTS (SELECT 1 FROM paths p WHERE p.path=m.scope_path))""").fetchall()
     return _apply(con, rows)
 
@@ -287,7 +289,7 @@ def allocate(scored: list, k: int) -> list:
 def rule_marks(con) -> dict[str, int]:
     """{scope path: number of live user rules scoped there} for paths still in the map."""
     return {r[0]: r[1] for r in con.execute(
-        """SELECT m.scope_path, COUNT(*) FROM memories m WHERE m.stale=0 AND m.trigger='correction'
+        """SELECT m.scope_path, COUNT(*) FROM memories m WHERE m.stale=0 AND m.from_user=1
            AND m.scope_path!='' AND EXISTS (SELECT 1 FROM paths p WHERE p.path=m.scope_path)
            GROUP BY m.scope_path""")}
 
@@ -311,7 +313,7 @@ def has_unseen_rules(con, session: str, path: str, root=None) -> bool:
     chain = [c for c in store.scope_chain(rel or "") if c]
     if not chain:
         return False
-    return con.execute(f"""SELECT 1 FROM memories m WHERE m.stale=0 AND m.trigger='correction'
+    return con.execute(f"""SELECT 1 FROM memories m WHERE m.stale=0 AND m.from_user=1
                            AND m.scope_path IN ({",".join("?" * len(chain))})
                            AND m.id NOT IN (SELECT memory_id FROM injections WHERE session=?) LIMIT 1""",
                        (*chain, session)).fetchone() is not None
@@ -334,17 +336,17 @@ def rules_for_path(con, session: str, path: str, root=None, token_cap: int = TOU
     rows = con.execute(f"""SELECT * FROM memories m WHERE m.stale=0 AND m.scope_path IN ({marks})
                            AND m.id NOT IN (SELECT memory_id FROM injections WHERE session=?)""",
                        (*chain, session)).fetchall()
-    rows.sort(key=lambda r: (level_key(r), r["trigger"] != "correction", -r["updated_at"], -r["id"]))
+    rows.sort(key=lambda r: (level_key(r), not r["from_user"], -r["updated_at"], -r["id"]))
     rules, notes, ids, used = [], [], [], 0
     for r in rows:
-        if r["trigger"] == "correction":
+        if r["from_user"]:
             line = f"- {pinned._one_line(pinned._rule_text(r['text']), 240)}"
         else:
             line = f"- ({r['trigger']}) {pinned._one_line(r['text'])}" + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
         if (used + len(line)) / pinned.TOKEN_DIVISOR > token_cap:
             break
         used += len(line) + 1
-        (rules if r["trigger"] == "correction" else notes).append(line)
+        (rules if r["from_user"] else notes).append(line)
         ids.append(r["id"])
     if not ids:
         return "", []

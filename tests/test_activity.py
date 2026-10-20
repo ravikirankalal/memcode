@@ -53,7 +53,7 @@ class Activity(unittest.TestCase):
         import contextlib
         import io
         from memcode import cli
-        mid = store.add_memory(self.con, "correction", "Rule from user correction: Use tabs.", "", None, {})
+        mid = store.add_memory(self.con, "correction", "Use tabs.", "", None, {})
         activity.note(self.con, "saved", "rule: Use tabs.")
         self.assertEqual(self.feed()["counts"]["memories"], 1)
         with contextlib.redirect_stdout(io.StringIO()):

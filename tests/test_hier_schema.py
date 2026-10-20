@@ -39,7 +39,8 @@ class FlatModel(unittest.TestCase):
         con.commit(); con.close()
         con = store.connect(d)                                                # the upgrade migrates them
         r = {x["id"]: x for x in con.execute("SELECT * FROM memories")}
-        self.assertEqual(r[rule]["from_user"], 1)
+        self.assertEqual((r[rule]["from_user"], r[rule]["text"]), (1, "Always use tabs."))   # plain text, no prefix
+        self.assertEqual((r[rule]["trigger"], r[note]["trigger"], r[dec]["trigger"]), ("correction", "agent", "agent"))
         self.assertEqual((r[note]["from_user"], r[note]["topic"], r[note]["importance"]), (0, "component", 4))
         self.assertEqual(r[dec]["topic"], "decision")
         self.assertAlmostEqual(r[dec]["expires_at"] - r[dec]["updated_at"], 30 * 86400, delta=1)
