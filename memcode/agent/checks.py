@@ -59,9 +59,9 @@ def verified(item: dict, condensed: str, root=None) -> str | None:
         if not users:
             return None     # rule-shaped but not the user's words: a fixture, an issue, another repo's rules
 
-        from ..triggers import one_off
+        from ..triggers import now_request
         # a request for now is not a rule, however the model labels it (#33)
-        return None if one_off(text) or any(one_off(l) for l in users) else "rule"
+        return None if now_request(text) or any(now_request(l) for l in users) else "rule"
     return "env" if item.get("kind") == "env" else "note"
 
 def is_repeat(con, text: str) -> bool:

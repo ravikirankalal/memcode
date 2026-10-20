@@ -1,4 +1,10 @@
-"""Agent-neutral core: what memcode does at each point of an agent session (Phase 4: scale out).
+"""The memory agent at each moment of the coding agent's session (docs/architecture.md).
+
+  session_start   deliver: your rules, then the map, decisions, facts and notes; refresh staleness first
+  prompt          extract rules you state (pattern triggers); deliver the notes relevant to this request
+  tool_result     extract from what the agent ran and edited (triggers, facts); deliver a folder's memory on first read
+  before_write    deliver: hold a first write into a folder once, with its unseen rules as the reason
+  (Stop hook)     extract: the model-backed memory agent reads the turn (agent/, queued by hook_cli)
 
 Adapters (hook_cli.py for Claude Code, and others) translate their agent's hook payloads into these calls and the
 returned context into their agent's output format. Tool events use one normalized shape:

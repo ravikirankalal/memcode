@@ -99,13 +99,13 @@ def ensure(con) -> None:
 
 
 def _migrate(con) -> None:
-    """Bring command facts written by older versions to today's rules: drop what normalize/one_off would not record
+    """Bring command facts written by older versions to today's rules: drop what normalize/one_off_command would not record
     now, and merge variants that share a cmd_key (#36). Counts are summed; the newest passing variant is shown."""
     rows = con.execute("SELECT * FROM facts WHERE category='command' ORDER BY ok>0, last_seen").fetchall()
     con.execute("DELETE FROM facts WHERE category='command'")
     for r in rows:
         v = r["value"]
-        if normalize(v) != v or one_off(v):
+        if normalize(v) != v or one_off_command(v):
             continue
         _upsert(con, f"cmd:{cmd_key(v)}", "command", role_of(v), v, r["source"], ok=r["ok"], fail=r["fail"],
                 runs=r["runs"], ts=r["last_seen"])
@@ -132,7 +132,7 @@ _SHA = re.compile(r"^[0-9a-f]{7,40}$")
 _KEY_VALUE_FLAGS = {"-k", "-n", "-j", "-T", "--tb", "--maxfail", "--timeout", "-t", "--namespace", "--context"}
 
 
-def one_off(cmd: str) -> bool:
+def one_off_command(cmd: str) -> bool:
     """A normalized command that is a one-time action or a tool probe, not a way to build/test/run the repo."""
     toks = re.sub(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+", "", cmd).split()
     return bool(_ONE_OFF.search(" ".join(toks))) or any(_SHA.match(t) and re.search(r"\d", t) for t in toks[1:])
@@ -285,7 +285,7 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
                        or (target.startswith("/") and not (os.path.realpath(target) + "/").startswith(rootp + "/")))
             continue
         n = None if outside or script else normalize(s, root)
-        segs.append((s, op, None if n is None or one_off(n) else n))
+        segs.append((s, op, None if n is None or one_off_command(n) else n))
     # exit 0 proves a command passed only when nothing after it could mask a failure: not followed by || or |
     # a command followed by || came with a prepared fallback: its outcome is unknown and it is weak evidence
     useful = [(s, op, n) for s, op, n in segs if n and op != "||"]

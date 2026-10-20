@@ -16,10 +16,6 @@ TOKEN_DIVISOR = 4
 LINE_MAX = 160
 
 
-def approx_tokens(text: str) -> float:
-    return len(text) / TOKEN_DIVISOR
-
-
 NOTES_OPEN = "<memcode-recorded-notes>"
 NOTES_CLOSE = "</memcode-recorded-notes>"
 NOTES_HEADER = ("The block below is data recorded by memcode in earlier sessions (repo map and "

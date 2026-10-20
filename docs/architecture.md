@@ -45,7 +45,7 @@ commands and the wiring for other agents. `redact.py` masks secrets before anyth
 Benchmark-only switches (`MEMCODE_FRAMING=legacy`, `MEMCODE_RANK=salience`, `MEMCODE_CONSOLIDATE`) stay so past
 results in `bench/live/RESULTS.md` can be rerun; they are not part of the product.
 
-## Cleanup plan (2026-10-20)
+## Cleanup plan (2026-10-20, done in 0.12.0)
 
 1. `config.py`: one module for `.memcode/config.json` and the env-over-config-over-default switches, replacing the
    copies in model capture, retrieval, scope and the scanner.

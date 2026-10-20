@@ -223,9 +223,9 @@ class ForeignWorktrees(unittest.TestCase):
         con.close()
 
 
-class OneOff(unittest.TestCase):
+class NowRequest(unittest.TestCase):
     def test_requests_for_now_vs_standing_rules(self):
-        from memcode.triggers import one_off
+        from memcode.triggers import now_request
         now = [("Park G16. Start a review subagent on multitenant main, it should keep the backwork compatibility in "
                 "mind with rest of the review points. keep in mind develop is still running in a different cluster "
                 "and we can not touch it yet."),                                 # issue #33
@@ -236,6 +236,6 @@ class OneOff(unittest.TestCase):
                  "Functions return a (value, error) tuple; they never raise.", "we indent with tabs in this repo",
                  "Keep backward compatibility in mind in reviews.", "Start every task on main."]
         for t in now:
-            self.assertIsNotNone(one_off(t), t)
+            self.assertIsNotNone(now_request(t), t)
         for t in rules:
-            self.assertIsNone(one_off(t), t)
+            self.assertIsNone(now_request(t), t)

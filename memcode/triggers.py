@@ -156,7 +156,7 @@ _STANDING = re.compile(
     r"|in (?:this|our|the) (?:repo|repository|project|codebase)|in (?:the )?future)\b")
 
 
-def one_off(text: str) -> str | None:
+def now_request(text: str) -> str | None:
     """'one-off' / 'task' when `text` (a user turn, or a rule restated from one) asks for something now rather than
     stating a standing rule, else None."""
     t = re.sub(r"^\[user\]\s*", "", " ".join(str(text).split()), flags=re.IGNORECASE)
