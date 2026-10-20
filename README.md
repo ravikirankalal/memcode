@@ -21,8 +21,9 @@ In Claude Code, run:
 ```
 
 Restart Claude Code. That's it: memcode starts working in every repo you open. Memory is stored per repository in
-`<repo>/.memcode/`, which memcode keeps out of git (it adds itself to `.git/info/exclude`). Nothing leaves your
-machine unless you turn on the optional model capture.
+`<repo>/.memcode/`, which memcode keeps out of git (it adds itself to `.git/info/exclude`). After each turn its
+memory agent sends the new part of the session log, condensed and with secrets redacted, to a model through your own
+`claude` login, to decide what to remember. Turn that off with `/memcode:cli config memory-agent off`.
 
 Recommended: also turn on per-prompt retrieval (each prompt then gets the memories relevant to it) by running
 `/memcode:cli config retrieval on` in Claude Code.

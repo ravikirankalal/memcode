@@ -140,8 +140,8 @@ def _not_a_rule(text: str) -> str | None:
     return "bare" if len(re.findall(r"[A-Za-z0-9_./'`-]+", rest)) < 3 else None
 
 
-# The LLM capture paths (model_capture, transcript_capture) read descriptive rules the patterns miss, so they skip
-# _not_a_rule's broad vetoes ("until", "wait"); this narrower check keeps them from storing a request for NOW as a
+# The memory agent (agent/) reads descriptive rules the patterns miss, so it skips
+# _not_a_rule's broad vetoes ("until", "wait"); this narrower check keeps it from storing a request for NOW as a
 # standing rule (#33: "Park G16. Start a review subagent on main ... we can not touch develop yet.").
 _NOW = re.compile(
     r"(?i)\b(?:right now|for now|yet|this time|today|tonight|tomorrow|for this (?:change|pr|task|one|session|run)"

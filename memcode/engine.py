@@ -71,11 +71,6 @@ def prompt(con, root: str, session: str, text: str) -> str:
     from . import retrieval
     if retrieval.enabled(root):
         ctx = retrieval.for_prompt(con, root, session, text)
-    if not any(ids):
-        from . import model_capture                # opt-in: let a model judge what the patterns missed
-        if model_capture.enabled(root) and model_capture.should_queue(con, session, text):
-            model_capture.enqueue(con, session, text)
-            model_capture.spawn_worker(root)
     return ctx
 
 

@@ -59,7 +59,6 @@ def patched(proposal: bool):
 def clean_env():
     saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("MEMCODE_")}
     os.environ["MEMCODE_RETRIEVAL"] = "0"
-    os.environ["MEMCODE_MODEL_CAPTURE"] = "0"
     try:
         yield
     finally:

@@ -470,15 +470,15 @@ class Hook(unittest.TestCase):
         with mock.patch.dict(os.environ, clean, clear=True):
             with mock.patch("shutil.which", lambda name: "/usr/bin/" + name):
                 self.assertTrue(tc.enabled(d))                          # default since 0.9.0
-                from memcode.model_capture import write_config
-                write_config(d, transcript_capture=False)
+                from memcode import config
+                config.write(d, transcript_capture=False)
                 self.assertFalse(tc.enabled(d))                         # `memcode config transcript-capture off`
                 os.environ["MEMCODE_TRANSCRIPT_CAPTURE"] = "1"
                 self.assertTrue(tc.enabled(d))                          # env beats config
                 os.environ["MEMCODE_TRANSCRIPT_CAPTURE"] = "0"
                 self.assertFalse(tc.enabled(d))
             os.environ.pop("MEMCODE_TRANSCRIPT_CAPTURE")
-            write_config(d, transcript_capture=True)
+            config.write(d, transcript_capture=True)
             with mock.patch("shutil.which", lambda name: None):
                 self.assertFalse(tc.enabled(d))                         # no claude CLI: nothing to call
 

@@ -70,10 +70,6 @@ CREATE TABLE IF NOT EXISTS outcomes (         -- reinforcement signal per (sessi
   PRIMARY KEY (session, memory_id)
 );
 CREATE TABLE IF NOT EXISTS scored_sessions (session TEXT PRIMARY KEY, ts REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS capture_queue (    -- opt-in model capture (model_capture.py)
-  id INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, text TEXT NOT NULL,
-  status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, result TEXT, memory_id INTEGER, ts REAL NOT NULL
-);
 CREATE TABLE IF NOT EXISTS retrievals (      -- for reinforce-on-success only
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL
@@ -174,6 +170,7 @@ def _ensure_ignored(repo_root: Path, memdir: Path) -> None:
 
 
 def _migrate(con) -> None:
+    con.execute("DROP TABLE IF EXISTS capture_queue")    # model capture (removed in 0.12; the memory agent reads turns)
     cols = {r[1] for r in con.execute("PRAGMA table_info(paths)")}
     for col in ("mtime_ns", "size"):
         if col not in cols:

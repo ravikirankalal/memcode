@@ -74,16 +74,6 @@ and the evidence behind it. `MEMCODE_RANK=relevance` restores relevance-only ran
 salience, also orders the pinned notes and tags fragile folders in the map) is kept for experiments.
 `python3 -m memcode sessions` counts what was injected.
 
-### Opt-in model capture
-
-Pattern triggers miss rules stated in plain descriptive language ("we indent with tabs"). With
-`python3 -m memcode config model-capture on` (or `MEMCODE_MODEL_CAPTURE=1`), a prompt the patterns did not capture, sent
-after the agent has acted, that is not a question and is 12-1500 characters long, is queued; a detached background worker
-asks a model (via your `claude` login; `MEMCODE_CAPTURE_MODEL`, default `claude-opus-5-5`) whether it states a standing
-convention, and stores it as a rule if so. The prompt is never delayed. **Off by default**: it sends the (redacted) prompt
-text to the model and costs one call per classified prompt (about $0.02 on Opus 5.5; less on Haiku). The worker's model
-call runs with no tools, no settings or plugins (so memcode cannot recurse), and no saved session.
-
 ### Hierarchical memory
 
 - **Scope hierarchy** (on by default since 0.8.0; `memcode config hierarchy off` or `MEMCODE_HIER=0` turns it off).

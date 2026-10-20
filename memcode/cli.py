@@ -12,7 +12,7 @@
   facts [--backfill [--force]]  facts: commands, repo, environment, inferences (backfill from the event log)
   fact set KEY VALUE | fact rm KEY   add or remove a fact by hand
   salience            shadow-mode scores per memory (logged each session start; not used for ranking)
-  config [KEY on|off] show or set options (model-capture: opt-in model-based rule capture)
+  config [KEY on|off] show or set switches: memory-agent, decision-capture, retrieval, hierarchy
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
   history [-n N]      what the memory agent (transcript capture) added, updated or retired, with the old text
@@ -119,9 +119,6 @@ def cmd_stats(con, a) -> int:
     for t, n, st in by:
         print(f"  {t:<10} {n:>4}  ({st or 0} stale)")
     one = lambda q: con.execute(q).fetchone()[0]
-    q = dict(con.execute("SELECT status, COUNT(*) FROM capture_queue GROUP BY status").fetchall())
-    if q:
-        print("model capture queue: " + ", ".join(f"{k} {v}" for k, v in sorted(q.items())))
     from . import transcript_capture
     h = transcript_capture.health(con)
     if h:
@@ -232,41 +229,44 @@ def cmd_salience(con, a) -> int:
     return 0
 
 
+# memcode config KEY on|off: (key, config.json key, env var, default, what turning it on means)
+SWITCHES = [
+    ("memory-agent", "transcript_capture", "MEMCODE_TRANSCRIPT_CAPTURE", True,
+     "each finished turn's condensed, redacted transcript is sent to the model via your `claude` login"),
+    ("decision-capture", "decision_capture", "MEMCODE_DECISION_CAPTURE", True, ""),
+    ("retrieval", "retrieval", "MEMCODE_RETRIEVAL", False, ""),
+    ("hierarchy", "hierarchy", "MEMCODE_HIER", True, ""),
+]
+ALIASES = {"transcript-capture": "memory-agent"}
+
+
 def cmd_config(con, a, root: str) -> int:
-    from . import model_capture
-    keys = {"model-capture": "model_capture", "retrieval": "retrieval", "hierarchy": "hierarchy",
-            "transcript-capture": "transcript_capture", "decision-capture": "decision_capture"}
+    from . import config, transcript_capture
     if a.key is None:
-        cfg = model_capture.read_config(root)
-        print(f"model-capture: {'on' if model_capture.enabled(root) else 'off'}"
-              f" (config {'on' if cfg.get('model_capture') else 'off'}; env MEMCODE_MODEL_CAPTURE overrides)")
-        print(f"capture model: {os.environ.get('MEMCODE_CAPTURE_MODEL') or model_capture.DEFAULT_MODEL}")
-        from . import retrieval
-        print(f"retrieval: {'on' if retrieval.enabled(root) else 'off'}"
-              f" (config {'on' if cfg.get('retrieval') else 'off'}; env MEMCODE_RETRIEVAL overrides)")
-        from . import scope
-        print(f"hierarchy: {'on' if scope.hier_enabled() else 'off'}"
-              f" (config {'off' if cfg.get('hierarchy') is False else 'on'}; env MEMCODE_HIER overrides)")
-        from . import transcript_capture
-        print(f"transcript-capture: {'on' if transcript_capture.enabled(root) else 'off'}"
-              f" (config {'off' if cfg.get('transcript_capture') is False else 'on'}; env MEMCODE_TRANSCRIPT_CAPTURE"
-              " overrides; needs the claude CLI)")
-        print(f"decision-capture: {'on' if transcript_capture.decisions_enabled(root) else 'off'}"
-              f" (config {'off' if cfg.get('decision_capture') is False else 'on'}; env MEMCODE_DECISION_CAPTURE"
-              f" overrides; decisions expire after {transcript_capture.decision_days():g} days, MEMCODE_DECISION_DAYS)")
+        cfg = config.read(root)
+        live = {"memory-agent": transcript_capture.enabled(root), "decision-capture": transcript_capture.decisions_enabled(root)}
+        for key, ck, env, default, _ in SWITCHES:
+            on = live[key] if key in live else config.switch(root, env, ck, default)
+            stored = cfg.get(ck)
+            print(f"{key}: {'on' if on else 'off'} (config {'unset' if stored is None else 'on' if stored else 'off'}, "
+                  f"default {'on' if default else 'off'}; env {env} overrides)")
+        print(f"memory agent: model {os.environ.get('MEMCODE_CAPTURE_MODEL') or transcript_capture.DEFAULT_MODEL}, needs the "
+              f"claude CLI; decisions expire after {transcript_capture.decision_days():g} days (MEMCODE_DECISION_DAYS)")
         return 0
-    if a.key not in keys or a.value not in ("on", "off"):
-        print("usage: memcode config model-capture|retrieval|hierarchy|transcript-capture|decision-capture on|off",
+    if a.key == "model-capture":
+        print("model capture was removed in 0.12: the memory agent reads every turn (memcode config memory-agent on|off)",
               file=sys.stderr)
         return 2
-    model_capture.write_config(root, **{keys[a.key]: a.value == "on"})
-    print(f"{a.key}: {a.value}")
-    if a.value == "on" and a.key == "transcript-capture":
-        print("note: each finished turn's condensed, redacted transcript will be sent to the model via your `claude` login")
-    if a.value == "on" and a.key == "model-capture":
-        print("note: prompts the pattern triggers miss will be sent (redacted) to the model via your `claude` login")
+    key = ALIASES.get(a.key, a.key)
+    sw = next((s for s in SWITCHES if s[0] == key), None)
+    if sw is None or a.value not in ("on", "off"):
+        print("usage: memcode config " + "|".join(s[0] for s in SWITCHES) + " on|off", file=sys.stderr)
+        return 2
+    config.write(root, **{sw[1]: a.value == "on"})
+    print(f"{key}: {a.value}")
+    if a.value == "on" and sw[4]:
+        print(f"note: {sw[4]}")
     return 0
-
 
 def cmd_export(con, a) -> int:
     rows = [dict(r) for r in store.list_memories(con, include_stale=True)]
