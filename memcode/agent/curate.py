@@ -12,7 +12,10 @@ from . import checks, db
 
 MAX_ITEMS = 4                # memories kept per piece: the most important candidates
 MIN_IMPORTANCE = 4           # a note rated below this is not kept
-MIN_RULE_IMPORTANCE = 3      # the user's own rules and decisions get more room
+MIN_RULE_IMPORTANCE = 3      # the user's own rules and decisions get more room, and so does project knowledge
+# project knowledge the agent infers (the project profile): shown under ## Project at session start; kept from a rating
+# of 3, and never pinned to its file's content (a central class's summary is updated, not hidden on every edit)
+from ..pinned import KNOWLEDGE_ORDER as KNOWLEDGE  # noqa: E402  (one list for keeping and showing)
 DECISION_DAYS = 30           # a decision is shown this long after it was last stated (MEMCODE_DECISION_DAYS), then expires
 MAX_ENV_FACTS = 12           # observed environment limits kept (newest win)
 
@@ -120,7 +123,8 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             if mid is not None:
                 ids.append(mid)
             continue
-        floor = MIN_RULE_IMPORTANCE if item.get("kind") in ("rule", "decision") else MIN_IMPORTANCE
+        knowledge = item.get("kind") == "note" and item.get("category") in KNOWLEDGE
+        floor = MIN_RULE_IMPORTANCE if item.get("kind") in ("rule", "decision") or knowledge else MIN_IMPORTANCE
         if rating(item) < floor or added >= MAX_ITEMS:
             continue
         kind = checks.verified(item, condensed, root)
@@ -164,7 +168,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         else:
             a = _anchor(root, item.get("path", ""))
             h = None
-            if a and os.path.isfile(os.path.join(root, a)) and checks.pins_content(text, a):
+            if a and os.path.isfile(os.path.join(root, a)) and checks.pins_content(text, a) and not knowledge:
                 with open(os.path.join(root, a), "rb") as fh:
                     h = store.sha1(fh.read())
             mid = store.add_memory(con, "transcript", text, a, h, prov, 0.5, commit=False)

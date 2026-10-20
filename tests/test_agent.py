@@ -90,6 +90,43 @@ class SeesCode(unittest.TestCase):
         self.assertLessEqual(len(c2), len("[read] /repo/big.txt | ") + transcript.READ_CHARS)
 
 
+class ProjectProfile(unittest.TestCase):
+    """Project knowledge the agent infers (stack, components, integrations, ...) is kept from a rating of 3, is never
+    pinned to its file's content, and is shown under ## Project."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.d, "src"))
+        Path(self.d, "src", "OrderState.java").write_text("public enum OrderState { NEW, PAID }")
+        self.con = store.connect(self.d)
+        self.cond = ("[ran] `mvn -q package` -> ok | BUILD SUCCESS\n"
+                     "[read] src/OrderState.java | public enum OrderState { NEW, PAID }")
+
+    def tearDown(self):
+        self.con.close()
+
+    def item(self, category, text, evidence, path="", importance=3):
+        return {"op": "add", "target": 0, "kind": "note", "category": category, "subject": "", "importance": importance,
+                "text": text, "evidence": evidence, "path": path, "conflicts": False}
+
+    def test_kept_from_three_unpinned_and_shown_as_the_project(self):
+        from memcode import pinned
+        items = [self.item("stack", "Java project built with Maven: `mvn -q package`.", "mvn -q package"),
+                 self.item("domain", "OrderState has the states NEW then PAID.", "public enum OrderState { NEW, PAID }",
+                           "src/OrderState.java"),
+                 self.item("pitfall", "Something minor happened during the build here.", "BUILD SUCCESS")]
+        ids = curate.store_items(self.con, self.d, "s", items, self.cond, "m")
+        self.assertEqual(len(ids), 2)                                       # knowledge at 3 kept; a 3-rated pitfall not
+        enum = self.con.execute("SELECT * FROM memories WHERE anchor_path='src/OrderState.java'").fetchone()
+        self.assertIsNone(enum["anchor_hash"])                             # an edit does not hide it
+        block = pinned.render_pinned(self.con, self.d)
+        project = block.split("## Project")[1]
+        self.assertLess(project.index("(stack) Java project built with Maven"), project.index("(domain) OrderState"))
+        self.assertNotIn("(transcript)", block)                             # not repeated under ## Memories
+        self.assertEqual(sorted(pinned.shown_ids(self.con, block)), sorted(ids))
+        self.assertIn("note/domain", model.briefing(self.con, self.d, "s"))  # the agent sees what to update
+
+
 class Checks(unittest.TestCase):
     condensed = transcript.condense([json.dumps(e) for e in SESSION])
 
