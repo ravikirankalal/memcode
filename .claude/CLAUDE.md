@@ -1,6 +1,6 @@
 # memcode
 
-A memory agent for Claude Code (see README.md and docs/architecture.md).
+A memory agent for Claude Code (see ../README.md and ../docs/architecture.md).
 
 - Keep `PLAN.md` and `STATE.md` current. After every change that lands, update `STATE.md` (what changed, versions,
   what is pending, test counts). When the direction or the next steps change, update `PLAN.md`.
