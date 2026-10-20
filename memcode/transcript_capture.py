@@ -159,11 +159,8 @@ _SELF = re.compile(r"(?i)\b(?:memcode|memory_(?:add|search|pinned|facts)|(?:agen
 def enabled(root) -> bool:
     """On by default since 0.9.0 (tc2 gate, bench/live/RESULTS.md Run 17). Off with MEMCODE_TRANSCRIPT_CAPTURE=0 or
     `memcode config transcript-capture off`, and wherever the `claude` CLI it calls is not installed."""
-    env = os.environ.get("MEMCODE_TRANSCRIPT_CAPTURE", "").lower()
-    if env in ("0", "false", "off"):
-        return False
-    from .model_capture import read_config
-    if env not in ("1", "true", "on") and read_config(root).get("transcript_capture") is False:
+    from . import config
+    if not config.switch(root, "MEMCODE_TRANSCRIPT_CAPTURE", "transcript_capture", True):
         return False
     import shutil
     return shutil.which("claude") is not None
@@ -172,13 +169,8 @@ def enabled(root) -> bool:
 def decisions_enabled(root) -> bool:
     """Decision capture (#42): on with the memory agent; off with `memcode config decision-capture off` or
     MEMCODE_DECISION_CAPTURE=0."""
-    env = os.environ.get("MEMCODE_DECISION_CAPTURE", "").lower()
-    if env in ("0", "false", "off"):
-        return False
-    if env in ("1", "true", "on"):
-        return True
-    from .model_capture import read_config
-    return read_config(root).get("decision_capture") is not False
+    from . import config
+    return config.switch(root, "MEMCODE_DECISION_CAPTURE", "decision_capture", True)
 
 
 def decision_days() -> float:

@@ -64,8 +64,8 @@ def apply_config(root) -> None:
     becomes MEMCODE_HIER=0 for this process unless the environment already sets MEMCODE_HIER."""
     if "MEMCODE_HIER" in os.environ:
         return
-    from .model_capture import read_config
-    if read_config(root).get("hierarchy") is False:
+    from . import config
+    if config.read(root).get("hierarchy") is False:
         os.environ["MEMCODE_HIER"] = "0"
 
 

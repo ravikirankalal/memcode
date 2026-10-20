@@ -53,11 +53,8 @@ _CAMEL = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
 
 
 def enabled(root) -> bool:
-    from .model_capture import read_config
-    env = os.environ.get("MEMCODE_RETRIEVAL", "").lower()
-    if env in ("0", "false", "off"):
-        return False
-    return env in ("1", "true", "on") or bool(read_config(root).get("retrieval"))
+    from . import config
+    return config.switch(root, "MEMCODE_RETRIEVAL", "retrieval", False)
 
 
 def terms(text: str) -> set[str]:
