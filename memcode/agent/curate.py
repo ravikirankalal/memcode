@@ -8,7 +8,6 @@ import os
 import time
 
 from .. import store
-from ..redact import redact
 from . import checks, db
 
 MAX_ITEMS = 4                # memories kept per piece: the most important candidates
@@ -62,7 +61,7 @@ def _log(con, session, op, mid, before=None, after=None, evidence=""):
     db.ensure(con)
     con.execute("INSERT INTO memory_log(ts, session, op, memory_id, before, after, evidence) VALUES(?,?,?,?,?,?,?)",
                 (time.time(), session, op, mid, json.dumps(dict(before)) if before is not None else None, after,
-                 redact(str(evidence))[:200]))
+                 str(evidence)[:200]))
 
 def change(con, session: str, item: dict, condensed: str) -> int | None:
     """update / retire a numbered memory. Same evidence and conflict checks as add; a user rule changes only on the
@@ -84,7 +83,7 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
         return None
     if row["trigger"] == "decision" and checks.verified(dict(item, kind="decision"), condensed) != "decision":
         return None
-    text = redact(" ".join(str(item.get("text", "")).split()))[:300]
+    text = " ".join(str(item.get("text", "")).split())[:300]
     ev = item.get("evidence", "")
     if op == "retire":
         _log(con, session, "retire", target, before=row, after=text, evidence=ev)
@@ -124,11 +123,11 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         if rating(item) < floor or added >= MAX_ITEMS:
             continue
         kind = checks.verified(item, condensed, root)
-        text = redact(" ".join(str(item.get("text", "")).split()))[:300]
+        text = " ".join(str(item.get("text", "")).split())[:300]
         if kind is None or checks.is_repeat(con, text) or checks.echoes_context(con, session, item, condensed):
             continue
         prov = {"session": session, "source": "transcript", "model": model, "ts": time.time(),
-                "evidence": redact(str(item.get("evidence", "")))[:200],
+                "evidence": str(item.get("evidence", ""))[:200],
                 "category": str(item.get("category", ""))[:20], "importance": rating(item)}
         if kind == "env":                  # the agent's environment, not the repo: an env fact (facts.py), not a memory
             from .. import facts

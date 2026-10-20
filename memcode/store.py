@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS paths (
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   trigger TEXT NOT NULL,          -- correction|revert|fail_to_fix|retry|dep_change|manual
-  text TEXT NOT NULL,             -- redacted summary
+  text TEXT NOT NULL,             -- summary
   anchor_path TEXT NOT NULL,      -- paths.path this memory is attached to ('' = repo-wide)
   anchor_hash TEXT,               -- content hash of the anchor when written
   anchor_symbol TEXT,             -- optional Python symbol (Class.method) inside the anchor file
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS memories (
   updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS memories_anchor ON memories(anchor_path);
-CREATE TABLE IF NOT EXISTS events (          -- raw (redacted) hook events for trigger detection
+CREATE TABLE IF NOT EXISTS events (          -- hook events for trigger detection (fields capped)
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, ts REAL NOT NULL
 );

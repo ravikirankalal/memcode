@@ -38,30 +38,6 @@ It has three duties. Every module belongs to one of them, or to the plumbing the
 ## Plumbing
 
 `hook_cli.py` turns Claude Code's hook payloads into engine calls. `config.py` owns `.memcode/config.json` and the
-on/off switches. `cli.py` is the user-facing command (`/memcode:*`, `bin/memcode`). `redact.py` masks secrets before
-anything is stored.
+on/off switches. `cli.py` is the user-facing command (`/memcode:*`, `bin/memcode`).
 
-## Cleanup plan (2026-10-20, done in 0.12.0)
-
-1. `config.py`: one module for `.memcode/config.json` and the env-over-config-over-default switches, replacing the
-   copies in model capture, retrieval, scope and the scanner.
-2. Retire `model_capture.py`: the memory agent reads every user turn in context, which supersedes classifying single
-   prompts. Remove the module, its hook queue, CLI switch, table use, tests and benchmark arm.
-3. Split `transcript_capture.py` (786 lines) into the `memcode/agent/` package: `transcript.py` (reading the session
-   log), `model.py` (role prompt, schema, briefing, model call), `checks.py` (evidence and safety checks),
-   `curate.py` (applying operations, decisions, expiry), `worker.py` (queue, budget, worker, health). Call it the
-   memory agent everywhere users see it: `memcode config memory-agent on|off` (`transcript-capture` and
-   `MEMCODE_TRANSCRIPT_CAPTURE` keep working).
-4. Clear names: `triggers.one_off` becomes `now_request` (a request for now), `facts.one_off` becomes
-   `one_off_command`; drop the unused `pinned.approx_tokens`.
-5. `engine.py` documented as the delivery side; module docstrings point at this page.
-6. Tests and benchmarks follow the moves; the full suite and the mod tests pass after every step, and each step is
-   its own commit.
-
-## Removal pass (2026-10-20, 0.12.0)
-
-Removed as not part of this design: Codex/Gemini support (adapters, setup, sync-rules export), store maintenance
-(consolidation, storage budget, topic labels), the benchmarks (`bench/`), and experiment-only code (the salience shadow
-log, legacy framing, salience ordering and map zoom, the relevance-only ranking switch, `reinforce`). The memory agent
-no longer redacts what it sends: the log goes to the same provider the coding agent already sent it to; what memcode
-stores is still redacted.
+The plan and the current state are in [`PLAN.md`](../PLAN.md) and [`STATE.md`](../STATE.md).

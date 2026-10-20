@@ -152,9 +152,8 @@ run `memcode` (the plugin's `bin/` is on its PATH).
 
 - The memory agent sends the new part of each turn's log to a model through your own `claude` login, the same provider
   the coding agent already sent it to. Turn it off with `memcode config memory-agent off`.
-- What memcode stores stays local, in `.memcode/` with owner-only permissions, and is redacted first: cloud and API keys,
-  tokens, JWTs, private keys, `password=`-style assignments, `curl -u`, URLs with credentials. Redaction is
-  pattern-based; review with `memcode list` / `export` in sensitive repos.
+- What memcode stores stays local, in `.memcode/` with owner-only permissions, as the session showed it (nothing is
+  redacted). It is shown to the coding agent in later sessions; review it with `memcode list` / `export`.
 - No telemetry.
 
 ## Troubleshooting

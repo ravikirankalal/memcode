@@ -5,7 +5,6 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from memcode import store
-from memcode.redact import redact
 from memcode.triggers import TriggerEngine
 
 
@@ -99,24 +98,6 @@ class T(unittest.TestCase):
         self.run_cmd("pytest", 0)
         self.ev("prompt", text="great, thanks")
         self.assertEqual(self.mems(), [])
-
-    def test_redaction(self):
-        s = ("AKIAABCDEFGHIJKLMNOP ghp_" + "a" * 30 + " sk-" + "b" * 24 + " xoxb-1234567890-abc\n"
-             "API_TOKEN=hunter2 password='p w' Authorization: Bearer abcdef123456\n"
-             "https://user:pw@example.com/x\n-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----")
-        r = redact(s)
-        for bad in ("AKIA", "ghp_", "sk-b", "xoxb", "hunter2", "p w", "abcdef123456", "user:pw", "MIIE"):
-            self.assertNotIn(bad, r)
-        self.assertIn("[REDACTED]", r)
-        self.assertEqual(redact("plain text, nothing here"), "plain text, nothing here")
-
-    def test_redacted_before_storage(self):
-        self.edit()
-        self.ev("prompt", text="no, that's wrong, API_KEY=sekret123 is leaked")
-        m = self.mems("correction")[0]
-        self.assertNotIn("sekret123", m["text"])
-        payloads = " ".join(r["payload"] for r in self.con.execute("SELECT payload FROM events"))
-        self.assertNotIn("sekret123", payloads)
 
     # --- fresh engine per event (hooks run as separate processes)
     def fresh(self, kind, **kw):

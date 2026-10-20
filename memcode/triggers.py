@@ -17,7 +17,6 @@ import time
 from pathlib import Path
 
 from . import store, symbols
-from .redact import redact
 
 EDIT_TOOLS = {"edit", "write", "multiedit", "notebookedit", "str_replace", "create"}
 BASH_TOOLS = {"bash", "shell"}
@@ -77,7 +76,7 @@ def _s(v) -> str:
 
 
 def _clip(t: str, n: int = 300) -> str:
-    t = redact(" ".join(t.split()))   # redact BEFORE clipping so no partial secret survives
+    t = " ".join(t.split())
     return t if len(t) <= n else t[:n] + "..."
 
 
@@ -168,16 +167,6 @@ def now_request(text: str) -> str | None:
     return "task" if _TASK_OPEN.match(first) and not _STANDING.search(t) else None
 
 
-def _scrub(o):
-    if isinstance(o, str):
-        return redact(o)
-    if isinstance(o, dict):
-        return {k: _scrub(v) for k, v in o.items()}
-    if isinstance(o, (list, tuple)):
-        return [_scrub(v) for v in o]
-    return o
-
-
 _VALUE_FLAGS = {"-k", "-m", "-n", "-j", "-c", "-p", "-o", "-e", "-x", "--tb", "--maxfail"}
 _STORE_CAP = 500   # per-field cap for stored event payloads
 
@@ -202,7 +191,7 @@ def _cmd_key(cmd: str) -> str:
 
 
 def _compact(o, n: int = _STORE_CAP):
-    """Bound what is persisted: short redacted summaries, not raw tool output/file content."""
+    """Bound what is persisted: short summaries, not raw tool output/file content."""
     if isinstance(o, str):
         return o if len(o) <= n else o[:n] + "..."
     if isinstance(o, dict):
@@ -268,7 +257,6 @@ class TriggerEngine:
     def _write(self, trig, text, rel, sess, events, conf=0.6, snippet=None):
         if self._replay:      # replay only rebuilds state: no file reads, no DB writes
             return None
-        text = redact(text)
         dup = self.con.execute("SELECT id FROM memories WHERE trigger=? AND anchor_path=? AND text=?",
                                (trig, rel or "", text)).fetchone()
         if dup:
@@ -325,7 +313,7 @@ class TriggerEngine:
                 self._replay = False
             ids: list[int] = []
             for event in events:
-                clean = _compact(_scrub(event))
+                clean = _compact(event)
                 ev = store.log_event(con, sess, _s(clean.get("kind")), clean, commit=False)
                 ids += [i for i in self._dispatch(clean, sess, st, ev) if i is not None]
             con.commit()

@@ -74,13 +74,14 @@ Coloured badges show what just happened: `🧠 SAVED`, `✏️ UPDATED`, `🗑 R
 
 After each turn the memory agent sends the new part of the session log to a model through your own `claude` login,
 the same provider the coding agent already sent it to (Haiku by default, about $0.004 per 24,000 characters of log, at
-most $0.50 per session). Everything memcode stores stays local and is redacted first. Turn the memory agent off with
+most $0.50 per session). Everything memcode stores stays local, in `.memcode/`. Turn the memory agent off with
 `/memcode:cli config memory-agent off`.
 
 ## Docs
 
 - [`docs/guide.md`](docs/guide.md): how it works, settings, privacy, troubleshooting, uninstalling
 - [`docs/architecture.md`](docs/architecture.md): the modules behind each duty
+- [`PLAN.md`](PLAN.md) and [`STATE.md`](STATE.md): where memcode is going, and where it is now
 
 ## Development
 

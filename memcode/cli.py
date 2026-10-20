@@ -3,7 +3,7 @@
   list [--all]        memories (stale hidden unless --all)
   show ID             one memory with provenance
   forget ID...        delete memories (and their retrievals / salience rows)
-  add TEXT [--path P] record a manual memory (redacted, path confined to the repo)
+  add TEXT [--path P] record a manual memory (path confined to the repo)
   stats               counts by trigger, stale, retrievals, events
   sessions [-n N]     per-session counters: rules/notes injected, captured, repeated corrections
   why ID              salience score and the evidence behind it
@@ -28,7 +28,6 @@ import time
 
 from . import store
 from .mcp_server import safe_rel
-from .redact import redact
 
 
 def _fmt_ts(t: float) -> str:
@@ -94,7 +93,7 @@ def cmd_add(con, a, root: str) -> int:
     if f and os.path.isfile(f):
         with open(f, "rb") as fh:
             h = store.sha1(fh.read())
-    mid = store.add_memory(con, "manual", redact(a.text.strip())[:2000], redact(rel), h, {"source": "cli"}, confidence=0.6)
+    mid = store.add_memory(con, "manual", a.text.strip()[:2000], rel, h, {"source": "cli"}, confidence=0.6)
     from . import activity
     activity.saved(con, "manual", a.text, rel)
     print(f"stored memory #{mid}")

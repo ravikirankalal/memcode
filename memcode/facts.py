@@ -12,8 +12,7 @@ A memory records one event ("the user corrected X"). A fact is keyed and updated
   inference  aggregated from memories and command stats: fragile folders, commands that keep failing
   user       set by the user (`memcode fact set KEY VALUE`)
 
-Only facts derived from the command itself are recorded, never text from command output (untrusted). Commands are
-redacted. The one use of output is a pass/fail verdict for a piped command (agents habitually run `cmd 2>&1 | tail`,
+Only facts derived from the command itself are recorded, never text from command output (untrusted). The one use of output is a pass/fail verdict for a piped command (agents habitually run `cmd 2>&1 | tail`,
 which hides the exit status): a known test/lint/typecheck summary line decides it; nothing from it is stored. Rendered in the session-start block as a compact "## Facts" section (inside the untrusted wrapper).
 """
 from __future__ import annotations
@@ -25,7 +24,6 @@ import shutil
 import time
 
 from . import store
-from .redact import redact
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts (
@@ -185,7 +183,7 @@ def split_ops(cmd: str) -> list[tuple[str, str]]:
 def normalize(seg: str, root: str | None = None) -> str | None:
     """A simple command as worth remembering, or None: wrappers, redirects and cosmetic env prefixes dropped, other
     env prefixes kept (the command may need them), repo root made relative; commands naming absolute paths outside
-    the repo (scratch dirs, temp files) or carrying a redacted value are not reusable."""
+    the repo (scratch dirs, temp files) are not reusable."""
     toks = seg.split()
     env: list[str] = []
     while True:                                         # FOO=1 timeout 60 npm test -> FOO=1 npm test
@@ -211,8 +209,8 @@ def normalize(seg: str, root: str | None = None) -> str | None:
         return None
     if toks[0] in ("bash", "sh", "zsh", "dash") and "-c" in toks[1:3]:
         return None                                     # an inline shell script: a one-off (#36)
-    if any("$" in a or "`" in a or "[REDACTED]" in a for a in env):
-        return None                                     # a variable or a secret in the prefix: not a reusable command
+    if any("$" in a or "`" in a for a in env):
+        return None                                     # a variable in the prefix: not a reusable command
     toks = env + toks
     if toks[-1] in ("--version", "-V", "--help", "-h"):
         return None                                     # `ruff --version` is a probe, not how the repo is linted
@@ -270,7 +268,7 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
     if code is None:                                    # unknown outcome (e.g. Codex): nothing to learn
         return 0
     ensure(con)
-    cmd = redact(str(ev["command"]))
+    cmd = str(ev["command"])
     if "<<" in cmd:                                     # heredoc: the body is data, only the first line is a command
         cmd = cmd.split("\n", 1)[0]
     script = bool(_SCRIPT.search(cmd.strip()))          # loops, $( ), functions, several lines: no command facts
@@ -486,7 +484,7 @@ def set_user(con, key: str, value: str) -> str:
     key = re.sub(r"[^\w:.\-/]+", "-", key.strip())[:80]
     if not key or not value.strip():
         raise ValueError("key and value are required")
-    _set_derived(con, f"user:{key}", "user", None, redact(value.strip())[:300], "user")
+    _set_derived(con, f"user:{key}", "user", None, value.strip()[:300], "user")
     con.commit()
     return f"user:{key}"
 

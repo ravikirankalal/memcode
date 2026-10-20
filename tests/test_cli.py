@@ -42,12 +42,9 @@ class Cli(unittest.TestCase):
         self.assertEqual(con.execute("SELECT COUNT(*) FROM retrievals").fetchone()[0], 0)
         con.close()
 
-    def test_add_redacts_and_confines_path(self):
-        code, _, _ = run(self.root, "add", "key AKIAIOSFODNN7EXAMPLE here")
+    def test_add_confines_path(self):
+        code, _, _ = run(self.root, "add", "a note")
         self.assertEqual(code, 0)
-        con = store.connect(self.root)
-        self.assertNotIn("AKIAIOSFODNN7EXAMPLE", " ".join(r["text"] for r in store.list_memories(con)))
-        con.close()
         code, _, err = run(self.root, "add", "x", "--path", "../../etc/passwd")
         self.assertEqual(code, 2); self.assertIn("outside repository", err)
 

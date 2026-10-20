@@ -9,7 +9,6 @@ import os
 import sys
 
 from . import store
-from .redact import redact
 
 TOOLS = [
     {"name": "memory_search", "description": "Search stored coding memories by keyword.",
@@ -95,7 +94,7 @@ def _call_tool(con, root: str, name: str, args: dict) -> str:
         if f and os.path.isfile(f) and os.path.getsize(f) <= MAX_HASH_BYTES:
             with open(f, "rb") as fh:
                 h = store.sha1(fh.read())
-        mid = store.add_memory(con, "manual", redact(text.strip())[:MAX_TEXT], redact(rel), h,
+        mid = store.add_memory(con, "manual", text.strip()[:MAX_TEXT], rel, h,
                                {"source": "mcp"}, confidence=0.6)
         from . import activity
         activity.saved(con, "manual", text, rel)
