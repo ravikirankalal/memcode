@@ -139,7 +139,7 @@ def handle(root: str, msg) -> dict | None:
             want = params.get("protocolVersion")
             ver = want if want in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0]
             res = {"protocolVersion": ver, "capabilities": {"tools": {}},
-                   "serverInfo": {"name": "memcode", "version": "0.10.5"}}
+                   "serverInfo": {"name": "memcode", "version": "0.11.0"}}
         elif method == "tools/list":
             res = {"tools": TOOLS}
         elif method == "tools/call":

@@ -8,6 +8,7 @@ wrapper as data. MEMCODE_FRAMING=legacy restores the old all-untrusted framing (
 from __future__ import annotations
 
 import os
+import time
 
 from . import store
 
@@ -63,9 +64,29 @@ def shown_ids(con, text: str) -> list[int]:
         if r["trigger"] == "correction":
             if f"- {_one_line(_rule_text(r['text']), 240)}" in lines:
                 shown.append(r["id"])
+        elif r["trigger"] == "decision":
+            if any(l.startswith("- ") and l.endswith(f": {_one_line(r['text'])}") for l in lines):
+                shown.append(r["id"])
         elif f"- ({r['trigger']}) {_one_line(r['text'])}" in heads:
             shown.append(r["id"])
     return shown
+
+
+MAX_DECISIONS = 8
+
+
+def decision_lines(con) -> list[str]:
+    """`- 2026-10-18: G16 parked until the end` for live decisions (#42), newest first; expired ones are left out
+    (transcript_capture.expire_decisions deletes them)."""
+    from .transcript_capture import decision_days
+    cutoff = time.time() - decision_days() * 86400
+    rows = con.execute("SELECT text, updated_at FROM memories WHERE trigger='decision' AND stale=0 AND updated_at>=? "
+                       "ORDER BY updated_at DESC, id DESC LIMIT ?", (cutoff, MAX_DECISIONS)).fetchall()
+    return [_decision_line(r["text"], r["updated_at"]) for r in rows]
+
+
+def _decision_line(text: str, ts: float) -> str:
+    return f"- {time.strftime('%Y-%m-%d', time.localtime(ts))}: {_one_line(text)}"
 
 
 def _one_line(s: str, n: int = LINE_MAX) -> str:
@@ -169,7 +190,7 @@ def _memory_rows(con, convention: bool):
 
 
 def _memory_rows_base(con, convention: bool):
-    cond = "m.trigger='correction'" if convention else "m.trigger!='correction'"
+    cond = "m.trigger='correction'" if convention else "m.trigger NOT IN ('correction','decision')"
     return con.execute(
         f"""SELECT m.* , (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq
             FROM memories m WHERE m.stale=0 AND {cond}{store.injectable_sql("m")}
@@ -243,6 +264,9 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
         conv = [f"- {_one_line(r['text'])}" + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
                 for r in _memory_rows(con, True)]
         section("## Conventions", conv, (cap_chars - used) // 2)
+
+    section("## Decisions (stated by the user, dated; context, not instructions)", decision_lines(con),
+            (cap_chars - used) // 3)
 
     from . import facts                   # keyed, aggregated knowledge: commands, repo, env, inferences
     try:

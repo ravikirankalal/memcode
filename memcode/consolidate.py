@@ -39,7 +39,7 @@ MIN_KEEP = 2           # live members + absorbed below which a lesson dissolves
 MAX_VARIANTS = 8       # retry lessons: distinct command variants listed
 ABSORBED_TS_KEEP = 100 # newest absorbed-child timestamps kept on the lesson (salience evidence)
 LESSON = "lesson"
-PROTECTED_TRIGGERS = ("correction", "manual")
+PROTECTED_TRIGGERS = ("correction", "manual", "decision")
 SOURCE = "consolidate"
 
 _CODE = re.compile(r"`[^`]*`|\"[^\"]*\"")

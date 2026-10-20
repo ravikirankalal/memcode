@@ -11,14 +11,14 @@
       "name": "memcode",
       "source": "./",
       "description": "Event-triggered, repo-anchored memory: the agent stops repeating mistakes it was corrected on.",
-      "version": "0.10.5",
+      "version": "0.11.0",
       "category": "productivity"
     },
     {
       "name": "memcode-status",
       "source": "./mods/memcode-status",
       "description": "Shows memcode above the prompt: memory counts and the latest memory saved or recalled.",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "category": "productivity"
     }
   ]
