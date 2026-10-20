@@ -10,7 +10,6 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "bench"))
 from memcode import hook_cli, mcp_server, pinned, store, tree  # noqa: E402
 from memcode.redact import redact  # noqa: E402
 from memcode.triggers import TriggerEngine  # noqa: E402
@@ -495,14 +494,6 @@ class TestMcp(Repo):
         self.assertEqual(h("2025-03-26")["result"]["protocolVersion"], "2025-03-26")
         self.assertEqual(h("2024-11-05")["result"]["protocolVersion"], "2024-11-05")
         self.assertIn(h("1999-01-01")["result"]["protocolVersion"], mcp_server.SUPPORTED_VERSIONS)
-
-
-class TestBench(unittest.TestCase):
-    def test_session_sort_numeric(self):
-        import run
-        keys = sorted(["s10", "s2", "s1"], key=run._session_key)
-        self.assertEqual(keys, ["s1", "s2", "s10"])
-        self.assertEqual(sorted([10, 2, 1], key=run._session_key), [1, 2, 10])
 
 
 if __name__ == "__main__":
