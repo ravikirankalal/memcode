@@ -299,7 +299,7 @@ def list_scoped(con, d: str, include_stale: bool = False) -> list:
     d = norm(d)
     live = "" if include_stale else " AND stale=0"
     if not d:
-        return con.execute(f"SELECT * FROM memories WHERE scope_path=''{live} ORDER BY updated_at DESC").fetchall()
+        return con.execute(f"SELECT * FROM memories WHERE scope_path='' AND mkey IS NULL{live} ORDER BY updated_at DESC").fetchall()
     dl = _fold(d)
     return con.execute(f"""SELECT * FROM memories WHERE (lower(scope_path)=? OR substr(lower(scope_path),1,?)=?){live}
                            ORDER BY scope_path, updated_at DESC""", (dl, len(dl) + 1, dl + "/")).fetchall()

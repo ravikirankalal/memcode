@@ -54,7 +54,7 @@ def shown_ids(con, text: str) -> list[int]:
             heads.add(l[:i])
             i = l.find(" [", i + 1)
     shown = []
-    for r in con.execute("SELECT id, trigger, text, from_user, topic FROM memories WHERE stale=0 ORDER BY id"):
+    for r in con.execute("SELECT id, trigger, text, from_user, topic FROM memories WHERE stale=0 AND mkey IS NULL ORDER BY id"):
         cat = _knowledge(r)
         if cat:
             if f"- ({cat}) {_one_line(r['text'])}" in heads:
@@ -167,7 +167,7 @@ def _memory_rows(con):
     """Notes (not rules or decisions), most retrieved first, then newest."""
     return con.execute(
         """SELECT m.* , (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq
-            FROM memories m WHERE m.stale=0 AND m.from_user=0 AND m.topic!='decision'
+            FROM memories m WHERE m.stale=0 AND m.from_user=0 AND m.topic!='decision' AND m.mkey IS NULL
             ORDER BY freq DESC, m.updated_at DESC, m.id DESC""").fetchall()
 
 

@@ -68,11 +68,7 @@ def is_repeat(con, text: str) -> bool:
     t = _terms(text)
     if not t:
         return True
-    rows = [r[0] for r in con.execute("SELECT text FROM memories WHERE stale=0")]
-    try:
-        rows += [r[0] for r in con.execute("SELECT value FROM facts")]
-    except Exception:  # noqa: BLE001  (no facts table yet)
-        pass
+    rows = [r[0] for r in con.execute("SELECT text FROM memories WHERE stale=0")]      # keyed memories (facts) too
     for other in rows:
         o = _terms(other)
         # most of the NEW item's terms already in one memory; a short fact ("shelf") never swallows a long item

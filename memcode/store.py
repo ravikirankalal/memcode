@@ -240,6 +240,9 @@ def _migrate(con) -> None:
     con.execute("""UPDATE memories SET trigger='agent' WHERE trigger IN ('transcript', 'decision') OR (trigger='correction'
                    AND json_valid(provenance) AND json_extract(provenance, '$.source')='transcript')""")
     con.execute("""UPDATE memories SET text=substr(text, 28) WHERE text LIKE 'Rule from user correction: %'""")
+    _facts_to_memories(con)
+    con.execute("DROP VIEW IF EXISTS fact_rows")
+    con.execute(FACT_ROWS)
 
     for idx, cols in (("idx_mem_scope", "scope_path"), ("idx_mem_parent", "parent_id")):
         try:
@@ -247,6 +250,32 @@ def _migrate(con) -> None:
         except sqlite3.OperationalError:
             pass
     con.commit()
+
+
+# Keyed memories (what were facts): updated in place by key; origin command | repo | env | inference | manual (set
+# by the user with `memcode fact set`); counters in stats. fact_rows reads them in the old facts shape.
+FACT_ORIGINS = ("command", "repo", "env", "inference")
+FACT_ROWS = """CREATE VIEW fact_rows AS SELECT id, mkey AS key,
+  CASE WHEN trigger='manual' THEN 'user' ELSE trigger END AS category,
+  json_extract(stats, '$.role') AS role, text AS value, COALESCE(json_extract(stats, '$.source'), '') AS source,
+  COALESCE(json_extract(stats, '$.runs'), 0) AS runs, COALESCE(json_extract(stats, '$.ok'), 0) AS ok,
+  COALESCE(json_extract(stats, '$.fail'), 0) AS fail, created_at AS first_seen, updated_at AS last_seen,
+  json_extract(stats, '$.source_hash') AS source_hash
+  FROM memories WHERE mkey IS NOT NULL AND (trigger IN ('command', 'repo', 'env', 'inference') OR mkey LIKE 'user:%')"""
+
+
+def _facts_to_memories(con) -> None:
+    """Stores from before 0.15 kept facts in their own table: move each into a keyed memory, then drop the table."""
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='facts'").fetchone():
+        return
+    for r in con.execute("SELECT * FROM facts").fetchall():
+        stats = {"role": r["role"], "source": r["source"], "runs": r["runs"], "ok": r["ok"], "fail": r["fail"],
+                 "source_hash": r["source_hash"]}
+        con.execute("""INSERT OR IGNORE INTO memories(trigger, text, anchor_path, provenance, created_at, updated_at,
+                         topic, mkey, stats) VALUES(?,?,'','{}',?,?,?,?,?)""",
+                    ("manual" if r["category"] == "user" else r["category"], r["value"], r["first_seen"],
+                     r["last_seen"], r["role"] or "", r["key"], json.dumps(stats)))
+    con.execute("DROP TABLE facts")
 
 
 def scope_chain(path: str) -> list[str]:
@@ -332,7 +361,7 @@ def add_memory(con, trigger: str, text: str, anchor_path: str = "",
 
 
 def list_memories(con, include_stale: bool = False) -> list[sqlite3.Row]:
-    q = "SELECT * FROM memories" + ("" if include_stale else " WHERE stale=0")
+    q = "SELECT * FROM memories WHERE mkey IS NULL" + ("" if include_stale else " AND stale=0")
     return con.execute(q + " ORDER BY updated_at DESC").fetchall()
 
 

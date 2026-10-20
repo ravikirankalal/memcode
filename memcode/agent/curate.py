@@ -140,8 +140,8 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             facts.ensure(con)
             facts._set_derived(con, f"env:obs:{hashlib.sha1(text.lower().encode()).hexdigest()[:10]}", "env",
                                "observed", text, "agent")
-            con.execute("""DELETE FROM facts WHERE key LIKE 'env:obs:%' AND key NOT IN (SELECT key FROM facts
-                           WHERE key LIKE 'env:obs:%' ORDER BY last_seen DESC LIMIT ?)""", (MAX_ENV_FACTS,))
+            facts._delete(con, """key LIKE 'env:obs:%' AND key NOT IN (SELECT key FROM fact_rows
+                              WHERE key LIKE 'env:obs:%' ORDER BY last_seen DESC LIMIT ?)""", (MAX_ENV_FACTS,))
             activity.note(con, "saved", f"env fact: {text}")
             added += 1
             if stats is not None:                 # kept, though not a memory row: counted for the scan line

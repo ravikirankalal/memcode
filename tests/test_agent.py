@@ -200,7 +200,7 @@ class Store(unittest.TestCase):
                   "evidence": "unittest finds nothing here; the Makefile has a check target", "path": "",
                   "conflicts": False}]
         self.assertEqual(curate.store_items(self.con, self.d, "s", items, self.condensed, "m"), [])
-        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories").fetchone()[0], 0)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories WHERE mkey IS NULL").fetchone()[0], 0)
         from memcode import facts
         env = [r["value"] for r in facts.list_facts(self.con) if r["category"] == "env"]
         self.assertEqual(env, ["Chained shell commands need approval here; run them one at a time."])
@@ -274,8 +274,7 @@ class Store(unittest.TestCase):
     def test_short_fact_is_not_a_repeat(self):                          # tc1 (Run 16): a fact "shelf" ate a rule
         from memcode import facts
         facts.ensure(self.con)
-        self.con.execute("INSERT INTO facts(key,category,role,value,source,runs,ok,fail,first_seen,last_seen) "
-                         "VALUES('repo:pkg','repo','pkg','shelf','f',0,0,0,0,0)")
+        facts._upsert(self.con, "repo:pkg", "repo", "pkg", "shelf", "f")
         self.assertFalse(checks.is_repeat(self.con, "Errors that reach the user are ShelfError from shelf/errors.py, "
                                                 "never ValueError."))
         store.add_memory(self.con, "transcript", "Errors that reach the user are ShelfError from shelf/errors.py.",
@@ -331,7 +330,7 @@ class Store(unittest.TestCase):
         with mock.patch.object(checks, "is_repeat", lambda con, text: False):   # the cap, not dedupe, is under test
             for chunk in range(0, 20, 5):
                 curate.store_items(self.con, self.d, "s", items[chunk:chunk + 5], cond)
-        n = self.con.execute("SELECT COUNT(*) FROM facts WHERE key LIKE 'env:obs:%'").fetchone()[0]
+        n = self.con.execute("SELECT COUNT(*) FROM fact_rows WHERE key LIKE 'env:obs:%'").fetchone()[0]
         self.assertEqual(n, curate.MAX_ENV_FACTS)
 
     def test_model_failure_retries_then_errors(self):

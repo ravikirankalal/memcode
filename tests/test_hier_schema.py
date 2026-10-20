@@ -51,5 +51,26 @@ class FlatModel(unittest.TestCase):
         con.close()
 
 
+    def test_old_facts_table_becomes_keyed_memories(self):
+        from memcode import facts
+        d = tempfile.mkdtemp()
+        con = store.connect(d)
+        con.execute("""CREATE TABLE facts (key TEXT PRIMARY KEY, category TEXT NOT NULL, role TEXT, value TEXT NOT NULL,
+                       source TEXT NOT NULL, runs INTEGER NOT NULL DEFAULT 0, ok INTEGER NOT NULL DEFAULT 0,
+                       fail INTEGER NOT NULL DEFAULT 0, first_seen REAL NOT NULL, last_seen REAL NOT NULL,
+                       source_hash TEXT)""")
+        con.execute("INSERT INTO facts VALUES('cmd:make check', 'command', 'test', 'make check', 'observed', 4, 3, 1, 1, 2, NULL)")
+        con.execute("INSERT INTO facts VALUES('user:deploy', 'user', NULL, 'deploys need VPN', 'user', 0, 0, 0, 1, 2, NULL)")
+        con.commit(); con.close()
+        con = store.connect(d)
+        self.assertIsNone(con.execute("SELECT 1 FROM sqlite_master WHERE name='facts'").fetchone())
+        m = {r["mkey"]: r for r in con.execute("SELECT * FROM memories")}
+        self.assertEqual((m["cmd:make check"]["trigger"], m["cmd:make check"]["text"]), ("command", "make check"))
+        self.assertEqual((m["user:deploy"]["trigger"], m["user:deploy"]["from_user"]), ("manual", 0))
+        self.assertIn("- test: `make check` (ran 4x, 3 confirmed ok, 1 failed)", facts.lines(con))
+        self.assertIn("- deploys need VPN", facts.lines(con))
+        self.assertEqual(store.list_memories(con), [])                         # not notes (until one delivery)
+        con.close()
+
 if __name__ == "__main__":
     unittest.main()

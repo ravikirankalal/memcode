@@ -31,11 +31,8 @@ def _path(con) -> str | None:
 
 def _counts(con) -> dict:
     live, rules = con.execute("SELECT COUNT(*), COALESCE(SUM(from_user), 0) FROM memories "
-                              "WHERE stale=0").fetchone()
-    try:
-        facts = con.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
-    except Exception:  # noqa: BLE001  (no facts table yet)
-        facts = 0
+                              "WHERE stale=0 AND mkey IS NULL").fetchone()
+    facts = con.execute("SELECT COUNT(*) FROM fact_rows").fetchone()[0]
     return {"memories": live, "rules": rules, "notes": live - rules, "facts": facts}
 
 

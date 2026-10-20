@@ -1,6 +1,6 @@
 """Facts: keyed, aggregated knowledge about the repo and how work gets done in it.
 
-A memory records one event ("the user corrected X"). A fact is keyed and updated in place as evidence accumulates:
+A fact is a keyed memory (memories.mkey), updated in place as evidence accumulates:
 
   command    shell commands the agent runs, per simple command, classified by role (test, build, lint, typecheck,
              format, run, install) or kept because they recur; with run / ok / fail counts and last use. Keyed by
@@ -25,22 +25,10 @@ import time
 
 from . import store
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS facts (
-  key TEXT PRIMARY KEY,           -- e.g. 'cmd:python3 -m unittest discover -s tests', 'repo:npm:build', 'env:missing:sqlite3'
-  category TEXT NOT NULL,         -- command | repo | env | inference | user
-  role TEXT,                      -- test | build | lint | typecheck | format | run | install | ...
-  value TEXT NOT NULL,            -- the command / statement shown to the agent
-  source TEXT NOT NULL,           -- observed | file path | derived | user
-  runs INTEGER NOT NULL DEFAULT 0,
-  ok INTEGER NOT NULL DEFAULT 0,
-  fail INTEGER NOT NULL DEFAULT 0,
-  first_seen REAL NOT NULL,
-  last_seen REAL NOT NULL,
-  source_hash TEXT                -- repo facts: hash of the file they were read from
-);
-CREATE TABLE IF NOT EXISTS facts_meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL);
-"""
+SCHEMA = "CREATE TABLE IF NOT EXISTS facts_meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL);"
+# Facts are keyed memories (memories.mkey; counters in memories.stats), read through the fact_rows view (store.py):
+# key, category (command | repo | env | inference | user), role, value, source, runs, ok, fail, first_seen, last_seen,
+# source_hash.
 FACTS_VERSION = 2                 # 2: command facts keyed by cmd_key, one-offs and compound pieces dropped (#36)
 
 # role -> patterns on the normalized simple command
@@ -99,8 +87,8 @@ def ensure(con) -> None:
 def _migrate(con) -> None:
     """Bring command facts written by older versions to today's rules: drop what normalize/one_off_command would not record
     now, and merge variants that share a cmd_key (#36). Counts are summed; the newest passing variant is shown."""
-    rows = con.execute("SELECT * FROM facts WHERE category='command' ORDER BY ok>0, last_seen").fetchall()
-    con.execute("DELETE FROM facts WHERE category='command'")
+    rows = con.execute("SELECT * FROM fact_rows WHERE category='command' ORDER BY ok>0, last_seen").fetchall()
+    _delete(con, "category='command'")
     for r in rows:
         v = r["value"]
         if normalize(v) != v or one_off_command(v):
@@ -248,16 +236,30 @@ def role_of(cmd: str) -> str | None:
     return None
 
 
+def _origin(category: str) -> str:
+    return "manual" if category == "user" else category
+
+
+def _delete(con, where: str, params=()) -> int:
+    """Delete the facts matching a fact_rows condition (with their vectors and links)."""
+    ids = [r[0] for r in con.execute(f"SELECT id FROM fact_rows WHERE {where}", params).fetchall()]
+    store.delete_ids(con, ids)
+    return len(ids)
+
+
 def _upsert(con, key, category, role, value, source, ok=0, fail=0, runs=0, ts=None, source_hash=None):
     ts = time.time() if ts is None else ts
-    con.execute(
-        """INSERT INTO facts(key,category,role,value,source,runs,ok,fail,first_seen,last_seen,source_hash)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?)
-           ON CONFLICT(key) DO UPDATE SET runs=runs+excluded.runs, ok=ok+excluded.ok, fail=fail+excluded.fail,
-             last_seen=MAX(last_seen, excluded.last_seen), role=excluded.role,
-             value=CASE WHEN excluded.ok>0 OR facts.ok=0 THEN excluded.value ELSE facts.value END,
-             source=excluded.source, source_hash=COALESCE(excluded.source_hash, source_hash)""",
-        (key, category, role, value, source, runs, ok, fail, ts, ts, source_hash))
+    r = con.execute("SELECT * FROM fact_rows WHERE key=?", (key,)).fetchone()
+    if r is None:
+        stats = {"role": role, "source": source, "runs": runs, "ok": ok, "fail": fail, "source_hash": source_hash}
+        con.execute("""INSERT INTO memories(trigger, text, anchor_path, provenance, created_at, updated_at, topic, mkey,
+                         stats) VALUES(?,?,'','{}',?,?,?,?,?)""",
+                    (_origin(category), value, ts, ts, role or "", key, json.dumps(stats)))
+        return
+    stats = {"role": role, "source": source, "runs": r["runs"] + runs, "ok": r["ok"] + ok, "fail": r["fail"] + fail,
+             "source_hash": source_hash or r["source_hash"]}
+    con.execute("UPDATE memories SET text=?, topic=?, stats=?, updated_at=MAX(updated_at, ?) WHERE id=?",
+                (value if ok > 0 or r["ok"] == 0 else r["value"], role or "", json.dumps(stats), ts, r["id"]))
 
 
 def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
@@ -300,7 +302,7 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
     if code == 0:                                       # it ran, so whatever it names is installed now
         for s, _, _ in segs:
             w = s.split()[0] if s.split() else ""
-            if w and con.execute("DELETE FROM facts WHERE key=?", (f"env:missing:{w}",)).rowcount:
+            if w and _delete(con, "key=?", (f"env:missing:{w}",)):
                 touched += 1
         for _, op, n in useful:
             ok, fail = (1, 0) if op not in ("|", "&") else (0, 0)   # a pipe or background job hides the exit status
@@ -328,10 +330,10 @@ def observe(con, root: str, ev: dict, ts: float | None = None) -> int:
 
 
 def _prune_commands(con) -> None:
-    n = con.execute("SELECT COUNT(*) FROM facts WHERE category='command'").fetchone()[0]
+    n = con.execute("SELECT COUNT(*) FROM fact_rows WHERE category='command'").fetchone()[0]
     if n > MAX_COMMAND_FACTS:
-        con.execute("""DELETE FROM facts WHERE key IN (SELECT key FROM facts WHERE category='command'
-                       ORDER BY (role IS NOT NULL) ASC, ok ASC, last_seen ASC LIMIT ?)""", (n - MAX_COMMAND_FACTS,))
+        _delete(con, """key IN (SELECT key FROM fact_rows WHERE category='command'
+                    ORDER BY (role IS NOT NULL) ASC, ok ASC, last_seen ASC LIMIT ?)""", (n - MAX_COMMAND_FACTS,))
 
 
 # ---- repo facts (static) ----
@@ -406,7 +408,7 @@ def scan_repo(con, root: str) -> int:
     ensure(con)
     sources = _repo_sources(root)
     have = {}
-    for r in con.execute("SELECT key, source, source_hash FROM facts WHERE category='repo' AND source!='paths'"):
+    for r in con.execute("SELECT key, source, source_hash FROM fact_rows WHERE category='repo' AND source!='paths'"):
         have.setdefault(r["source"], (r["source_hash"], []))[1].append(r["key"])
     changed = 0
     for src, items in sources.items():
@@ -414,12 +416,14 @@ def scan_repo(con, root: str) -> int:
         old_hash, old_keys = have.pop(src, (None, []))
         if old_hash == h:
             continue
-        con.executemany("DELETE FROM facts WHERE key=?", [(k,) for k in old_keys])
+        for k in old_keys:
+            _delete(con, "key=?", (k,))
         for suffix, role, value in items:
             _upsert(con, f"repo:{suffix}", "repo", role, value, src, source_hash=h)
         changed += 1
     for src, (_, keys) in have.items():                 # source file gone
-        con.executemany("DELETE FROM facts WHERE key=?", [(k,) for k in keys])
+        for k in keys:
+            _delete(con, "key=?", (k,))
         changed += 1
     # languages and test directory, from the path index (no extra I/O)
     exts: dict[str, int] = {}
@@ -453,12 +457,15 @@ def scan_repo(con, root: str) -> int:
 
 def _set_derived(con, key, category, role, value, source):
     if value is None:
-        con.execute("DELETE FROM facts WHERE key=?", (key,))
+        _delete(con, "key=?", (key,))
         return
-    now = time.time()
-    con.execute("""INSERT INTO facts(key,category,role,value,source,first_seen,last_seen) VALUES(?,?,?,?,?,?,?)
-                   ON CONFLICT(key) DO UPDATE SET value=excluded.value, role=excluded.role, last_seen=excluded.last_seen""",
-                (key, category, role, value, source, now, now))
+    r = con.execute("SELECT id, stats FROM memories WHERE mkey=?", (key,)).fetchone()
+    if r is None:
+        _upsert(con, key, category, role, value, source)
+        return
+    stats = dict(json.loads(r["stats"] or "{}"), role=role)
+    con.execute("UPDATE memories SET text=?, topic=?, stats=?, updated_at=? WHERE id=?",
+                (value, role or "", json.dumps(stats), time.time(), r["id"]))
 
 
 # ---- inference (aggregated) ----
@@ -469,10 +476,10 @@ FRAGILE_MIN = 0.6
 def infer(con) -> None:
     """Facts aggregated from memories and command stats; recomputed each session start."""
     ensure(con)
-    con.execute("DELETE FROM facts WHERE category='inference'")
-    for (key,) in con.execute("SELECT key FROM facts WHERE key LIKE 'env:missing:%'").fetchall():
+    _delete(con, "category='inference'")
+    for (key,) in con.execute("SELECT key FROM fact_rows WHERE key LIKE 'env:missing:%'").fetchall():
         if shutil.which(key[len("env:missing:"):]):       # installed since: the limitation is gone
-            con.execute("DELETE FROM facts WHERE key=?", (key,))
+            _delete(con, "key=?", (key,))
     from . import salience
     roll = salience.rollup(con, fail_weight=0.5)
     fragile = sorted(((p, v) for p, v in roll.items() if p and v >= FRAGILE_MIN), key=lambda x: -x[1])
@@ -484,7 +491,7 @@ def infer(con) -> None:
     for p, v in shown[:5]:
         _set_derived(con, f"inf:fragile:{p}", "inference", "fragile",
                      f"{p} is fragile: recent reverts/failures there (score {v:.2f})", "derived")
-    for r in con.execute("SELECT value, fail FROM facts WHERE category='command' AND fail>=2 AND ok=0 "
+    for r in con.execute("SELECT value, fail FROM fact_rows WHERE category='command' AND fail>=2 AND ok=0 "
                          "ORDER BY fail DESC LIMIT 3").fetchall():
         _set_derived(con, f"inf:failing:{r['value']}", "inference", "failing",
                      f"`{r['value']}` has failed {r['fail']}x and never passed here", "derived")
@@ -505,14 +512,14 @@ def set_user(con, key: str, value: str) -> str:
 
 def remove(con, key: str) -> int:
     ensure(con)
-    n = con.execute("DELETE FROM facts WHERE key=? OR key=?", (key, f"user:{key}")).rowcount
+    n = _delete(con, "key=? OR key=?", (key, f"user:{key}"))
     con.commit()
     return n
 
 
 def list_facts(con) -> list:
     ensure(con)
-    return con.execute("SELECT * FROM facts ORDER BY category, role, runs DESC, key").fetchall()
+    return con.execute("SELECT * FROM fact_rows ORDER BY category, role, runs DESC, key").fetchall()
 
 
 # ---- rendering ----
@@ -524,10 +531,10 @@ def lines(con, max_lines: int = 14) -> list[str]:
     """Compact fact lines for the session-start block, most useful first."""
     ensure(con)
     out = []
-    for r in con.execute("SELECT value FROM facts WHERE category='user' ORDER BY last_seen"):
+    for r in con.execute("SELECT value FROM fact_rows WHERE category='user' ORDER BY last_seen"):
         out.append(f"- {r['value']}")
     best: dict[str, tuple] = {}                         # one command per role: observed-and-passing beats declared
-    for r in con.execute("SELECT * FROM facts WHERE category IN ('command','repo') AND role IN (%s)"
+    for r in con.execute("SELECT * FROM fact_rows WHERE category IN ('command','repo') AND role IN (%s)"
                          % ",".join("?" * len(ROLE_ORDER)), ROLE_ORDER):
         score = (r["ok"] * 2 + r["runs"] - r["fail"] * 3 + (1 if r["category"] == "repo" else 0), r["last_seen"])
         if r["category"] == "command" and (r["fail"] > r["ok"] or r["ok"] == 0):
@@ -542,12 +549,12 @@ def lines(con, max_lines: int = 14) -> list[str]:
             else:
                 how = f"ran {r['runs']}x, {r['ok']} confirmed ok" + (f", {r['fail']} failed" if r["fail"] else "")
             out.append(f"- {role}: `{r['value']}` ({how})")
-    for r in con.execute("SELECT value FROM facts WHERE category='command' AND role IS NULL AND ok>=? "
+    for r in con.execute("SELECT value FROM fact_rows WHERE category='command' AND role IS NULL AND ok>=? "
                          "AND fail<=ok ORDER BY ok DESC LIMIT 3", (RECUR_MIN,)):
         out.append(f"- often used: `{r['value']}`")
-    for r in con.execute("SELECT value FROM facts WHERE category IN ('env','inference') ORDER BY category, last_seen DESC"):
+    for r in con.execute("SELECT value FROM fact_rows WHERE category IN ('env','inference') ORDER BY category, last_seen DESC"):
         out.append(f"- {r['value']}")
-    for r in con.execute("SELECT value FROM facts WHERE key IN ('repo:languages','repo:build_system','repo:tests_dir') "
+    for r in con.execute("SELECT value FROM fact_rows WHERE key IN ('repo:languages','repo:build_system','repo:tests_dir') "
                          "ORDER BY key"):
         out.append(f"- {r['value']}")
     return out[:max_lines]
@@ -558,10 +565,10 @@ def backfill(con, root: str, force: bool = False) -> int:
     Live observation also logs events, so replaying on top of live facts would double-count: only runs on an
     empty command table, or with force (which rebuilds command/env facts from the log alone)."""
     ensure(con)
-    if con.execute("SELECT COUNT(*) FROM facts WHERE category IN ('command','env')").fetchone()[0]:
+    if con.execute("SELECT COUNT(*) FROM fact_rows WHERE category IN ('command','env')").fetchone()[0]:
         if not force:
             raise ValueError("facts already exist; use force to rebuild them from the event log")
-        con.execute("DELETE FROM facts WHERE category IN ('command','env')")
+        _delete(con, "category IN ('command','env')")
     n = 0
     for (payload, ts) in con.execute("SELECT payload, ts FROM events WHERE kind='tool_result' ORDER BY id").fetchall():
         try:

@@ -9,7 +9,7 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–2 of 7 done) |
+| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–3 of 7 done) |
 | memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
 
 ## What works
@@ -38,8 +38,12 @@ _Last updated: 2026-10-20._
   recall, salience, the memory agent, status counts). The memory agent writes origin `agent` with from_user / topic /
   importance / expires_at; decisions are `topic='decision'` with an expiry, refreshed when updated. Rule text is plain
   (the "Rule from user correction:" prefix is gone, stripped from old rows).
-- Pending: steps 3–7 (facts as keyed memories, embeddings and links, one delivery, flat agent output, surfaces).
-- Tests: 228 Python, 13 mod.
+- Step 3: facts are keyed memories (`mkey` = the old key, origin command / repo / env / inference / manual, counters
+  in `stats`), read through the `fact_rows` view; old stores move their facts table into memories and drop it. Until
+  one delivery (step 5), note paths (start block notes, recall, the agent's briefing, `memcode list`) skip keyed
+  memories and facts still render as `## Facts`.
+- Pending: steps 4–7 (embeddings and links, one delivery, flat agent output, surfaces).
+- Tests: 229 Python, 13 mod.
 
 ## Latest release (memcode 0.14.0)
 

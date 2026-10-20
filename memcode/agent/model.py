@@ -123,7 +123,7 @@ def briefing(con, root: str, session: str) -> str:
     lines = [f"Repository: {os.path.basename(os.path.realpath(root)) or root}", f"Session: {session}",
              "Memory now (number, kind, where it applies, text):"]
     rows = con.execute("SELECT id, trigger, text, anchor_path, scope_path, provenance, updated_at, from_user, topic FROM memories "
-                       "WHERE stale=0 ORDER BY from_user DESC, (topic='decision') DESC, updated_at DESC "
+                       "WHERE stale=0 AND mkey IS NULL ORDER BY from_user DESC, (topic='decision') DESC, updated_at DESC "
                        "LIMIT ?", (MAX_BRIEF_MEMORIES,)).fetchall()
     for r in rows:
         from ..pinned import _knowledge
