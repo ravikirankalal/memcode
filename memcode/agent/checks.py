@@ -36,7 +36,7 @@ def _self_repo(root) -> bool:
     return bool(root) and os.path.isfile(os.path.join(str(root), "memcode", "agent", "checks.py"))
 
 def verified(item: dict, condensed: str, root=None) -> str | None:
-    """'rule' | 'note' | 'env' when the item passes the checks, else None: evidence quoted from the transcript, no
+    """'rule' | 'decision' | 'note' when the item passes the checks, else None: evidence quoted from the transcript, no
     conflict with the user's rules (the model's flag), nothing about the agent's own memory or tools."""
     ev = _norm(item.get("evidence", ""))
     text = " ".join(str(item.get("text", "")).split())
@@ -62,7 +62,7 @@ def verified(item: dict, condensed: str, root=None) -> str | None:
         from ..triggers import now_request
         # a request for now is not a rule, however the model labels it (#33)
         return None if now_request(text) or any(now_request(l) for l in users) else "rule"
-    return "env" if item.get("kind") == "env" else "note"
+    return "note"
 
 def is_repeat(con, text: str) -> bool:
     t = _terms(text)

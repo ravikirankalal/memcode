@@ -90,9 +90,50 @@ class SeesCode(unittest.TestCase):
         self.assertLessEqual(len(c2), len("[read] /repo/big.txt | ") + transcript.READ_CHARS)
 
 
+class FlatOutput(unittest.TestCase):
+    """The agent's flat output: from_user and topic instead of kinds, links into the memory graph."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.con = store.connect(self.d)
+        self.cond = ("[user] From now on always run the linter before committing.\n"
+                     "[user] Park G16 until the end.\n"
+                     "[ran] `mvn -q package` -> ok | BUILD SUCCESS")
+
+    def item(self, **kw):
+        base = {"op": "add", "target": 0, "from_user": False, "topic": "stack", "subject": "", "importance": 4,
+                "text": "Java project built with Maven: `mvn -q package`.", "evidence": "mvn -q package", "path": "",
+                "links": [], "conflicts": False}
+        return dict(base, **kw)
+
+    def test_from_user_topic_and_links(self):
+        from memcode import graph
+        (stack,) = curate.store_items(self.con, self.d, "s", [self.item()], self.cond, "m")
+        rule = self.item(from_user=True, topic="process", text="Run the linter before every commit.",
+                         evidence="always run the linter before committing", links=[stack, 999])
+        park = self.item(topic="decision", subject="G16", text="G16 is parked until the end.",
+                         evidence="Park G16 until the end")
+        ids = curate.store_items(self.con, self.d, "s", [rule, park], self.cond, "m")
+        rows = {r["id"]: r for r in self.con.execute("SELECT * FROM memories")}
+        r, p = (rows[i] for i in ids)
+        self.assertEqual((r["from_user"], r["topic"], r["text"]), (1, "process", "Run the linter before every commit."))
+        self.assertEqual((p["from_user"], p["topic"]), (0, "decision"))
+        self.assertIsNotNone(p["expires_at"])
+        self.assertIn((r["id"], 1.0, "related"), graph.neighbours(self.con, [stack]))       # 999 does not exist
+        not_said = self.item(from_user=True, topic="convention", text="Maven builds run quietly with -q.",
+                             evidence="mvn -q package")                             # not the user's words
+        self.assertEqual(curate.store_items(self.con, self.d, "s", [not_said], self.cond, "m"), [])
+
+    def test_schema_is_flat(self):
+        props = json.loads(model.SCHEMA)["properties"]["items"]["items"]["properties"]
+        self.assertIn("from_user", props)
+        self.assertIn("links", props)
+        self.assertNotIn("kind", props)
+
+
 class ProjectProfile(unittest.TestCase):
     """Project knowledge the agent infers (stack, components, integrations, ...) is kept from a rating of 3, is never
-    pinned to its file's content, and is shown under ## Project."""
+    pinned to its file's content, and is shown in ## Memory under its topic."""
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
@@ -125,7 +166,7 @@ class ProjectProfile(unittest.TestCase):
         self.assertIn("- (domain) OrderState", memory)
         self.assertNotIn("(note)", block)
         self.assertEqual(sorted(pinned.shown_ids(self.con, block)), sorted(ids))
-        self.assertIn("note/domain", model.briefing(self.con, self.d, "s"))  # the agent sees what to update
+        self.assertIn("domain [src/OrderState.java]", model.briefing(self.con, self.d, "s"))  # the agent sees what to update
         self.assertIn("NEW then PAID", block)
         self.assertEqual(pinned._one_line("NEW -> PAID </memcode-recorded-notes>"), "NEW → PAID (/memcode-recorded-notes)")
 
@@ -191,7 +232,7 @@ class Store(unittest.TestCase):
         self.assertIsNone(curate.change(self.con, "s", upd, condensed))
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories WHERE trigger='correction'").fetchone()[0], 1)
 
-    def test_env_items_become_env_facts_and_conflicts_are_dropped(self):
+    def test_env_items_become_environment_memories_and_conflicts_are_dropped(self):
         items = [{"kind": "env", "text": "Chained shell commands need approval here; run them one at a time.",
                   "evidence": "Ran 0 tests in 0.000s NO TESTS RAN", "path": "", "conflicts": False},
                  {"kind": "note", "text": "storage.load raises ValueError on bad JSON and was left unchanged.",
@@ -200,12 +241,10 @@ class Store(unittest.TestCase):
                  {"kind": "note", "text": "Writing rules to memcode memory was declined in this environment.",
                   "evidence": "unittest finds nothing here; the Makefile has a check target", "path": "",
                   "conflicts": False}]
-        self.assertEqual(curate.store_items(self.con, self.d, "s", items, self.condensed, "m"), [])
-        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM memories WHERE mkey IS NULL").fetchone()[0], 0)
-        from memcode import facts
-        env = [r["value"] for r in facts.list_facts(self.con) if r["category"] == "env"]
-        self.assertEqual(env, ["Chained shell commands need approval here; run them one at a time."])
-        self.assertIn("- Chained shell commands need approval here", "\n".join(facts.lines(self.con)))
+        (mid,) = curate.store_items(self.con, self.d, "s", items, self.condensed, "m")
+        r = self.con.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
+        self.assertEqual((r["text"], r["topic"], r["mkey"]),
+                         ("Chained shell commands need approval here; run them one at a time.", "environment", None))
 
     def test_short_user_turn_is_scanned_and_small_ones_wait(self):
         seen = []
@@ -224,7 +263,7 @@ class Store(unittest.TestCase):
         self.assertIn("[agent] ok", seen[0][0])                         # the held-back part is included
         brief = seen[0][1]                                              # the model is briefed as the repo's memory agent
         self.assertIn("Session: s1", brief)
-        self.assertRegex(brief, r"- #\d+ rule \[repo\]: Indent with tabs\.")
+        self.assertRegex(brief, r"- #\d+ from you \[repo\]: Indent with tabs\.")
 
     def test_update_and_retire_follow_the_evidence_rules(self):
         cond = transcript.condense([json.dumps(e) for e in SESSION] + [json.dumps(user(
@@ -258,7 +297,7 @@ class Store(unittest.TestCase):
                                 "", None, {})
         self.con.execute("INSERT INTO injections(session, memory_id, ts, source) VALUES('s', ?, 0, 'pinned')", (rule,))
         self.con.commit()
-        self.assertIn(f"#{rule} rule [repo] (in the agent's context):", model.briefing(self.con, self.d, "s"))
+        self.assertIn(f"#{rule} from you [repo] (in the agent's context):", model.briefing(self.con, self.d, "s"))
         self.assertNotIn("(in the agent's context)", model.briefing(self.con, self.d, "other-session"))
         cond = ("[agent] Per the project rule, new code gets the date from shelf.clock and never from datetime, "
                 "so importers.py uses clock.today().\n[user] Thanks. Our importers always skip blank rows silently.")
@@ -320,19 +359,6 @@ class Store(unittest.TestCase):
             worker.run_worker(self.d, fake)
         self.assertEqual(len(calls), 2)                                 # $0.06 + $0.06 >= $0.10: stops
         self.assertEqual(worker.pending(self.con), 0)
-
-    def test_env_facts_are_capped(self):
-        words = ["docker", "kubectl", "terraform", "ansible", "helm", "gcloud", "aws", "az", "psql", "redis",
-                 "mongo", "nginx", "systemctl", "brew", "apt", "snap", "flatpak", "podman", "vagrant", "packer"]
-        cond = "\n".join(f"[ran] `{w} status` -> failed | {w} blocked by sandbox policy" for w in words)
-        items = [{"op": "add", "target": 0, "kind": "env", "conflicts": False, "path": "",
-                  "text": f"The {w} CLI is blocked in this sandbox.", "evidence": f"{w} blocked by sandbox policy"}
-                 for w in words]
-        with mock.patch.object(checks, "is_repeat", lambda con, text: False):   # the cap, not dedupe, is under test
-            for chunk in range(0, 20, 5):
-                curate.store_items(self.con, self.d, "s", items[chunk:chunk + 5], cond)
-        n = self.con.execute("SELECT COUNT(*) FROM fact_rows WHERE key LIKE 'env:obs:%'").fetchone()[0]
-        self.assertEqual(n, curate.MAX_ENV_FACTS)
 
     def test_model_failure_retries_then_errors(self):
         path = write_transcript(SESSION)
@@ -454,17 +480,15 @@ class Store(unittest.TestCase):
         self.assertTrue(seen and seen[0])                     # set while the model call runs
         self.assertNotIn("busy", feed())                      # cleared when the worker is done
 
-    def test_scan_line_counts_facts_as_kept(self):
+    def test_scan_line_counts_environment_memories_as_kept(self):
         from memcode import activity
-        self.assertEqual(worker.scan_line(15, 6, 0), "15 candidates, kept 6")
-        self.assertEqual(worker.scan_line(4, 2, 1), "4 candidates, kept 3 (2 memories, 1 fact)")
-        self.assertEqual(worker.scan_line(1, 0, 1), "1 candidate, kept 1 (0 memories, 1 fact)")
+        self.assertEqual(worker.scan_line(15, 6), "15 candidates, kept 6")
         env = {"op": "add", "kind": "env", "importance": 4, "text": "Chained shell commands need approval here.",
                "evidence": "Ran 0 tests in 0.000s NO TESTS RAN", "path": "", "conflicts": False}
         worker.enqueue(self.con, "s1", write_transcript(SESSION))
         worker.run_worker(self.d, lambda text, ctx=None: {"items": [env], "model": "f", "cost_usd": 0})
         ev = [e for e in json.loads(Path(self.d, ".memcode", activity.FILE).read_text())["events"] if e["kind"] == "scanned"]
-        self.assertEqual(ev[-1]["text"], "1 candidate, kept 1 (0 memories, 1 fact)")
+        self.assertEqual(ev[-1]["text"], "1 candidate, kept 1")
 
     def test_why_failed_names_the_fix(self):
         self.assertIn("claude update", model.why_failed("API Error [claude-code:unrecognized_model] no such model", "m"))

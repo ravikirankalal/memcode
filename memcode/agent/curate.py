@@ -2,7 +2,6 @@
 their subjects and expiry; every change logged in memory_log."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
@@ -13,11 +12,11 @@ from . import checks, db
 MAX_ITEMS = 4                # memories kept per piece: the most important candidates
 MIN_IMPORTANCE = 4           # a note rated below this is not kept
 MIN_RULE_IMPORTANCE = 3      # the user's own rules and decisions get more room, and so does project knowledge
-# project knowledge the agent infers (the project profile): shown under ## Project at session start; kept from a rating
-# of 3, and never pinned to its file's content (a central class's summary is updated, not hidden on every edit)
+# project knowledge the agent infers (the project profile: stack, component, ...): kept from a rating of 3, and never
+# pinned to its file's content (a central class's summary is updated, not hidden on every edit)
 from ..pinned import KNOWLEDGE_ORDER as KNOWLEDGE  # noqa: E402  (one list for keeping and showing)
 DECISION_DAYS = 30           # a decision is shown this long after it was last stated (MEMCODE_DECISION_DAYS), then expires
-MAX_ENV_FACTS = 12           # observed environment limits kept (newest win)
+MAX_LINKS = 5                # links the agent may give one memory
 
 
 def decisions_enabled(root) -> bool:
@@ -104,8 +103,27 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
         return target
     return None
 
-def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "",
-                stats: dict | None = None) -> list[int]:
+def flat(item: dict) -> dict:
+    """The agent's flat output (from_user, topic) in the shape the checks read (kind, category). Items in the older
+    shape (kind, category) pass through; an old 'env' item is an environment memory like any other."""
+    if "from_user" not in item:
+        return dict(item, kind="note", category=item.get("category") or "environment") if item.get("kind") == "env" else item
+    topic = str(item.get("topic") or "")
+    kind = "rule" if item.get("from_user") is True else "decision" if topic == "decision" else "note"
+    return dict(item, kind=kind, category=topic)
+
+def _link(con, mid: int, links) -> None:
+    """The agent's links from memory mid to numbered live memories (graph.py)."""
+    from .. import graph
+    for n in (links if isinstance(links, list) else [])[:MAX_LINKS]:
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            continue
+        if n != mid and con.execute("SELECT 1 FROM memories WHERE id=? AND stale=0", (n,)).fetchone():
+            graph.link(con, mid, n, "related", 1.0, "agent")
+
+def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "") -> list[int]:
     """Apply the memory agent's operations: add (default), update, retire. -> ids added or changed."""
     from .. import activity
     ids = []
@@ -117,12 +135,14 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         except (TypeError, ValueError):
             return MIN_IMPORTANCE
     # corrections first (update / retire keep the memory true whatever their rating), then the most important adds
-    items = sorted(items, key=lambda it: (it.get("op") not in ("update", "retire"), -rating(it)))
+    items = sorted([flat(i) for i in items], key=lambda it: (it.get("op") not in ("update", "retire"), -rating(it)))
     for item in items:
         if item.get("op") in ("update", "retire"):
             mid = change(con, session, item, condensed)
             if mid is not None:
                 ids.append(mid)
+                if item.get("op") == "update":
+                    _link(con, mid, item.get("links"))
             continue
         knowledge = item.get("kind") == "note" and item.get("category") in KNOWLEDGE
         floor = MIN_RULE_IMPORTANCE if item.get("kind") in ("rule", "decision") or knowledge else MIN_IMPORTANCE
@@ -135,18 +155,6 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         prov = {"session": session, "source": "agent", "model": model, "ts": time.time(),
                 "evidence": str(item.get("evidence", ""))[:200],
                 "category": str(item.get("category", ""))[:20], "importance": rating(item)}
-        if kind == "env":                  # the agent's environment, not the repo: an env fact (facts.py), not a memory
-            from .. import facts
-            facts.ensure(con)
-            facts._set_derived(con, f"env:obs:{hashlib.sha1(text.lower().encode()).hexdigest()[:10]}", "env",
-                               "observed", text, "agent")
-            facts._delete(con, """key LIKE 'env:obs:%' AND key NOT IN (SELECT key FROM fact_rows
-                              WHERE key LIKE 'env:obs:%' ORDER BY last_seen DESC LIMIT ?)""", (MAX_ENV_FACTS,))
-            activity.note(con, "saved", f"env fact: {text}")
-            added += 1
-            if stats is not None:                 # kept, though not a memory row: counted for the scan line
-                stats["facts"] = stats.get("facts", 0) + 1
-            continue
         if kind == "decision":
             if not decisions_enabled(root):
                 continue
@@ -165,8 +173,9 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
                                    expires_at=time.time() + decision_days() * 86400)
             activity.note(con, "saved", f"decision: {text}")
         elif kind == "rule":
+            cat = str(item.get("category", ""))[:20]
             mid = store.add_memory(con, "agent", text, "", None, prov, 0.6, commit=False, from_user=True,
-                                   importance=rating(item))
+                                   topic="" if cat in ("rule", "decision") else cat, importance=rating(item))
             activity.saved(con, "agent", text, from_user=True)
         else:
             a = _anchor(root, item.get("path", ""))
@@ -186,6 +195,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
                 con.execute("UPDATE memories SET scope_path=?, scope_kind=? WHERE id=?", (sp, sk, mid))
         except Exception:  # noqa: BLE001  rescope_new retries at session start
             pass
+        _link(con, mid, item.get("links"))
         store.bump(con, session, "captured", commit=False)
         _log(con, session, "add", mid, after=text, evidence=item.get("evidence", ""))
         ids.append(mid)

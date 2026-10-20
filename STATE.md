@@ -9,7 +9,7 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–5 of 7 done) |
+| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–6 of 7 done) |
 | memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
 
 ## What works
@@ -52,8 +52,14 @@ _Last updated: 2026-10-20._
   Per-prompt recall scores by embedding cosine (plus the path boosts) and adds up to 2 graph neighbours of its top
   memories; first touch of a folder adds up to 3 neighbours of that folder's memories. Expired memories are never
   delivered; facts are recalled only when worth showing (facts.shown).
-- Pending: steps 6–7 (flat agent output, surfaces and docs).
-- Tests: 237 Python, 13 mod.
+- Step 6: the memory agent's output is flat: op, target, from_user, topic (workflow, pitfall, environment, design,
+  decision, process, stack, integration, component, structure, domain, convention), subject, importance, text,
+  evidence, path, links (numbers of memories it belongs with: kept as agent links in the graph), conflicts. The
+  checks are unchanged (from_user needs the user's own words; decisions the user's words or a settled result).
+  Environment observations are ordinary memories (no separate env facts, no cap); the scan line is `N candidates,
+  kept K`. The briefing lists memories as `#id from you|<label> [where]` and shows facts as measured by memcode.
+- Pending: step 7 (CLI, MCP, status bar, docs, live check, version bump).
+- Tests: 238 Python, 13 mod.
 
 ## Latest release (memcode 0.14.0)
 

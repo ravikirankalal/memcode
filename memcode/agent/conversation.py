@@ -83,14 +83,16 @@ def opening_cost(con, session: str) -> float:
 def delta(con, session: str, since: float) -> str:
     """What changed since the agent's last reply: what memcode kept of its proposals, memories added or changed by other
     paths (pattern triggers, the user), memories newly shown to the coding agent."""
+    from ..pinned import label
     lines = ["Memory changes since your last reply:"]
     for r in con.execute("SELECT op, memory_id, after FROM memory_log WHERE session=? AND ts>? ORDER BY id",
                          (session, since)):
         lines.append(f"- memcode applied your {r['op']} #{r['memory_id']}: {' '.join(str(r['after'] or '').split())[:200]}")
-    for r in con.execute("SELECT id, trigger, text, anchor_path, from_user, topic FROM memories WHERE stale=0 AND mkey IS NULL AND updated_at>? AND "
+    for r in con.execute("SELECT id, trigger, text, anchor_path, from_user, topic, updated_at FROM memories WHERE stale=0 AND mkey IS NULL "
+                         "AND updated_at>? AND "
                          "id NOT IN (SELECT memory_id FROM memory_log WHERE ts>? AND memory_id IS NOT NULL) ORDER BY id",
                          (since, since)):
-        kind = "rule" if r["from_user"] else "decision" if r["topic"] == "decision" else "note"
+        kind = "from you" if r["from_user"] else label(r)
         text = r["text"]
         lines.append(f"- new or changed #{r['id']} {kind} [{r['anchor_path'] or 'repo'}] ({r['trigger']}): "
                      f"{' '.join(text.split())[:200]}")
