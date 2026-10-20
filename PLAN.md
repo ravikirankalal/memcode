@@ -23,7 +23,7 @@ agent never edits code or talks to the user; a failure in memcode never blocks t
 
 | Phase | Role | Duty | Status |
 |---|---|---|---|
-| 1 | Scribe: a running conversation beside the session; reads each turn, collects and rates candidates of every kind, keeps the best | Extract | Done (0.9–0.13); stabilizing |
+| 1 | Scribe: a running conversation beside the session; reads each turn (including the code read and written), collects and rates candidates of every kind, keeps the best, builds the project profile | Extract | Done (0.9–0.14); stabilizing |
 | 2 | Guardian: watches the coding agent's actions as they happen and steps in before a known mistake | Trigger | Next |
 | 3 | Auditor: checks stored notes against the code and the log, retires what is no longer true | Store | Planned |
 | 4 | Librarian: merges near-duplicates, keeps the store small and well organized | Store | Planned |

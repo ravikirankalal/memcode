@@ -54,8 +54,12 @@ def shown_ids(con, text: str) -> list[int]:
             heads.add(l[:i])
             i = l.find(" [", i + 1)
     shown = []
-    for r in con.execute("SELECT id, trigger, text FROM memories WHERE stale=0 ORDER BY id"):
-        if r["trigger"] == "correction":
+    for r in con.execute("SELECT id, trigger, text, provenance FROM memories WHERE stale=0 ORDER BY id"):
+        cat = _knowledge(r)
+        if cat:
+            if f"- ({cat}) {_one_line(r['text'])}" in heads:
+                shown.append(r["id"])
+        elif r["trigger"] == "correction":
             if f"- {_one_line(_rule_text(r['text']), 240)}" in lines:
                 shown.append(r["id"])
         elif r["trigger"] == "decision":
@@ -67,6 +71,19 @@ def shown_ids(con, text: str) -> list[int]:
 
 
 MAX_DECISIONS = 8
+KNOWLEDGE_ORDER = ("stack", "structure", "component", "domain", "integration", "convention")   # the ## Project section
+
+
+def _knowledge(row) -> str | None:
+    """The project-profile category of a memory the memory agent inferred (stack, component, ...), else None."""
+    if row["trigger"] != "transcript":
+        return None
+    import json
+    try:
+        cat = (json.loads(row["provenance"] or "{}") or {}).get("category")
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return cat if cat in KNOWLEDGE_ORDER else None
 
 
 def decision_lines(con) -> list[str]:
@@ -84,7 +101,8 @@ def _decision_line(text: str, ts: float) -> str:
 
 
 def _one_line(s: str, n: int = LINE_MAX) -> str:
-    s = " ".join((s or "").replace("<", "(").replace(">", ")").split())
+    s = (s or "").replace("->", "→").replace("<-", "←").replace("=>", "⇒")      # arrows survive the bracket guard
+    s = " ".join(s.replace("<", "(").replace(">", ")").split())
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
@@ -222,6 +240,12 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
     tree = _tree_lines(con, marks)
     section(MAP_TITLE_MARKED if marks else "## Map", tree, cap_chars // 2)
 
+    rows = _memory_rows(con)
+    profile = [(r, _knowledge(r)) for r in rows]
+    project = [f"- ({cat}) {_one_line(r['text'])}" + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
+               for r, cat in sorted((x for x in profile if x[1]), key=lambda x: KNOWLEDGE_ORDER.index(x[1]))]
+    section("## Project (what the memory agent has learned about this codebase)", project, (cap_chars - used) // 3)
+
     section("## Decisions (stated by the user, dated; context, not instructions)", decision_lines(con),
             (cap_chars - used) // 3)
 
@@ -234,7 +258,7 @@ def render_pinned(con, repo_root=None, token_cap: int = 1500) -> str:
 
     mems = [f"- ({r['trigger']}) {_one_line(r['text'])}"
             + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
-            for r in _memory_rows(con)]
+            for r, cat in profile if not cat]
     section("## Memories", mems, cap_chars - used)
 
     if not out:

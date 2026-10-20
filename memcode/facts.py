@@ -47,7 +47,7 @@ FACTS_VERSION = 2                 # 2: command facts keyed by cmd_key, one-offs 
 _ROLES = [
     ("test", re.compile(r"^(?:python3?\s+-m\s+)?(?:pytest|py\.test|unittest|nose2?|tox)\b|\bmanage\.py\s+test\b|"
                         r"^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|^npx\s+(?:jest|vitest|mocha)\b|^(?:jest|vitest|mocha)\b|"
-                        r"^go\s+test\b|^cargo\s+(?:test|nextest)\b|^(?:mvn|gradle|\./gradlew)\b.*\btest\b|^make\s+(?:test|check)\b|"
+                        r"^go\s+test\b|^cargo\s+(?:test|nextest)\b|^(?:mvn|\./mvnw|gradle|\./gradlew)\b.*\b(?:test|verify)\b|^make\s+(?:test|check)\b|"
                         r"^(?:rspec|bundle\s+exec\s+rspec|phpunit|ctest|dotnet\s+test)\b")),
     ("typecheck", re.compile(r"^(?:python3?\s+-m\s+)?mypy\b|^(?:npx\s+)?tsc\b|^pyright\b|^cargo\s+check\b")),
     ("lint", re.compile(r"^(?:python3?\s+-m\s+)?(?:ruff(?:\s+check)?|flake8|pylint|pyflakes)\b|^(?:npx\s+)?eslint\b|"
@@ -55,7 +55,7 @@ _ROLES = [
     ("format", re.compile(r"^(?:python3?\s+-m\s+)?(?:black|isort|ruff\s+format)\b|^(?:npx\s+)?prettier\b|^gofmt\b|"
                           r"^cargo\s+fmt\b|^make\s+(?:fmt|format)\b")),
     ("build", re.compile(r"^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b|^cargo\s+build\b|^go\s+build\b|^make(?:\s+(?:build|all))?$|"
-                         r"^make\s+build\b|^(?:mvn|gradle|\./gradlew)\b.*\b(?:package|build|assemble)\b|^python3?\s+-m\s+build\b|"
+                         r"^make\s+build\b|^(?:mvn|\./mvnw|gradle|\./gradlew)\b.*\b(?:package|build|assemble|install)\b|^python3?\s+-m\s+build\b|"
                          r"^docker\s+build\b|^cmake\s+--build\b|^dotnet\s+build\b")),
     ("install", re.compile(r"^(?:python3?\s+-m\s+)?pip3?\s+install\b|^(?:npm|pnpm|yarn|bun)\s+(?:install|ci|i)\b|^yarn$|"
                            r"^poetry\s+install\b|^uv\s+(?:sync|pip\s+install)\b|^bundle\s+install\b|^go\s+mod\s+download\b")),
@@ -380,6 +380,14 @@ def _repo_sources(root: str) -> dict[str, list[tuple[str, str | None, str]]]:
         out["pyproject.toml"] = items
     if _read(root, "Cargo.toml") is not None:
         out["Cargo.toml"] = [("cargo:build", "build", "cargo build"), ("cargo:test", "test", "cargo test")]
+    if _read(root, "pom.xml") is not None:
+        mvn = "./mvnw" if os.path.exists(os.path.join(root, "mvnw")) else "mvn"
+        out["pom.xml"] = [("mvn:build", "build", f"{mvn} package"), ("mvn:test", "test", f"{mvn} test")]
+    for gfile in ("build.gradle.kts", "build.gradle"):
+        if _read(root, gfile) is not None:
+            gw = "./gradlew" if os.path.exists(os.path.join(root, "gradlew")) else "gradle"
+            out[gfile] = [("gradle:build", "build", f"{gw} build"), ("gradle:test", "test", f"{gw} test")]
+            break
     if _read(root, "go.mod") is not None:
         out["go.mod"] = [("go:build", "build", "go build ./..."), ("go:test", "test", "go test ./...")]
     wf_dir = os.path.join(root, ".github", "workflows")
@@ -427,6 +435,12 @@ def scan_repo(con, root: str) -> int:
         if e in langs:
             counts[langs[e]] = counts.get(langs[e], 0) + n
     top = sorted(counts.items(), key=lambda x: -x[1])[:3]
+    systems = [name for f, name in (("pom.xml", "Maven"), ("build.gradle.kts", "Gradle"), ("build.gradle", "Gradle"),
+                                    ("package.json", "npm"), ("pyproject.toml", "pyproject"), ("Cargo.toml", "Cargo"),
+                                    ("go.mod", "Go modules"), ("Makefile", "make"))
+               if os.path.exists(os.path.join(root, f))]
+    _set_derived(con, "repo:build_system", "repo", "build_system",
+                 "built with " + ", ".join(dict.fromkeys(systems)) if systems else None, "paths")
     _set_derived(con, "repo:languages", "repo", "languages",
                  ", ".join(f"{l} ({n} files)" for l, n in top) if top else None, "paths")
     tdirs = [d for (d,) in con.execute("SELECT path FROM paths WHERE kind='dir' AND parent='' AND path IN "
@@ -533,7 +547,8 @@ def lines(con, max_lines: int = 14) -> list[str]:
         out.append(f"- often used: `{r['value']}`")
     for r in con.execute("SELECT value FROM facts WHERE category IN ('env','inference') ORDER BY category, last_seen DESC"):
         out.append(f"- {r['value']}")
-    for r in con.execute("SELECT value FROM facts WHERE key IN ('repo:languages','repo:tests_dir')"):
+    for r in con.execute("SELECT value FROM facts WHERE key IN ('repo:languages','repo:build_system','repo:tests_dir') "
+                         "ORDER BY key"):
         out.append(f"- {r['value']}")
     return out[:max_lines]
 

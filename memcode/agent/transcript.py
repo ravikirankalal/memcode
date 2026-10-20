@@ -1,10 +1,21 @@
-"""Reading the session log: Claude Code's transcript JSONL condensed to [user] / [agent] / [ran] / [wrote] lines, cut
-into pieces of at most MAX_CHARS for the model."""
+"""Reading the session log: Claude Code's transcript JSONL condensed to one line per event, cut into pieces of at most
+MAX_CHARS for the model:
+
+  [user] / [agent]   what was said
+  [ran]              a shell command, its result and output tail
+  [read]             a file the coding agent read, with its opening lines (what a class, enum or config holds)
+  [edited] / [wrote] a file it changed, with the new text
+"""
 from __future__ import annotations
 
 import json
+import re
 
 MAX_CHARS = 24_000           # condensed text sent per model call; a longer backlog goes in chunks, oldest first
+READ_CHARS = 1500            # opening of a file the coding agent read
+EDIT_CHARS = 400             # new text of an edit
+WRITE_CHARS = 600            # opening of a file it wrote
+_LINE_NO = re.compile(r"^\s*\d+(?:\t|→)", re.M)   # Read output numbers its lines: "    12\t..." / "  12→..."
 
 
 def _blocks(msg) -> list:
@@ -21,6 +32,7 @@ def _entries(lines: list[str]) -> list[tuple[int, str]]:
     from ..engine import is_harness
     out: list[tuple[int, str]] = []
     pending_cmd: dict[str, str] = {}
+    pending_read: dict[str, str] = {}
     for i, raw in enumerate(lines, 1):
         try:
             e = json.loads(raw)
@@ -47,16 +59,36 @@ def _entries(lines: list[str]) -> list[tuple[int, str]]:
                 name = b.get("name", "")
                 if name == "Bash" and inp.get("command"):
                     pending_cmd[b.get("id", "")] = " ".join(str(inp["command"]).split())[:300]
-                elif name in ("Write", "Edit", "MultiEdit", "NotebookEdit") and inp.get("file_path"):
-                    out.append((i, f"[wrote] {inp['file_path']}"))
+                elif name == "Read" and inp.get("file_path"):
+                    pending_read[b.get("id", "")] = str(inp["file_path"])
+                elif name == "Write" and inp.get("file_path"):
+                    out.append((i, f"[wrote] {inp['file_path']}" + _excerpt(inp.get("content"), WRITE_CHARS)))
+                elif name in ("Edit", "MultiEdit", "NotebookEdit") and (inp.get("file_path") or inp.get("notebook_path")):
+                    new = inp.get("new_string") or inp.get("new_source") or " ... ".join(
+                        str(x.get("new_string", "")) for x in inp.get("edits") or [] if isinstance(x, dict))
+                    out.append((i, f"[edited] {inp.get('file_path') or inp.get('notebook_path')}" + _excerpt(new, EDIT_CHARS)))
+            elif t == "tool_result" and b.get("tool_use_id") in pending_read:
+                path = pending_read.pop(b["tool_use_id"])
+                if not b.get("is_error"):
+                    out.append((i, f"[read] {path}" + _excerpt(_LINE_NO.sub("", _result_text(b)), READ_CHARS)))
             elif t == "tool_result" and b.get("tool_use_id") in pending_cmd:
                 cmd = pending_cmd.pop(b["tool_use_id"])
-                c = b.get("content")
-                text = c if isinstance(c, str) else " ".join(x.get("text", "") for x in c if isinstance(x, dict)) \
-                    if isinstance(c, list) else ""
-                tail = " ".join(text.split())[-300:]
+                tail = " ".join(_result_text(b).split())[-300:]
                 out.append((i, f"[ran] `{cmd}` -> {'failed' if b.get('is_error') else 'ok'}" + (f" | {tail}" if tail else "")))
     return out
+
+def _result_text(b: dict) -> str:
+    c = b.get("content")
+    if isinstance(c, str):
+        return c
+    return " ".join(x.get("text", "") for x in c if isinstance(x, dict)) if isinstance(c, list) else ""
+
+
+def _excerpt(text, n: int) -> str:
+    """' | <text on one line, at most n characters>' (every condensed event is one line), or '' when empty."""
+    t = " ".join(str(text or "").split())
+    return f" | {t[:n]}" if t else ""
+
 
 def chunks(lines: list[str]) -> list[tuple[int, str]]:
     """The condensed lines cut into pieces of at most MAX_CHARS, oldest first: (lines consumed, condensed text).
