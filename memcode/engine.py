@@ -28,11 +28,11 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     tree.mark_stale(con, root)
     if prepare_only:
         return ""
-    from . import facts, outcomes, pinned, salience
+    from . import facts, outcomes, pinned
     outcomes.score_finished_sessions(con, root, current_session=session)
     _safely(con, lambda: (facts.scan_repo(con, root), facts.infer(con)))
-    from . import maintenance
-    _safely(con, lambda: maintenance.run(con, root))      # scope, labels, consolidation, storage budget
+    from . import scope
+    _safely(con, lambda: scope.rescope_new(con, root))    # where each new or re-anchored memory applies
     text = pinned.render_pinned(con, root)
     rules, notes = pinned.count_injected(text)
     store.bump(con, session, "rules_injected", rules)
@@ -44,8 +44,7 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     from . import activity
     activity.note(con, "start", f"{rules} rule{'s' * (rules != 1)}, {notes} note{'s' * (notes != 1)} at session start",
                   rules + notes)
-    salience.log_all(con)                          # shadow log
-    store.prune_salience_log(con)
+    store.prune_orphans(con)
     return text
 
 

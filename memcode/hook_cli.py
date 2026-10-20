@@ -1,7 +1,6 @@
-"""Hook entrypoint for Claude Code, Codex CLI and Gemini CLI:
-`python3 -m memcode.hook_cli <Event> [claude|codex|gemini]` (agent defaults to claude).
+"""Claude Code hook entrypoint: `python3 -m memcode.hook_cli <Event>` (hooks/hooks.json).
 
-Reads the hook JSON from stdin, translates it with adapters.normalize, runs the engine, and prints any context as
+Reads the hook JSON from stdin, turns it into an engine call, and prints any context as
 {"hookSpecificOutput": {"hookEventName", "additionalContext"}} (session start and per-prompt retrieval).
 PreToolUse (scope hierarchy, on unless MEMCODE_HIER=0) may refuse a first write into a scope with unseen rules (engine.before_write).
 Pre-compaction events only refresh the tree. Never raises: a memory failure must not break the agent; failures are
@@ -11,10 +10,46 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 
 from . import store
+
+# Claude Code event -> engine action
+EVENTS = {"SessionStart": "start", "PreCompact": "prepare", "UserPromptSubmit": "prompt",
+          "PostToolUse": "tool", "PostToolUseFailure": "tool_failure"}
+_EXIT_RE = re.compile(r"Exit code (-?\d+)")
+
+
+def _text(v) -> str:
+    return v if isinstance(v, str) else ("" if v is None else str(v))
+
+
+def tool_event(d: dict, failed: bool) -> dict:
+    """A PostToolUse / PostToolUseFailure payload -> the engine's normalized tool event:
+    {"kind": "tool_result", "session", "tool", "input", "command", "file_path", "exit_code", "output"}."""
+    resp = d.get("tool_response")
+    if not isinstance(resp, dict):
+        resp = {"output": _text(resp)}
+    inp = d.get("tool_input") or {}
+    if not isinstance(inp, dict):
+        inp = {"command": _text(inp)}
+    code = resp.get("exit_code", resp.get("returnCode"))
+    out = _text(resp.get("stdout", resp.get("output", "")))
+    err = _text(resp.get("stderr"))
+    if failed:
+        # PostToolUseFailure: {"error": "Exit code 1\n<stderr>", "is_interrupt": bool}
+        msg = _text(d.get("error") or resp.get("error"))
+        m = _EXIT_RE.search(msg)
+        code = int(m.group(1)) if m else (130 if d.get("is_interrupt") else 1)
+        out, err = msg, ""
+    elif code is None:
+        code = 130 if resp.get("interrupted") else 0   # PostToolUse only fires on success
+    output = (out + ("\n" + err if err else "")).strip()
+    return {"kind": "tool_result", "session": d.get("session_id", "unknown"), "tool": d.get("tool_name", ""),
+            "input": inp, "command": inp.get("command"), "file_path": inp.get("file_path"), "exit_code": code,
+            "output": output}
 
 
 def _log_error(root: str, e: BaseException) -> None:
@@ -34,7 +69,6 @@ def main(argv: list[str]) -> int:
     if os.environ.get("MEMCODE_DISABLE"):          # set by memcode's own model calls: never recurse
         return 0
     name = argv[1] if len(argv) > 1 else ""
-    agent = argv[2] if len(argv) > 2 else "claude"
     try:
         d = json.load(sys.stdin)
         if not isinstance(d, dict):
@@ -62,7 +96,7 @@ def main(argv: list[str]) -> int:
     try:
         con = store.connect(root)
         try:
-            from . import adapters, engine
+            from . import engine
             session = d.get("session_id", "unknown")
             if name == "Stop":                     # queue the log; the memory agent's worker reads it
                 from . import agent
@@ -75,12 +109,12 @@ def main(argv: list[str]) -> int:
                     print(json.dumps({"hookSpecificOutput": {"hookEventName": name, "permissionDecision": "deny",
                                                              "permissionDecisionReason": reason}}))
                 return 0
-            action, data = adapters.normalize(agent, name, d)
+            action = EVENTS.get(name, "none")
             out = ""
             if action == "prompt":
-                out = engine.prompt(con, root, session, data)
-            elif action == "tool":
-                out = "\n\n".join(t for t in (engine.tool_result(con, root, ev) for ev in data) if t)
+                out = engine.prompt(con, root, session, _text(d.get("prompt")))
+            elif action in ("tool", "tool_failure"):
+                out = engine.tool_result(con, root, tool_event(d, failed=(action == "tool_failure")))
             elif action in ("start", "prepare"):
                 out = engine.session_start(con, root, session, prepare_only=(action == "prepare"))
             if out:

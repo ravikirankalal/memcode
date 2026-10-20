@@ -37,8 +37,7 @@ def expire_decisions(con, session: str = "") -> int:
     for r in rows:
         _log(con, session, "expire", r["id"], before=r, after=f"expired after {decision_days():g} days")
     if rows:
-        from ..consolidate import delete_ids
-        delete_ids(con, [r["id"] for r in rows])
+        store.delete_ids(con, [r["id"] for r in rows])
         con.commit()
     return len(rows)
 
@@ -89,8 +88,7 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
     ev = item.get("evidence", "")
     if op == "retire":
         _log(con, session, "retire", target, before=row, after=text, evidence=ev)
-        from ..consolidate import delete_ids
-        delete_ids(con, [target])
+        store.delete_ids(con, [target])
         activity.note(con, "retired", f"retired #{target}: {text}")
         return target
     if op == "update":
@@ -154,8 +152,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
                     _log(con, session, "retire", r["id"], before=r, after=f"replaced by a newer decision on {subject}",
                          evidence=item.get("evidence", ""))
                 if old:
-                    from ..consolidate import delete_ids
-                    delete_ids(con, [r["id"] for r in old])
+                    store.delete_ids(con, [r["id"] for r in old])
             mid = store.add_memory(con, "decision", text, "", None, prov, 0.6, commit=False)
             activity.note(con, "saved", f"decision: {text}")
         elif kind == "rule":

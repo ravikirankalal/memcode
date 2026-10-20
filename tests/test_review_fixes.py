@@ -568,18 +568,6 @@ class PinnedRules(unittest.TestCase):
         self.assertIn("agent note", notes)               # agent-derived text stays untrusted data
         self.assertNotIn("Always use tabs", notes)
 
-    def test_legacy_framing_switch(self):
-        import os
-        from memcode import pinned
-        con, root = self._con()
-        os.environ["MEMCODE_FRAMING"] = "legacy"
-        try:
-            out = pinned.render_pinned(con, root)
-        finally:
-            del os.environ["MEMCODE_FRAMING"]
-        self.assertNotIn("follow them", out)
-        self.assertTrue(out.startswith(pinned.NOTES_HEADER))
-
     def test_rule_cannot_close_wrapper_or_span_lines(self):
         from memcode import pinned, store
         con, root = self._con()

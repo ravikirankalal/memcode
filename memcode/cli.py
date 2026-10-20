@@ -7,20 +7,13 @@
   stats               counts by trigger, stale, retrievals, events
   sessions [-n N]     per-session counters: rules/notes injected, captured, repeated corrections
   why ID              salience score and the evidence behind it
-  sync-rules [T...]   write the memory block into another agent's instruction file (default target: agents)
-  setup AGENT         print the config that wires memcode into codex or gemini
   facts [--backfill [--force]]  facts: commands, repo, environment, inferences (backfill from the event log)
   fact set KEY VALUE | fact rm KEY   add or remove a fact by hand
-  salience            shadow-mode scores per memory (logged each session start; not used for ranking)
   config [KEY on|off] show or set switches: memory-agent, decision-capture, retrieval, hierarchy
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
   history [-n N]      what the memory agent added, updated or retired, with the old text
   rescope             recompute every memory's scope; `list --scope DIR` lists memories scoped under DIR
-  consolidate [--dry-run|--undo]  group redundant agent notes under one lesson (MEMCODE_CONSOLIDATE=1 does it
-                      at session start and shows lessons instead of their notes)
-  budget N [--dry-run]  evict down to N memories (MEMCODE_STORE_BUDGET=N does it at session start)
-  label ID [+x] [-y]  show or edit a memory's topic labels; `list --label X` filters by label
 
 Root resolution matches the hooks (CLAUDE_PROJECT_DIR, else git toplevel, else cwd; a linked worktree maps to
 the main working tree).
@@ -74,11 +67,7 @@ def cmd_show(con, a) -> int:
 
 
 def _delete(con, ids: list[int]) -> int:
-    n = 0
-    for i in ids:
-        for t in ("retrievals", "salience_log"):
-            con.execute(f"DELETE FROM {t} WHERE memory_id=?", (i,))
-        n += con.execute("DELETE FROM memories WHERE id=?", (i,)).rowcount
+    n = store.delete_ids(con, ids)
     con.commit()
     if n:
         from . import activity
@@ -158,18 +147,6 @@ def cmd_why(con, a) -> int:
     return 0
 
 
-def cmd_sync_rules(con, a, root) -> int:
-    from . import engine, export_rules
-    engine.session_start(con, root, "sync-rules", prepare_only=True)    # fresh map and staleness first
-    for t, changed in export_rules.sync(con, root, a.targets or ["agents"]).items():
-        rel = export_rules.TARGETS[t][0]
-        print(f"{t}: {rel} {'updated' if changed else 'unchanged'}")
-        if export_rules.TARGETS[t][1] == "block" and export_rules.tracked(root, rel):
-            print(f"  note: {rel} is tracked by git, so this block is shared when you commit it; review it first "
-                  f"(memcode share is the reviewed way to share memories)")
-    return 0
-
-
 def cmd_facts(con, a, root) -> int:
     from . import engine, facts
     if a.backfill:
@@ -209,30 +186,10 @@ def cmd_fact(con, a) -> int:
     return 0 if n else 1
 
 
-def cmd_salience(con, a) -> int:
-    rows = con.execute("""SELECT m.id, m.trigger, m.text,
-          (SELECT COUNT(*) FROM injections i WHERE i.memory_id=m.id) AS shown,
-          (SELECT COUNT(*) FROM outcomes o WHERE o.memory_id=m.id AND o.outcome LIKE 'success%') AS ok,
-          (SELECT COUNT(*) FROM outcomes o WHERE o.memory_id=m.id AND o.outcome LIKE 'failure%') AS bad,
-          s.surprise, s.friction, s.fragility, s.confidence,
-          (SELECT COUNT(*) FROM salience_log x WHERE x.memory_id=m.id) AS samples
-        FROM memories m LEFT JOIN salience_log s ON s.id=(SELECT MAX(id) FROM salience_log WHERE memory_id=m.id)
-        WHERE m.stale=0 ORDER BY m.id""").fetchall()
-    if not rows:
-        print("no memories")
-        return 0
-    print(f"{'id':<4} {'trigger':<10} {'shown':>5} {'ok':>3} {'bad':>3} {'samples':>7} {'surp':>5} {'fric':>5} {'frag':>5} {'conf':>5}  text")
-    for r in rows:
-        f = lambda v: f"{v:.2f}" if v is not None else "  - "
-        print(f"{r['id']:<4} {r['trigger']:<10} {r['shown']:>5} {r['ok']:>3} {r['bad']:>3} {r['samples']:>7} {f(r['surprise']):>5} "
-              f"{f(r['friction']):>5} {f(r['fragility']):>5} {f(r['confidence']):>5}  {r['text'][:50]}")
-    return 0
-
-
 # memcode config KEY on|off: (key, config.json key, env var, default, what turning it on means)
 SWITCHES = [
     ("memory-agent", "transcript_capture", "MEMCODE_TRANSCRIPT_CAPTURE", True,
-     "each finished turn's condensed, redacted transcript is sent to the model via your `claude` login"),
+     "after each turn, the new part of the session log is sent to the model through your `claude` login"),
     ("decision-capture", "decision_capture", "MEMCODE_DECISION_CAPTURE", True, ""),
     ("retrieval", "retrieval", "MEMCODE_RETRIEVAL", False, ""),
     ("hierarchy", "hierarchy", "MEMCODE_HIER", True, ""),
@@ -324,56 +281,6 @@ def cmd_history(con, a) -> int:
     return 0
 
 
-# --- abstraction (B) ---
-def cmd_consolidate(con, a) -> int:
-    """`memcode consolidate [--dry-run | --undo]`: group redundant agent notes under one lesson each."""
-    from . import consolidate
-    if a.undo:
-        print(f"removed {consolidate.undo(con)} lessons; their notes are top-level again")
-        return 0
-    st = consolidate.run(con, dry_run=a.dry_run)
-    print(("would: " if a.dry_run else "") + f"{st['lessons']} lessons over {st['children']} notes "
-          f"(created {st['created']}, updated {st['updated']}, dissolved {st['dissolved']}; "
-          f"{st['candidates']} candidate notes)")
-    if not consolidate.enabled():
-        print("note: injection still shows the individual notes until MEMCODE_CONSOLIDATE=1")
-    return 0
-
-
-def cmd_budget(con, a) -> int:
-    """`memcode budget N [--dry-run]`: evict down to N memories (user rules and lessons are kept)."""
-    from . import budget
-    st = budget.enforce(con, a.cap, time.time(), dry_run=a.dry_run)
-    why = ", ".join(f"{k} {v}" for k, v in st["evicted"].items() if v) or "nothing"
-    print(("would evict: " if a.dry_run else "evicted: ") + why + f"; {st['before']} -> {st['after']} memories"
-          + (" (still over the cap: only protected memories left)" if st["over_cap"] else ""))
-    return 0
-
-
-def cmd_label(con, a) -> int:
-    """`memcode label ID [+x] [-y]`: show or edit a memory's topic labels."""
-    from . import labels
-    if a.changes:
-        labs = labels.edit(con, a.id, a.changes)
-    else:
-        r = con.execute("SELECT * FROM memories WHERE id=?", (a.id,)).fetchone()
-        if r is None:
-            raise ValueError(f"no memory #{a.id}")
-        labs = labels.of(r)
-    print(f"#{a.id}: " + (", ".join(labs) or "(no labels)"))
-    return 0
-
-
-def cmd_list_label(con, a) -> int:
-    from . import labels
-    rows = [r for r in store.list_memories(con, include_stale=a.all) if labels.has(r, a.label)]
-    if not rows:
-        print(f"no memories labelled {a.label}")
-    for r in rows:
-        flag = " [stale]" if r["stale"] else ""
-        print(f"#{r['id']:<4} {r['trigger']:<9} {(r['anchor_path'] or '/'):<20} {r['text']}{flag}")
-    return 0
-# --- end abstraction (B) ---
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -386,10 +293,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("add"); p.add_argument("text"); p.add_argument("--path")
     sub.add_parser("stats")
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
-    sub.add_parser("salience")
     p = sub.add_parser("why"); p.add_argument("id", type=int)
-    p = sub.add_parser("sync-rules"); p.add_argument("targets", nargs="*")
-    p = sub.add_parser("setup"); p.add_argument("agent")
     p = sub.add_parser("facts"); p.add_argument("--backfill", action="store_true"); p.add_argument("--force", action="store_true")
     p = sub.add_parser("fact"); p.add_argument("action", choices=("set", "rm")); p.add_argument("key")
     p.add_argument("value", nargs="*")
@@ -401,27 +305,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("rescope", help="recompute every memory's scope (repo/dir/file/symbol)")
     sub.choices["list"].add_argument("--scope", metavar="DIR", help="only memories scoped at DIR or inside it ('.' = repo)")
     # --- end scope (A) ---
-    # --- abstraction (B) ---
-    p = sub.add_parser("consolidate", help="group redundant agent notes under one lesson")
-    p.add_argument("--dry-run", action="store_true"); p.add_argument("--undo", action="store_true")
-    p = sub.add_parser("budget", help="evict down to N memories")
-    p.add_argument("cap", type=int, metavar="N"); p.add_argument("--dry-run", action="store_true")
-    p = sub.add_parser("label", help="show or edit a memory's labels: label ID +perf -style")
-    p.add_argument("id", type=int); p.add_argument("changes", nargs=argparse.REMAINDER)
-    sub.choices["list"].add_argument("--label", help="only memories with this topic label")
-    # --- end abstraction (B) ---
     if not (sys.argv[1:] if argv is None else argv):
         ap.print_help()                         # bare `memcode` / `/memcode:cli`: show what is available
         return 0
     a = ap.parse_args(argv)
-    if a.cmd == "setup":                       # needs no store
-        from . import setup
-        try:
-            print(setup.render(a.agent))
-        except ValueError as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 2
-        return 0
     root = store.resolve_root(a.root)
     from . import scope
     scope.apply_config(root)
@@ -433,12 +320,6 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "list" and getattr(a, "scope", None) is not None:
             return cmd_list_scope(con, a)
         # --- end scope (A) ---
-        # --- abstraction (B) ---
-        if a.cmd in ("consolidate", "budget", "label"):
-            return {"consolidate": cmd_consolidate, "budget": cmd_budget, "label": cmd_label}[a.cmd](con, a)
-        if a.cmd == "list" and getattr(a, "label", None):
-            return cmd_list_label(con, a)
-        # --- end abstraction (B) ---
         if a.cmd == "add":
             return cmd_add(con, a, root)
         if a.cmd == "config":
@@ -447,10 +328,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_facts(con, a, root)
         if a.cmd == "fact":
             return cmd_fact(con, a)
-        if a.cmd == "sync-rules":
-            return cmd_sync_rules(con, a, root)
         return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
-                "export": cmd_export, "history": cmd_history, "sessions": cmd_sessions, "salience": cmd_salience, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
+                "export": cmd_export, "history": cmd_history, "sessions": cmd_sessions, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
