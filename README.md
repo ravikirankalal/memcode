@@ -63,11 +63,14 @@ alias memcode='python3 "$(ls -d ~/.claude/plugins/cache/memcode/memcode/*/ | sor
 ### Status above the prompt (optional mod)
 
 ```text
-◆ memcode 🧠 37 memories  📜 12 rules  📝 25 notes  ⚙ 9 facts  ┃  🧠 SAVED  rule: Always use tabs in this repo. · 5s ago
+◆ memcode 37 memories · 12 rules · 9 facts  ┃  🧠 SAVED  rule: Always use tabs in this repo. · 5s ago  🔍 reading..  +2 saved
 ```
 
-Coloured badges show what just happened: `🧠 SAVED`, `✏️ UPDATED`, `🗑 RETIRED`, `💡 RECALLED`, `📂 FOLDER RULES`,
-`✋ HELD`, `🔍 SCANNED`, and `⚠ PROBLEM` or `💸 BUDGET` when the memory agent needs attention. Install it with
+One line above the prompt: what memcode holds; the latest thing it did, as a coloured badge (`🧠 SAVED`, `✏️ UPDATED`,
+`🗑 RETIRED`, `💡 RECALLED`, `📂 FOLDER RULES`, `✋ HELD`, `🚀 LOADED`), or `⚠ PROBLEM` / `💸 BUDGET` when the memory
+agent needs attention; the memory agent's state (`🔍 reading...` while it reads a turn, else when it last read one);
+and what this session added. On a narrow terminal the tally, the agent's state and the count labels give way first.
+`/memcode-status` prints the same as a short dashboard with the last 8 events. Install it with
 `/plugin install memcode-status@memcode`.
 
 ## Privacy and cost

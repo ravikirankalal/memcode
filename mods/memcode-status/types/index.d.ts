@@ -4,10 +4,11 @@ export type Feed = {
   counts: { memories: number; rules: number; notes: number; facts: number }
   events: FeedEvent[]
   problems: Record<string, string> // what is broken right now (memcode/activity.py), e.g. a failing memory agent
+  busy: Record<string, number> // what is working right now: {agent: since (epoch s)} while the memory agent reads
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'memcode-status': { feed: Feed | null; now: number; hint: string | null }
+    'memcode-status': { feed: Feed | null; now: number; hint: string | null; since: number }
   }
 }

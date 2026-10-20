@@ -375,6 +375,19 @@ class Store(unittest.TestCase):
         prov = json.loads(self.con.execute("SELECT provenance FROM memories").fetchone()[0])
         self.assertEqual(prov["importance"], 5)
 
+    def test_feed_marks_the_agent_busy_while_it_reads(self):
+        from memcode import activity
+        feed = lambda: json.loads(Path(self.d, ".memcode", activity.FILE).read_text())  # noqa: E731
+        seen = []
+
+        def fake(text, ctx=None):
+            seen.append(feed().get("busy", {}).get("agent"))
+            return {"items": [], "model": "f", "cost_usd": 0}
+        worker.enqueue(self.con, "s1", write_transcript(SESSION))
+        worker.run_worker(self.d, fake)
+        self.assertTrue(seen and seen[0])                     # set while the model call runs
+        self.assertNotIn("busy", feed())                      # cleared when the worker is done
+
     def test_why_failed_names_the_fix(self):
         self.assertIn("claude update", model.why_failed("API Error [claude-code:unrecognized_model] no such model", "m"))
         self.assertIn("/login", model.why_failed("Not logged in · Please run /login", "m"))

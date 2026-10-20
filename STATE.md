@@ -9,8 +9,8 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.12.0 (2026-10-20, PR #45) | none |
-| memcode-status (mod) | 0.2.4 | none |
+| memcode | 0.12.0 (2026-10-20, PR #45) | 0.12.1 |
+| memcode-status (mod) | 0.2.4 | 0.3.0 |
 
 ## What works
 
@@ -27,7 +27,17 @@ _Last updated: 2026-10-20._
 | Trigger | Per-prompt recall with promotions for costly memories | 0.3 | off by default (`config retrieval on`) |
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
-| Trigger | Status bar mod: counts, latest event, PROBLEM / BUDGET / SCANNED badges | mod 0.2 | |
+| Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.12.1, memcode-status 0.3.0)
+
+- Status bar: compact counts; routine scans ("kept 0") never take the headline; the memory agent's state on the right
+  (`🔍 reading...` while it reads a turn, else when it last read one); this session's tally (`+2 saved`); on a narrow
+  terminal the tally, the agent's state and the count labels give way so the headline keeps room.
+- `/memcode-status` is a short dashboard: counts, problems, the agent's state, this session's tally, the last 8 events;
+  diagnostics only when the bar cannot draw.
+- memcode: the activity feed carries `busy: {agent: <since>}` while the worker reads (activity.busy).
+- Tests: 219 Python, 13 mod.
 
 ## Latest release (0.12.0)
 
@@ -61,8 +71,8 @@ _Last updated: 2026-10-20._
 ## How to verify and release
 
 ```text
-python3 -m unittest discover -s tests          # 218 tests, offline
-claude plugin test mods/memcode-status         # 8 mod tests
+python3 -m unittest discover -s tests          # 219 tests, offline
+claude plugin test mods/memcode-status         # 13 mod tests
 claude plugin validate .claude-plugin/plugin.json --strict
 ```
 

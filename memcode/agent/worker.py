@@ -125,13 +125,14 @@ def run_worker(root: str, extract_fn=model.extract) -> int:
     curate.unpin_howtos(con)
     curate.expire_decisions(con)
     stored = 0
+    from .. import activity
     try:
         while True:
             row = _claim(con)
             if not row:
                 return stored
+            activity.busy(con, "agent", True)          # the status bar shows the agent reading
             session, path, offset, attempts = row
-            from .. import activity
             skipped_before = _skipped_lines(con, session)
             stats: dict = {}
             try:
@@ -161,7 +162,9 @@ def run_worker(root: str, extract_fn=model.extract) -> int:
                     activity.problem(con, "capture", f"memory agent: {str(e)[:200]}")
             con.commit()
     finally:
+        activity.busy(con, "agent", False)
         con.close()
+
 
 def health(con) -> str | None:
     """One line for `memcode stats` / `/memcode:status` when the memory agent is failing or skipped text, else None."""
