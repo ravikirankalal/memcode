@@ -1,6 +1,6 @@
 # Architecture: a memory agent beside the coding agent
 
-memcode is a memory agent that runs alongside a coding agent (Claude Code, Codex CLI, Gemini CLI). The coding agent
+memcode is a memory agent that runs alongside the coding agent (Claude Code). The coding agent
 does the work. The memory agent decides what to remember, keeps that memory true, and hands the right piece of it to
 the coding agent at the moment it matters. It never edits code and never talks to the user.
 
@@ -22,8 +22,7 @@ It has three duties. Every module belongs to one of them, or to the plumbing the
 | `agent/curate.py` | Applies the agent's operations after the checks in `agent/checks.py`: evidence quoted from the log, rules and decisions only from the user's words, no requests for now, no repeats. Logs every change (`memcode history`); handles decisions' subjects and expiry. |
 | `tree.py`, `symbols.py` | The repository map; staleness by file or Python symbol hash; re-anchoring on renames. |
 | `scope.py` | Where a memory applies: repo, folder, file or symbol. |
-| `consolidate.py`, `budget.py`, `labels.py` | Optional maintenance: group redundant notes, cap the store size, topic labels for filtering (`maintenance.py` runs them at session start). |
-| `salience.py`, `outcomes.py` | How costly a memory was to learn (used by the default "split" ranking); outcome tracking (shadow). |
+| `salience.py`, `outcomes.py` | How costly a memory was to learn (a restated rule, a recurring failure), used to give such memories extra slots in per-prompt recall; outcomes record verified successes and repeats. |
 
 ## 3. Trigger: deliver memory at the right moment
 
@@ -38,12 +37,9 @@ It has three duties. Every module belongs to one of them, or to the plumbing the
 
 ## Plumbing
 
-`hook_cli.py` and `adapters.py` turn each agent's hook payloads into engine calls. `config.py` owns
-`.memcode/config.json` and the on/off switches. `cli.py`, `export_rules.py` and `setup.py` are the user-facing
-commands and the wiring for other agents. `redact.py` masks secrets before anything is stored.
-
-Benchmark-only switches (`MEMCODE_FRAMING=legacy`, `MEMCODE_RANK=salience`, `MEMCODE_CONSOLIDATE`) stay so past
-results in `bench/live/RESULTS.md` can be rerun; they are not part of the product.
+`hook_cli.py` turns Claude Code's hook payloads into engine calls. `config.py` owns `.memcode/config.json` and the
+on/off switches. `cli.py` is the user-facing command (`/memcode:*`, `bin/memcode`). `redact.py` masks secrets before
+anything is stored.
 
 ## Cleanup plan (2026-10-20, done in 0.12.0)
 
@@ -61,3 +57,11 @@ results in `bench/live/RESULTS.md` can be rerun; they are not part of the produc
 5. `engine.py` documented as the delivery side; module docstrings point at this page.
 6. Tests and benchmarks follow the moves; the full suite and the mod tests pass after every step, and each step is
    its own commit.
+
+## Removal pass (2026-10-20, 0.12.0)
+
+Removed as not part of this design: Codex/Gemini support (adapters, setup, sync-rules export), store maintenance
+(consolidation, storage budget, topic labels), the benchmarks (`bench/`), and experiment-only code (the salience shadow
+log, legacy framing, salience ordering and map zoom, the relevance-only ranking switch, `reinforce`). The memory agent
+no longer redacts what it sends: the log goes to the same provider the coding agent already sent it to; what memcode
+stores is still redacted.

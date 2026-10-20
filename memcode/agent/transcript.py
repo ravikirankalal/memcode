@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-from ..redact import redact
-
 MAX_CHARS = 24_000           # condensed text sent per model call; a longer backlog goes in chunks, oldest first
 
 
@@ -16,7 +14,7 @@ def _blocks(msg) -> list:
 def condense(lines: list[str]) -> str:
     """Transcript JSONL lines -> compact text: [user] / [agent] / [ran] / [wrote] lines. Harness-injected user turns
     (task notifications, reminders) and hook context are left out; tool output keeps only its tail."""
-    return redact("\n".join(text for _, text in _entries(lines)))
+    return "\n".join(text for _, text in _entries(lines))
 
 def _entries(lines: list[str]) -> list[tuple[int, str]]:
     """condense() as (index of the line after the one that produced it, text) pairs, for chunking."""
@@ -66,10 +64,10 @@ def chunks(lines: list[str]) -> list[tuple[int, str]]:
     out, cur, size = [], [], 0
     for end, text in _entries(lines):
         if cur and size + len(text) + 1 > MAX_CHARS:
-            out.append((cur[-1][0], redact("\n".join(t for _, t in cur))))
+            out.append((cur[-1][0], "\n".join(t for _, t in cur)))
             cur, size = [], 0
         cur.append((end, text[:MAX_CHARS]))
         size += len(cur[-1][1]) + 1
     if cur:
-        out.append((len(lines), redact("\n".join(t for _, t in cur))))
+        out.append((len(lines), "\n".join(t for _, t in cur)))
     return out

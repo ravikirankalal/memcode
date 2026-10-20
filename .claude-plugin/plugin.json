@@ -1,7 +1,7 @@
 {
   "name": "memcode",
   "version": "0.12.0",
-  "description": "Event-triggered, anchored, budgeted memory for coding agents: the agent stops repeating mistakes in a codebase it has seen before.",
+  "description": "A memory agent beside Claude Code: it extracts what is worth remembering, keeps it true, and delivers it when it matters.",
   "mcpServers": {
     "memcode": {
       "command": "python3",
