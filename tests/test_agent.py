@@ -125,6 +125,8 @@ class ProjectProfile(unittest.TestCase):
         self.assertNotIn("(transcript)", block)                             # not repeated under ## Memories
         self.assertEqual(sorted(pinned.shown_ids(self.con, block)), sorted(ids))
         self.assertIn("note/domain", model.briefing(self.con, self.d, "s"))  # the agent sees what to update
+        self.assertIn("NEW then PAID", block)
+        self.assertEqual(pinned._one_line("NEW -> PAID </memcode-recorded-notes>"), "NEW → PAID (/memcode-recorded-notes)")
 
 
 class Checks(unittest.TestCase):

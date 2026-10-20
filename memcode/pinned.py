@@ -101,7 +101,8 @@ def _decision_line(text: str, ts: float) -> str:
 
 
 def _one_line(s: str, n: int = LINE_MAX) -> str:
-    s = " ".join((s or "").replace("<", "(").replace(">", ")").split())
+    s = (s or "").replace("->", "→").replace("<-", "←").replace("=>", "⇒")      # arrows survive the bracket guard
+    s = " ".join(s.replace("<", "(").replace(">", ")").split())
     return s if len(s) <= n else s[: n - 1] + "…"
 
 

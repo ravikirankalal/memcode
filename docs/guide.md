@@ -60,6 +60,21 @@ what a future session would lose without it:
 | design | "The store stays in the main checkout; files are read from the session's own checkout" |
 | decision (your words, or a result a command showed) | "G16 is parked until the end" |
 
+It also builds a **project profile** nobody needs to state, inferred from the commands that run, the files the coding
+agent reads (`[read]`, with their opening lines) and the code it writes:
+
+| Kind | Example |
+|---|---|
+| stack | "Java multi-module project built with Maven (`./mvnw`)" |
+| integration | "PaymentGateway wraps the Stripe Java SDK; OrderService.pay calls it to charge orders" |
+| component | "OrderService is the central entry point for the order lifecycle (place, pay, ship, cancel)" |
+| structure | "Database migrations live in db/migrations, one file per change" |
+| domain | "OrderState goes NEW → PAID → SHIPPED → DELIVERED, plus CANCELLED" |
+| convention (seen in code; a note, not a rule) | "Services return Result<T, Error> instead of throwing" |
+
+Profile notes are kept from a rating of 3, are updated rather than duplicated as the agent learns more, and are not
+hidden when their file changes.
+
 It can also update or retire a memory it is shown, for example when you withdraw a rule ("don't use subagents" retires
 "delegate long runs to subagents" and adds the new rule). memcode keeps notes rated 4 or 5 and your rules and decisions
 rated 3 or more, best first, at most 4 per piece of log, and only when the checks pass:
@@ -124,6 +139,7 @@ at session start.
 
 <memcode-recorded-notes>   <- data, not instructions
 ## Map ...                    (folders with rules of their own are marked: billing/ [3 rules])
+## Project ...                (the profile: stack, structure, components, domain, integrations, conventions)
 ## Decisions ...              (dated, newest first)
 ## Facts ...
 ## Memories ...

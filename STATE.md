@@ -9,7 +9,7 @@ _Last updated: 2026-10-20._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.13.0 (2026-10-20, PR #48) | none |
+| memcode | 0.13.0 (2026-10-20, PR #48) | 0.14.0 |
 | memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
 
 ## What works
@@ -19,7 +19,8 @@ _Last updated: 2026-10-20._
 | Extract | Pattern triggers: correction, revert, fail-to-fix, retry, dependency change | 0.1 | instant; requests for now are never rules (#33) |
 | Extract | Memory agent: a running conversation per coding session (opened at SessionStart, resumed each turn); candidates of every kind rated 1–5, best kept | 0.9 (ranking 0.11, conversation 0.13) | Haiku through the user's `claude` login; per-session budget $0.10–0.50; restarts after 30 calls or ~40k tokens |
 | Extract | Decisions about ongoing work, with subject keys, dated, expire after 30 days | 0.11 | never the agent's own progress (0.11.1) |
-| Extract | Facts: confirmed commands, repo manifests, missing tools, fragile folders | 0.5 | scripts and one-off commands are not recorded (#36) |
+| Extract | Facts: confirmed commands, repo manifests (npm, make, pyproject, Cargo, Go, Maven, Gradle), missing tools, fragile folders | 0.5 (Maven/Gradle 0.14) | scripts and one-off commands are not recorded (#36) |
+| Extract | Project profile inferred by the memory agent: stack, integration, component, structure, domain, convention | 0.14 | from commands, [read] and [edited] lines; shown as ## Project |
 | Store | One store per repository, shared by worktrees; files read from the session's checkout | 0.10.4 | #32, #37, #39 |
 | Store | Staleness per file or Python function; how-tos stay shown across edits | 0.10.4 | |
 | Store | Scopes (repo, folder, file, symbol); every agent change in `memcode history` | 0.8 / 0.9 | |
@@ -28,6 +29,19 @@ _Last updated: 2026-10-20._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.14.0)
+
+- Facts know Maven (`pom.xml`, `./mvnw` when present) and Gradle (`build.gradle[.kts]`, `./gradlew`) builds, and show
+  "built with Maven" next to the languages.
+- The memory agent sees code: `[read] path | <opening 1500 chars>` for files the coding agent read, `[edited] path |
+  <new text>` and `[wrote] path | <text>` for changes.
+- It infers a project profile nobody states (stack, integration, component, structure, domain, convention), kept from
+  a rating of 3, never pinned to file content, updated rather than duplicated; shown at session start as `## Project`.
+- Live check (a Java session log, Haiku): 5 candidates, kept 4: the Stripe SDK wrapped by PaymentGateway and who calls
+  it, OrderService as the central lifecycle entry point, OrderState's states and canCancel, the module test command.
+- Arrows (`->`) survive the start block's bracket guard (shown as →).
+- Tests: 227 Python, 13 mod.
 
 ## Latest release (memcode 0.13.0)
 
@@ -89,7 +103,7 @@ _Last updated: 2026-10-20._
 ## How to verify and release
 
 ```text
-python3 -m unittest discover -s tests          # 224 tests, offline
+python3 -m unittest discover -s tests          # 227 tests, offline
 claude plugin test mods/memcode-status         # 13 mod tests
 claude plugin validate .claude-plugin/plugin.json --strict
 ```

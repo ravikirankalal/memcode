@@ -29,7 +29,9 @@ failing command passes after a fix, a command is retried, dependencies change. T
 session as a running conversation: briefed when the coding agent starts, it reads each turn as it finishes and collects
 what patterns miss: rules you state as description, workflows that work, pitfalls
 written as their fix, how the environment behaves, design decisions, and the state of ongoing work you decide ("G16 is
-parked until the end"). It rates every candidate and keeps the best few, and only what passes its checks: quoted
+parked until the end"). From the commands that run and the code the agent reads and writes, it also builds a project
+profile nobody has to state: the stack and build, the SDKs in use and what for, central classes, key enums and types,
+where things live, and the conventions the code follows. It rates every candidate and keeps the best few, and only what passes its checks: quoted
 evidence, your own words for rules and decisions, no requests for right now, no repeats. Facts track the commands that
 actually work here and the tools that are missing.
 
