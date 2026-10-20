@@ -25,5 +25,30 @@ class Schema(unittest.TestCase):
         self.assertEqual(store.scope_chain("/a/"), ["a", ""])
 
 
+class FlatModel(unittest.TestCase):
+    def test_old_rows_migrate_to_the_flat_fields(self):
+        import json
+        d = tempfile.mkdtemp()
+        con = store.connect(d)
+        rule = store.add_memory(con, "correction", "Rule from user correction: Always use tabs.", "", None, {})
+        note = store.add_memory(con, "transcript", "OrderService is central.", "", None,
+                                {"category": "component", "importance": 4}, from_user=False)
+        dec = store.add_memory(con, "decision", "G16 is parked.", "", None, {}, from_user=False)
+        manual = store.add_memory(con, "manual", "deploys need VPN", "", None, {})
+        con.execute("UPDATE memories SET from_user=0, topic='', importance=3, expires_at=NULL")   # as before 0.15
+        con.commit(); con.close()
+        con = store.connect(d)                                                # the upgrade migrates them
+        r = {x["id"]: x for x in con.execute("SELECT * FROM memories")}
+        self.assertEqual(r[rule]["from_user"], 1)
+        self.assertEqual((r[note]["from_user"], r[note]["topic"], r[note]["importance"]), (0, "component", 4))
+        self.assertEqual(r[dec]["topic"], "decision")
+        self.assertAlmostEqual(r[dec]["expires_at"] - r[dec]["updated_at"], 30 * 86400, delta=1)
+        self.assertEqual(r[manual]["from_user"], 0)                          # a manual add is information, not an order
+        con.execute("INSERT INTO memory_links(src, dst, kind, source, ts) VALUES(?,?,?,?,0)", (rule, note, "related", "auto"))
+        store.delete_ids(con, [rule]); con.commit()
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM memory_links").fetchone()[0], 0)
+        con.close()
+
+
 if __name__ == "__main__":
     unittest.main()

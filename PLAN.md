@@ -29,6 +29,24 @@ agent never edits code or talks to the user; a failure in memcode never blocks t
 | 4 | Librarian: merges near-duplicates, keeps the store small and well organized | Store | Planned |
 | 5 | Briefer: a task-specific briefing when a new task starts, instead of a fixed start block | Trigger | Planned |
 
+## In progress: flat memory graph (0.15.0)
+
+One kind of memory instead of rules, notes, facts and decisions. Each memory has its text, where it came from, a
+`from_user` flag (quoted from the user's words: delivered as an instruction; everything else as information), an
+optional topic (workflow, stack, component, domain, ...: display and search only), an importance, a key for memories
+updated in place (what were facts; decision subjects), an optional expiry (what were decisions), a local vector and
+links to related memories. Embeddings are local and stdlib (hashed TF-IDF over words, identifiers and paths); the
+graph's links come from shared files and folders, close vectors, and the memory agent, which proposes them.
+
+1. Schema and migration (from_user, topic, importance, key, expires_at, stats; memory_links, memory_vectors).
+2. One rule concept: every "is this a rule" check becomes from_user.
+3. Facts become keyed memories; the facts table is migrated and dropped.
+4. embed.py (vectors) and graph.py (links).
+5. One delivery: From you, then Memory ranked by importance and connections, then the map; per-prompt recall by
+   vector search plus one hop on the graph; first contact with a folder brings its memories and their neighbours.
+6. The memory agent's output is flat: add / update / retire a memory, with from_user, topic, importance, links, expiry.
+7. CLI, MCP, status bar, docs, a live check.
+
 ## Next steps
 
 1. **Guardian, first slice**: at `PreToolUse` for Bash, match the command against facts and pitfalls (for example
