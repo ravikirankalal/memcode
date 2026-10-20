@@ -601,3 +601,82 @@ class Decisions(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             cli.main(["--root", self.d, "config", "decision-capture", "off"])
         self.assertFalse(curate.decisions_enabled(self.d))
+
+
+class Conversation(unittest.TestCase):
+    """The memory agent keeps a running conversation per coding session: opened at SessionStart, resumed each turn."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.con = store.connect(self.d)
+        self.calls = []
+
+    def tearDown(self):
+        self.con.close()
+
+    def fake(self, items=None, tokens=1000):
+        def extract(text, context="", session=None):
+            self.calls.append({"text": text, "context": context, "session": dict(session or {})})
+            return {"items": list(items or []), "model": "f", "cost_usd": 0.001, "context_tokens": tokens}
+        return extract
+
+    def test_opened_at_session_start_then_resumed_with_deltas(self):
+        from memcode.agent import conversation
+        sid = conversation.start(self.con, "s1")
+        self.assertEqual(worker.open_conversations(self.con, self.d, self.fake()), 1)
+        opening = self.calls[0]
+        self.assertEqual((opening["text"], opening["session"]["id"], opening["session"]["resume"]), ("", sid, False))
+        self.assertIn("Memory now", opening["context"])                  # the full briefing
+        self.assertIn("coding session starts now", opening["context"])
+        rule = {"op": "add", "kind": "rule", "importance": 4, "text": "Every module starts with the SPDX header line.",
+                "evidence": "Every module in this repo starts with the SPDX header line", "path": ""}
+        worker.enqueue(self.con, "s1", write_transcript(SESSION))
+        worker.run_worker(self.d, self.fake([rule]))
+        turn = self.calls[-1]
+        self.assertEqual((turn["session"]["id"], turn["session"]["resume"]), (sid, True))
+        self.assertIn("Memory changes since your last reply", turn["context"])
+        self.assertNotIn("Memory now", turn["context"])                  # no full briefing again
+        worker.enqueue(self.con, "s1", write_transcript(SESSION + [user("Also, every module has a docstring.")]))
+        worker.run_worker(self.d, self.fake())
+        self.assertIn("memcode applied your add", self.calls[-1]["context"])   # what it kept, as feedback
+
+    def test_starts_over_when_the_conversation_gets_long(self):
+        from memcode.agent import conversation
+        first = conversation.start(self.con, "s1")
+        worker.open_conversations(self.con, self.d, self.fake(tokens=conversation.MAX_CONTEXT_TOKENS))
+        row = conversation.current(self.con, "s1")
+        self.assertNotEqual(row["agent_session"], first)                 # too big: a fresh conversation
+        self.assertEqual(conversation.pending_openings(self.con), [])     # opened with the next piece, not on its own
+        worker.enqueue(self.con, "s1", write_transcript(SESSION))
+        worker.run_worker(self.d, self.fake())
+        nxt = self.calls[-1]
+        self.assertEqual((nxt["session"]["id"], nxt["session"]["resume"]), (row["agent_session"], False))
+        self.assertIn("Memory now", nxt["context"])                      # the new conversation gets the briefing
+        self.assertTrue(nxt["text"])                                      # with the first piece in the same call
+
+    def test_opening_cost_counts_toward_the_session_budget(self):
+        from memcode.agent import conversation
+        conversation.start(self.con, "s1")
+        expensive = self.fake()
+        worker.open_conversations(self.con, self.d, lambda text, context="", session=None: dict(
+            expensive(text, context, session), cost_usd=0.2))
+        self.assertAlmostEqual(conversation.opening_cost(self.con, "s1"), 0.2)
+        with mock.patch.dict(os.environ, {"MEMCODE_CAPTURE_BUDGET_USD": "0.1"}):
+            worker.enqueue(self.con, "s1", write_transcript(SESSION))
+            worker.run_worker(self.d, self.fake())
+        self.assertEqual(len(self.calls), 1)                             # only the opening: the budget was spent
+
+    def test_every_session_start_opens_a_fresh_conversation(self):
+        from memcode import hook_cli
+        from memcode.agent import conversation
+        import io
+        ids = []
+        for _ in range(2):
+            payload = json.dumps({"session_id": "s1", "cwd": self.d, "source": "startup"})
+            with mock.patch("sys.stdin", io.StringIO(payload)), mock.patch("sys.stdout", io.StringIO()), \
+                    mock.patch("memcode.agent.enabled", lambda root: True), \
+                    mock.patch("memcode.agent.spawn_worker", lambda root: None):
+                hook_cli.main(["hook_cli", "SessionStart"])
+            ids.append(conversation.current(self.con, "s1")["agent_session"])
+        self.assertNotEqual(ids[0], ids[1])
+        self.assertEqual(conversation.pending_openings(self.con), ["s1"])

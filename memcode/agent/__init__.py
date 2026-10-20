@@ -10,6 +10,7 @@ only what passes the checks, best-rated first.
   model.py        the role prompt, output schema, briefing and model call
   checks.py       what a proposal must pass before it is stored
   curate.py       applying operations; decisions (subjects, expiry); memory_log
+  conversation.py its running conversation per coding session: opened at SessionStart, resumed each turn
   worker.py       the queue, per-session budget, worker loop and health
   db.py           the agent's tables
 
@@ -19,4 +20,5 @@ model through the user's own `claude` login, the provider the coding agent alrea
 """
 from .curate import decision_days, decisions_enabled  # noqa: F401
 from .model import DEFAULT_MODEL  # noqa: F401
+from .conversation import start as start_session  # noqa: F401
 from .worker import enabled, enqueue, health, spawn_worker  # noqa: F401

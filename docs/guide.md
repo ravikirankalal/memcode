@@ -34,11 +34,19 @@ logged to `.memcode/error.log`).
 
 A request for right now ("Park G16. Start a review on main ... we can't touch develop yet") is never stored as a rule.
 
-### The memory agent (after each turn)
+### The memory agent (beside the session)
 
-Patterns only see single events. After each finished turn the Stop hook queues the session log, and a detached worker
-sends the part not read yet, condensed to your messages, the agent's replies, the commands it ran (result and output
-tail) and the files it wrote, to a model through your own `claude` login (`MEMCODE_CAPTURE_MODEL`, default Haiku).
+Patterns only see single events. The memory agent is a model that works beside the coding session as a running
+conversation, through your own `claude` login (`MEMCODE_CAPTURE_MODEL`, default Haiku):
+
+- **When the coding agent starts** (a new session, a resume, `/clear` or a compaction), memcode opens a fresh
+  conversation and sends the opening briefing: its role and the memory as it stands.
+- **After each turn**, the Stop hook queues the session log and a detached worker continues that conversation with only
+  what is new: the latest turns (your messages, the agent's replies, the commands it ran with their result and output
+  tail, the files it wrote) and what changed in the memory since its last reply, including which of its proposals
+  memcode applied. Earlier turns stay in its context, so it can connect them and does not propose the same thing twice.
+- **Long sessions**: after 30 calls or about 40,000 tokens of context it starts over with a fresh briefing, so cost
+  stays bounded.
 
 The model reads it as a colleague taking over tomorrow, collects up to 12 candidates of every kind, and rates each 1–5 by
 what a future session would lose without it:

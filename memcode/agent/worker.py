@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from .. import store
-from . import curate, db, model, transcript
+from . import conversation, curate, db, model, transcript
 
 MIN_NEW_CHARS = 400          # a scan needs at least this much new condensed text
 MAX_ATTEMPTS = 2
@@ -88,16 +88,22 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=mo
         return offset, [], 0.0                          # too little yet: kept for the next scan, never skipped
     budget = session_budget(len(lines))
     spent = con.execute("SELECT cost_usd FROM transcript_scans WHERE session=?", (session,)).fetchone()
-    total = spent[0] if spent else 0.0
+    total = (spent[0] if spent else 0.0) + conversation.opening_cost(con, session)
     ids: list[int] = []
     cost, start = 0.0, offset
     for end, piece in transcript.chunks(new):
         if total + cost >= budget:                      # this session's budget is spent: skip the rest, and say so
             _skipped(con, session, len(lines) - offset, budget)
             return len(lines), ids, cost
-        res = extract_fn(piece, model.briefing(con, root, session))
+        if _converses(extract_fn):                      # the running conversation: briefing once, then deltas
+            ctx, convo = conversation.call_args(con, root, session, piece)
+            res = extract_fn(piece, ctx, session=convo)
+        else:                                           # a one-off call with the full briefing
+            res = extract_fn(piece, model.briefing(con, root, session))
         if res is None or "error" in res:
             raise RuntimeError((res or {}).get("error") or "model call failed")
+        if _converses(extract_fn):
+            conversation.record(con, session, res)
         ids += curate.store_items(con, root, session, res["items"], piece, res.get("model", ""), stats)
         cost += res.get("cost_usd", 0.0)
         if stats is not None:
@@ -108,6 +114,31 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=mo
                     (offset, total + cost, session))
         con.commit()
     return offset, ids, cost
+
+def _converses(extract_fn) -> bool:
+    import inspect
+    try:
+        return "session" in inspect.signature(extract_fn).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def open_conversations(con, root: str, extract_fn=model.extract) -> int:
+    """Send the opening briefing of every conversation started at SessionStart and not opened yet. -> opened."""
+    if not _converses(extract_fn):
+        return 0
+    n = 0
+    for session in conversation.pending_openings(con):
+        ctx, convo = conversation.call_args(con, root, session, "")
+        res = extract_fn("", ctx, session=convo)
+        if res is None or "error" in res:
+            from .. import activity
+            activity.problem(con, "capture", f"memory agent: {(res or {}).get('error') or 'model call failed'}")
+            continue
+        conversation.record(con, session, res, opening=True)
+        n += 1
+    return n
+
 
 def _skipped(con, session: str, n: int, budget: float) -> None:
     """Add `n` to the session's unscanned lines (they never get scanned) and note the budget that applied."""
@@ -127,6 +158,9 @@ def run_worker(root: str, extract_fn=model.extract) -> int:
     stored = 0
     from .. import activity
     try:
+        if conversation.pending_openings(con):          # the coding agent just started: open its memory agent first
+            activity.busy(con, "agent", True)
+            open_conversations(con, root, extract_fn)
         while True:
             row = _claim(con)
             if not row:

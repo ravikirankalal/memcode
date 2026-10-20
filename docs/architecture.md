@@ -12,7 +12,7 @@ It has three duties. Every module belongs to one of them, or to the plumbing the
 |---|---|---|
 | `triggers.py` | Pattern triggers on hook events: a user correction, a fail-then-fix, a revert, retried commands, dependency changes. | Instant, free, every event |
 | `facts.py` | Keyed facts from what the agent runs and the repo declares: test, build and lint commands with pass/fail counts, missing tools, languages. | Instant, free, every command |
-| `agent/` | The model-backed memory agent. After each turn it reads the new part of the session log, collects candidates of every kind (rules, workflows, pitfalls, environment, design, decisions), rates them, and proposes add, update and retire operations. | A detached worker, about $0.004 per piece of log on Haiku, per-session budget |
+| `agent/` | The model-backed memory agent, a running conversation per coding session (`agent/conversation.py`): opened with a full briefing when the coding agent starts, then resumed after each turn with the new part of the session log and what changed in the memory. It collects candidates of every kind (rules, workflows, pitfalls, environment, design, decisions), rates them, and proposes add, update and retire operations. | A detached worker, about $0.004 per piece of log on Haiku (less when the conversation is cached), per-session budget |
 
 ## 2. Store: keep memory correct
 
