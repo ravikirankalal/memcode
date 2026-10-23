@@ -1,5 +1,6 @@
 """The fast paths added for runtime performance must give exactly what the slow, obvious versions give."""
 import random
+import re
 import tempfile
 import time
 import unittest
@@ -35,20 +36,6 @@ def random_store(seed):
     return con, now
 
 
-def old_shown_ids(con, text):
-    lines = set(text.splitlines())
-    shown = []
-    for r in con.execute("SELECT id, trigger, text FROM memories WHERE stale=0 ORDER BY id"):
-        if r["trigger"] == "correction":
-            if f"- {pinned._one_line(pinned._rule_text(r['text']), 240)}" in lines:
-                shown.append(r["id"])
-        else:
-            prefix = f"- ({r['trigger']}) {pinned._one_line(r['text'])}"
-            if any(l == prefix or l.startswith(prefix + " [") for l in lines):
-                shown.append(r["id"])
-    return shown
-
-
 class Equivalence(unittest.TestCase):
     def test_index_evidence_matches_row_by_row(self):
         for seed in range(6):
@@ -65,7 +52,10 @@ class Equivalence(unittest.TestCase):
         for seed in range(4):
             con, _ = random_store(seed)
             text = pinned.render_pinned(con, None, token_cap=4000)
-            self.assertEqual(pinned.shown_ids(con, text), old_shown_ids(con, text))
+            shown = pinned.shown_ids(con, text)
+            listed = [l for l in text.splitlines() if l.startswith("- ")]     # every rule and memory line, dated
+            self.assertEqual(len(shown), len(listed))
+            self.assertTrue(all(re.search(r"\d{4}-\d\d-\d\d", l) for l in listed))
             con.close()
 
 

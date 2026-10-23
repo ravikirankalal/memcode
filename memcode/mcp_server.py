@@ -86,7 +86,8 @@ def _call_tool(con, root: str, name: str, args: dict) -> str:
         for r in rows:  # record retrievals (recall frequency ranks the start block)
             con.execute("INSERT INTO retrievals(session,memory_id,ts) VALUES('mcp',?,strftime('%s','now'))", (r["id"],))
         con.commit()
-        return "\n".join(f"#{r['id']} ({'from you' if r['from_user'] else pinned.label(r)}) {r['anchor_path'] or '/'}: "
+        return "\n".join(f"#{r['id']} ({'from you, ' + pinned.day(r['updated_at']) if r['from_user'] else pinned.label(r)}) "
+                         f"{r['anchor_path'] or '/'}: "
                          f"{r['text']}" for r in rows) or "no matches"
     if name == "memory_add":
         text = args.get("text")
@@ -138,7 +139,7 @@ def handle(root: str, msg) -> dict | None:
             want = params.get("protocolVersion")
             ver = want if want in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0]
             res = {"protocolVersion": ver, "capabilities": {"tools": {}},
-                   "serverInfo": {"name": "memcode", "version": "0.15.0"}}
+                   "serverInfo": {"name": "memcode", "version": "0.15.1"}}
         elif method == "tools/list":
             res = {"tools": TOOLS}
         elif method == "tools/call":

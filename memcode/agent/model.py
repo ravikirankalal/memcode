@@ -113,14 +113,15 @@ def briefing(con, root: str, session: str) -> str:
     context), plus what memcode measures itself (facts)."""
     shown = shown_ids(con, session)
     lines = [f"Repository: {os.path.basename(os.path.realpath(root)) or root}", f"Session: {session}",
-             "Memory now (number, from you or topic, where it applies, text):"]
+             "Memory now (number, from you or topic, date last stated or changed, where it applies, text):"]
     rows = con.execute("SELECT id, trigger, text, anchor_path, scope_path, provenance, updated_at, from_user, topic FROM memories "
                        "WHERE stale=0 AND mkey IS NULL AND (expires_at IS NULL OR expires_at>?) "
                        "ORDER BY from_user DESC, (topic='decision') DESC, updated_at DESC LIMIT ?",
                        (time.time(), MAX_BRIEF_MEMORIES)).fetchall()
-    from ..pinned import label
+    from ..pinned import day, label
     for r in rows:
-        kind = "from you" + (f", {r['topic']}" if r["topic"] else "") if r["from_user"] else label(r)
+        kind = ("from you" + (f", {r['topic']}" if r["topic"] else "") + f", {day(r['updated_at'])}" if r["from_user"]
+                else label(r))
         where = r["anchor_path"] or r["scope_path"] or "repo"
         if r["topic"] == "decision" and not r["from_user"]:
             subj = db.loads(r["provenance"]).get("subject") or ""

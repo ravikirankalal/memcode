@@ -83,7 +83,7 @@ def opening_cost(con, session: str) -> float:
 def delta(con, session: str, since: float) -> str:
     """What changed since the agent's last reply: what memcode kept of its proposals, memories added or changed by other
     paths (pattern triggers, the user), memories newly shown to the coding agent."""
-    from ..pinned import label
+    from ..pinned import day, label
     lines = ["Memory changes since your last reply:"]
     for r in con.execute("SELECT op, memory_id, after FROM memory_log WHERE session=? AND ts>? ORDER BY id",
                          (session, since)):
@@ -92,7 +92,7 @@ def delta(con, session: str, since: float) -> str:
                          "AND updated_at>? AND "
                          "id NOT IN (SELECT memory_id FROM memory_log WHERE ts>? AND memory_id IS NOT NULL) ORDER BY id",
                          (since, since)):
-        kind = "from you" if r["from_user"] else label(r)
+        kind = f"from you, {day(r['updated_at'])}" if r["from_user"] else label(r)
         text = r["text"]
         lines.append(f"- new or changed #{r['id']} {kind} [{r['anchor_path'] or 'repo'}] ({r['trigger']}): "
                      f"{' '.join(text.split())[:200]}")

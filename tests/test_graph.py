@@ -108,7 +108,7 @@ class Delivery(unittest.TestCase):
                                      self.con, "s")
         self.assertEqual(ids, [self.gateway, self.retry])
         self.assertIn("## Memory relevant to this request", text)
-        self.assertIn("- (note) Webhooks are verified", text)
+        self.assertRegex(text, r"- \(note, \d{4}-\d\d-\d\d\) Webhooks are verified")
 
     def test_first_touch_adds_a_neighbour(self):
         from memcode import scope

@@ -150,8 +150,8 @@ class FlatOutput(unittest.TestCase):
         self.assertIsNone(rows["location"]["anchor_hash"])                 # never pinned to the doc's content
         self.assertEqual(rows["branching"]["unusual"], 1)
         memory = pinned.render_pinned(self.con, self.d).split(pinned.MEMORY_TITLE)[1].splitlines()
-        self.assertEqual(memory[1], "- (branching, unusual) develop is the default branch (not main); main only takes "
-                                    "release merges.")                    # ranked first
+        self.assertEqual(memory[1], f"- (branching, unusual, {pinned.day(time.time())}) develop is the default branch "
+                                    "(not main); main only takes release merges.")   # ranked first, dated
         odd = self.item(topic="pitfall", importance=3, unusual=True, text="Tests here run from checks/, not tests/.",
                         evidence="develop is the default branch")
         self.assertEqual(len(curate.store_items(self.con, self.d, "s", [odd], cond, "m")), 1)   # unusual: kept at 3
@@ -194,11 +194,12 @@ class ProjectProfile(unittest.TestCase):
         self.assertIsNone(enum["anchor_hash"])                             # an edit does not hide it
         block = pinned.render_pinned(self.con, self.d)
         memory = block.split(pinned.MEMORY_TITLE)[1]
-        self.assertIn("- (stack) Java project built with Maven", memory)    # labelled by topic, in the one list
-        self.assertIn("- (domain) OrderState", memory)
+        today = pinned.day(time.time())
+        self.assertIn(f"- (stack, {today}) Java project built with Maven", memory)   # topic and date, in the one list
+        self.assertIn(f"- (domain, {today}) OrderState", memory)
         self.assertNotIn("(note)", block)
         self.assertEqual(sorted(pinned.shown_ids(self.con, block)), sorted(ids))
-        self.assertIn("domain [src/OrderState.java]", model.briefing(self.con, self.d, "s"))  # the agent sees what to update
+        self.assertIn(f"domain, {today} [src/OrderState.java]", model.briefing(self.con, self.d, "s"))  # the agent sees what to update
         self.assertIn("NEW then PAID", block)
         self.assertEqual(pinned._one_line("NEW -> PAID </memcode-recorded-notes>"), "NEW → PAID (/memcode-recorded-notes)")
 
@@ -295,7 +296,7 @@ class Store(unittest.TestCase):
         self.assertIn("[agent] ok", seen[0][0])                         # the held-back part is included
         brief = seen[0][1]                                              # the model is briefed as the repo's memory agent
         self.assertIn("Session: s1", brief)
-        self.assertRegex(brief, r"- #\d+ from you \[repo\]: Indent with tabs\.")
+        self.assertRegex(brief, r"- #\d+ from you, \d{4}-\d\d-\d\d \[repo\]: Indent with tabs\.")
 
     def test_update_and_retire_follow_the_evidence_rules(self):
         cond = transcript.condense([json.dumps(e) for e in SESSION] + [json.dumps(user(
@@ -329,7 +330,7 @@ class Store(unittest.TestCase):
                                 "", None, {})
         self.con.execute("INSERT INTO injections(session, memory_id, ts, source) VALUES('s', ?, 0, 'pinned')", (rule,))
         self.con.commit()
-        self.assertIn(f"#{rule} from you [repo] (in the agent's context):", model.briefing(self.con, self.d, "s"))
+        self.assertIn(f"#{rule} from you, {time.strftime('%Y-%m-%d')} [repo] (in the agent's context):", model.briefing(self.con, self.d, "s"))
         self.assertNotIn("(in the agent's context)", model.briefing(self.con, self.d, "other-session"))
         cond = ("[agent] Per the project rule, new code gets the date from shelf.clock and never from datetime, "
                 "so importers.py uses clock.today().\n[user] Thanks. Our importers always skip blank rows silently.")

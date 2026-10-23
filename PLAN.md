@@ -29,7 +29,7 @@ agent never edits code or talks to the user; a failure in memcode never blocks t
 | 4 | Librarian: merges near-duplicates, keeps the store small and well organized | Store | Planned |
 | 5 | Briefer: a task-specific briefing when a new task starts, instead of a fixed start block | Trigger | Planned |
 
-## Done on the branch, not released: flat memory graph (0.15.0)
+## Released: flat memory graph (0.15.0)
 
 One kind of memory instead of rules, notes, facts and decisions. Each memory has its text, where it came from, a
 `from_user` flag (quoted from the user's words: delivered as an instruction; everything else as information), an
@@ -47,7 +47,7 @@ graph's links come from shared files and folders, close vectors, and the memory 
 6. The memory agent's output is flat: add / update / retire a memory, with from_user, topic, importance, links, expiry.
 7. CLI, MCP, status bar, docs, a live check.
 
-## Done on the branch, not released: inference kinds as a running list (0.15.0)
+## Released: inference kinds as a running list (0.15.0)
 
 `memcode/kinds.py` is the list of what the memory agent looks for; the prompt, the output topics and the profile
 floor are built from it. Added: infra, deployment, branching, location (important docs and scripts), reference
