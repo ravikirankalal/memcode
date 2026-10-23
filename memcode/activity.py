@@ -1,6 +1,6 @@
 """Activity feed for status displays: `.memcode/activity.json`, rewritten whenever memcode saves or injects memory.
 
-  {"version": 1, "updated": <epoch s>, "counts": {"memories", "rules", "notes", "facts"},
+  {"version": 1, "updated": <epoch s>, "counts": {"memories", "from_you"},        memories: live ones, command counters aside
    "events": [{"ts", "kind", "text", "n"}, ...],            newest last, at most MAX_EVENTS
    "problems": {"capture": "<why>"},                         what is broken right now; absent when nothing is
    "busy": {"agent": <since epoch s>}}                       what is working right now (the memory agent reading)
@@ -30,13 +30,9 @@ def _path(con) -> str | None:
 
 
 def _counts(con) -> dict:
-    live, rules = con.execute("SELECT COUNT(*), COALESCE(SUM(trigger='correction'), 0) FROM memories "
-                              "WHERE stale=0").fetchone()
-    try:
-        facts = con.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
-    except Exception:  # noqa: BLE001  (no facts table yet)
-        facts = 0
-    return {"memories": live, "rules": rules, "notes": live - rules, "facts": facts}
+    live, mine = con.execute("SELECT COUNT(*), COALESCE(SUM(from_user), 0) FROM memories "
+                             "WHERE stale=0 AND trigger!='command'").fetchone()
+    return {"memories": live, "from_you": mine}
 
 
 def note(con, kind: str, text: str, n: int = 1) -> None:
@@ -100,9 +96,11 @@ def _write(con, event: dict | None, prob: tuple[str, str | None] | None = None,
         pass
 
 
-def saved(con, trigger: str, text: str, anchor: str = "") -> None:
-    if trigger == "correction":
+def saved(con, trigger: str, text: str, anchor: str = "", from_user: bool | None = None, topic: str = "") -> None:
+    """A saved event: 'from you: <text>', or '(<topic or origin>) <text> on <anchor>'."""
+    if trigger == "correction" if from_user is None else from_user:
         from .pinned import _rule_text
-        note(con, "saved", f"rule: {_rule_text(text)}")
+        note(con, "saved", f"from you: {_rule_text(text)}")
     else:
-        note(con, "saved", f"{trigger.replace('_', '-')} note" + (f" on {anchor}" if anchor else "") + f": {text}")
+        lab = topic or ("note" if trigger == "agent" else trigger.replace("_", "-"))
+        note(con, "saved", f"({lab}) {text}" + (f" on {anchor}" if anchor else ""))

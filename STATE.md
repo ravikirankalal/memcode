@@ -3,14 +3,14 @@
 Keep this file current: update it with every change that lands (what changed, the version, what is pending). The plan
 is in [`PLAN.md`](PLAN.md).
 
-_Last updated: 2026-10-20._
+_Last updated: 2026-10-23._
 
 ## Versions
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.13.0 (2026-10-20, PR #48) | 0.14.0 |
-| memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
+| memcode | 0.14.0 (2026-10-20, PR #49) | 0.15.0: flat memory graph |
+| memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | 0.4.0: counts are memories and from you |
 
 ## What works
 
@@ -20,17 +20,62 @@ _Last updated: 2026-10-20._
 | Extract | Memory agent: a running conversation per coding session (opened at SessionStart, resumed each turn); candidates of every kind rated 1–5, best kept | 0.9 (ranking 0.11, conversation 0.13) | Haiku through the user's `claude` login; per-session budget $0.10–0.50; restarts after 30 calls or ~40k tokens |
 | Extract | Decisions about ongoing work, with subject keys, dated, expire after 30 days | 0.11 | never the agent's own progress (0.11.1) |
 | Extract | Facts: confirmed commands, repo manifests (npm, make, pyproject, Cargo, Go, Maven, Gradle), missing tools, fragile folders | 0.5 (Maven/Gradle 0.14) | scripts and one-off commands are not recorded (#36) |
-| Extract | Project profile inferred by the memory agent: stack, integration, component, structure, domain, convention | 0.14 | from commands, [read] and [edited] lines; shown as ## Project |
+| Extract | Project profile inferred by the memory agent: stack, integration, component, structure, domain, convention | 0.14 | from commands, [read] and [edited] lines; on the branch: also infra, deployment, branching, location, reference, and an unusual flag (memcode/kinds.py) |
 | Store | One store per repository, shared by worktrees; files read from the session's checkout | 0.10.4 | #32, #37, #39 |
 | Store | Staleness per file or Python function; how-tos stay shown across edits | 0.10.4 | |
 | Store | Scopes (repo, folder, file, symbol); every agent change in `memcode history` | 0.8 / 0.9 | |
-| Trigger | Start block: rules as instructions; map, decisions, facts, notes as data | 0.1 (decisions 0.11) | ~1500-token cap |
+| Trigger | Start block: rules as instructions; map, decisions, facts, notes as data | 0.1 (decisions 0.11) | ~1500-token cap; on the branch: From you, then one ranked Memory list, then the map |
 | Trigger | Per-prompt recall with promotions for costly memories | 0.3 | off by default (`config retrieval on`) |
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.14.0)
+## Unreleased (flat memory graph, 0.15.0)
+
+- Step 1: memories gain `from_user`, `topic`, `importance`, `mkey`, `expires_at`, `stats`; new tables `memory_links`
+  and `memory_vectors`; old rows migrate (corrections -> from_user, categories -> topic, decisions -> expiry).
+- Step 2: one rule concept. Every "is this a rule" check reads `from_user` (start block, folder scopes, held writes,
+  recall, salience, the memory agent, status counts). The memory agent writes origin `agent` with from_user / topic /
+  importance / expires_at; decisions are `topic='decision'` with an expiry, refreshed when updated. Rule text is plain
+  (the "Rule from user correction:" prefix is gone, stripped from old rows).
+- Step 3: facts are keyed memories (`mkey` = the old key, origin command / repo / env / inference / manual, counters
+  in `stats`), read through the `fact_rows` view; old stores move their facts table into memories and drop it. Until
+  one delivery (step 5), note paths (start block notes, recall, the agent's briefing, `memcode list`) skip keyed
+  memories and facts still render as `## Facts`.
+- Step 4: `embed.py` (local hashed TF-IDF vectors over words, identifier parts and paths; stored per memory with the
+  hash of its text, IDF applied when compared; `search`) and `graph.py` (automatic `same_file` and `similar` links
+  rebuilt for new or changed memories; agent links kept; `neighbours`, `degree`). Run at session start and after the
+  memory agent writes. On this repo's store: 74 memories embedded and linked in 0.01 s.
+- Step 5: one delivery. The start block is `## From you` (the user's words, as instructions), then one `## Memory`
+  list (data) where every other memory is `- (label) text [anchor]`: the label is its topic, `decision, <date>`, a
+  fact's role, or where it came from; ranked by importance, graph connections, recalls and recency; then the map.
+  Per-prompt recall scores by embedding cosine (plus the path boosts) and adds up to 2 graph neighbours of its top
+  memories; first touch of a folder adds up to 3 neighbours of that folder's memories. Expired memories are never
+  delivered; facts are recalled only when worth showing (facts.shown).
+- Step 6: the memory agent's output is flat: op, target, from_user, topic (workflow, pitfall, environment, design,
+  decision, process, stack, integration, component, structure, domain, convention), subject, importance, text,
+  evidence, path, links (numbers of memories it belongs with: kept as agent links in the graph), conflicts. The
+  checks are unchanged (from_user needs the user's own words; decisions the user's words or a settled result).
+  Environment observations are ordinary memories (no separate env facts, no cap); the scan line is `N candidates,
+  kept K`. The briefing lists memories as `#id from you|<label> [where]` and shows facts as measured by memcode.
+- Step 7: surfaces. The activity feed counts `{memories, from_you}` (command counters aside); saved events read
+  `from you: ...` or `(topic) ...`; the session-start event `N from you, M memories`. `memcode list` labels each
+  memory (from you, topic, decision with date, origin); `show` gives importance, key, expiry and links; `add --topic`;
+  `stats` counts from you, stale and links; `export` includes the command counters. MCP `memory_search` is embedding
+  search plus graph neighbours; `memory_add` takes a topic. Status mod 0.4.0: `37 memories · 12 from you` (reads old
+  feeds too). README, guide and architecture describe the flat model. Versions bumped (memcode 0.15.0, mod 0.4.0).
+- Step 8 (asked after step 7): inference kinds as a running list. `memcode/kinds.py` holds every kind the memory
+  agent looks for (topic, what to look for, example); the prompt, the schema's topics and the profile floor come from
+  it. New kinds: infra, deployment, branching, location, reference. New `unusual` flag (column `memories.unusual`):
+  set when a memory differs from the usual way for this kind of project; kept from a rating of 3, +1 in the start
+  block's ranking, shown as `(topic, unusual)`. memcode keeps up to 6 candidates per piece of log (was 4).
+- Live check (Haiku, a synthetic shop-service log): 7 candidates, kept 6, $0.0015: from you, the branching rule (off
+  develop, never main); unusual, tests in checks/ with the working command; infra (EKS eu-west-1, ECR, RDS); the
+  deployment pipeline (release.sh tags v*, deploy.yml staging then approved prod); the Grafana link; the runbook's
+  location. A component summary rated 2 was dropped.
+- Tests: 239 Python, 13 mod.
+
+## Latest release (memcode 0.14.0)
 
 - Facts know Maven (`pom.xml`, `./mvnw` when present) and Gradle (`build.gradle[.kts]`, `./gradlew`) builds, and show
   "built with Maven" next to the languages.
@@ -43,7 +88,7 @@ _Last updated: 2026-10-20._
 - Arrows (`->`) survive the start block's bracket guard (shown as →).
 - Tests: 227 Python, 13 mod.
 
-## Latest release (memcode 0.13.0)
+## Previous release (memcode 0.13.0)
 
 - The memory agent keeps a running conversation per coding session (agent/conversation.py, table agent_sessions).
   Every SessionStart (startup, resume, clear, compact) opens a fresh one: the worker sends the role and the full

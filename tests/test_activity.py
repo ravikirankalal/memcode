@@ -31,11 +31,11 @@ class Activity(unittest.TestCase):
             saved = [e for e in f["events"] if e["kind"] == "saved"]
             self.assertEqual(len(saved), 1)
             self.assertNotIn("recalled", [e["kind"] for e in f["events"]])   # not echoed back
-            self.assertIn("rule: ", saved[0]["text"])
-            self.assertEqual((f["counts"]["memories"], f["counts"]["rules"]), (1, 1))
+            self.assertIn("from you: ", saved[0]["text"])
+            self.assertEqual(f["counts"], {"memories": 1, "from_you": 1})
             engine.session_start(self.con, self.d, "s2")
             self.assertEqual(self.feed()["events"][-1]["kind"], "start")
-            self.assertIn("1 rule,", self.feed()["events"][-1]["text"])
+            self.assertIn("1 from you,", self.feed()["events"][-1]["text"])
 
     def test_a_rule_is_not_echoed_back_in_the_prompt_that_stated_it(self):
         with mock.patch.dict(os.environ, {"MEMCODE_RETRIEVAL": "1"}):
@@ -53,7 +53,7 @@ class Activity(unittest.TestCase):
         import contextlib
         import io
         from memcode import cli
-        mid = store.add_memory(self.con, "correction", "Rule from user correction: Use tabs.", "", None, {})
+        mid = store.add_memory(self.con, "correction", "Use tabs.", "", None, {})
         activity.note(self.con, "saved", "rule: Use tabs.")
         self.assertEqual(self.feed()["counts"]["memories"], 1)
         with contextlib.redirect_stdout(io.StringIO()):

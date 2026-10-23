@@ -29,6 +29,36 @@ agent never edits code or talks to the user; a failure in memcode never blocks t
 | 4 | Librarian: merges near-duplicates, keeps the store small and well organized | Store | Planned |
 | 5 | Briefer: a task-specific briefing when a new task starts, instead of a fixed start block | Trigger | Planned |
 
+## Done on the branch, not released: flat memory graph (0.15.0)
+
+One kind of memory instead of rules, notes, facts and decisions. Each memory has its text, where it came from, a
+`from_user` flag (quoted from the user's words: delivered as an instruction; everything else as information), an
+optional topic (workflow, stack, component, domain, ...: display and search only), an importance, a key for memories
+updated in place (what were facts; decision subjects), an optional expiry (what were decisions), a local vector and
+links to related memories. Embeddings are local and stdlib (hashed TF-IDF over words, identifiers and paths); the
+graph's links come from shared files and folders, close vectors, and the memory agent, which proposes them.
+
+1. Schema and migration (from_user, topic, importance, key, expires_at, stats; memory_links, memory_vectors).
+2. One rule concept: every "is this a rule" check becomes from_user.
+3. Facts become keyed memories; the facts table is migrated and dropped.
+4. embed.py (vectors) and graph.py (links).
+5. One delivery: From you, then Memory ranked by importance and connections, then the map; per-prompt recall by
+   vector search plus one hop on the graph; first contact with a folder brings its memories and their neighbours.
+6. The memory agent's output is flat: add / update / retire a memory, with from_user, topic, importance, links, expiry.
+7. CLI, MCP, status bar, docs, a live check.
+
+## Done on the branch, not released: inference kinds as a running list (0.15.0)
+
+`memcode/kinds.py` is the list of what the memory agent looks for; the prompt, the output topics and the profile
+floor are built from it. Added: infra, deployment, branching, location (important docs and scripts), reference
+(important links), and an `unusual` flag for whatever differs from the usual way for this kind of project.
+
+Candidates to add next (one line each in kinds.py, then a live check): ownership (CODEOWNERS, who reviews what),
+feature flags (where they live, how they are toggled), configuration and secrets (where settings come from, which env
+vars matter, never the values), API contracts (public endpoints, versioning, generated clients), data model (key
+tables and schema migrations), local setup (what a fresh machine needs), monitoring and alerting (what pages whom),
+performance budgets, test data and fixtures, release cadence.
+
 ## Next steps
 
 1. **Guardian, first slice**: at `PreToolUse` for Bash, match the command against facts and pitfalls (for example

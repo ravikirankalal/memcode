@@ -163,7 +163,7 @@ class RevertQuoting(unittest.TestCase):
         for c in cmds:
             engine.tool_result(con, d, {"kind": "tool_result", "session": "s", "tool": "Bash", "input": {"command": c},
                                         "command": c, "file_path": None, "exit_code": 0, "output": ""})
-        out = [r[0] for r in con.execute("SELECT trigger FROM memories")]
+        out = [r[0] for r in con.execute("SELECT trigger FROM memories WHERE mkey IS NULL")]
         con.close()
         return out
 
@@ -200,7 +200,7 @@ class ForeignWorktrees(unittest.TestCase):
                                     "input": {"file_path": p, "old_string": "x = 1", "new_string": "x = 2"},
                                     "command": None, "file_path": p, "exit_code": 0, "output": ""})
         engine.tool_result(con, d, dict(ev, exit_code=0))
-        self.assertEqual(con.execute("SELECT COUNT(*) FROM memories").fetchone()[0], 0)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM memories WHERE mkey IS NULL").fetchone()[0], 0)
         con.close()
 
 

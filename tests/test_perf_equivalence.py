@@ -69,21 +69,21 @@ class Equivalence(unittest.TestCase):
             con.close()
 
 
-class TermsCache(unittest.TestCase):
+class VectorCache(unittest.TestCase):
     def test_cached_scores_equal_fresh_scores_and_edits_refresh(self):
         from memcode import retrieval
         d = tempfile.mkdtemp()
         con = store.connect(d)
-        a = store.add_memory(con, "correction", "Rule from user correction: invoices under billing/ round half up.",
+        a = store.add_memory(con, "correction", "invoices under billing/ round half up.",
                              "", None, {})
         store.add_memory(con, "fail_to_fix", "parse_items broke the totals until cents were integers",
                          "billing/invoice.py", None, {})
         q = "how do billing invoices round totals in billing/invoice.py"
         first = [(round(s, 9), r["id"]) for s, r in retrieval.score(con, d, "s1", q)]
-        self.assertTrue(all(r[0] for r in con.execute("SELECT terms FROM memories")))      # cache filled
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM memory_vectors").fetchone()[0], 2)   # vectors stored
         second = [(round(s, 9), r["id"]) for s, r in retrieval.score(con, d, "s2", q)]
         self.assertEqual(first, second)
-        con.execute("UPDATE memories SET text=? WHERE id=?", ("Rule from user correction: shipping labels are A6.", a))
+        con.execute("UPDATE memories SET text=? WHERE id=?", ("shipping labels are A6.", a))
         con.commit()
         ids = [r["id"] for _, r in retrieval.score(con, d, "s3", "print shipping labels")]
         self.assertNotIn(a, [r["id"] for _, r in retrieval.score(con, d, "s4", q)])

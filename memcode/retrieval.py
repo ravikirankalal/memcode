@@ -9,13 +9,13 @@ Relevance (stdlib, deterministic), summed per memory:
   * scope: the memory text names a path or directory ("under billing/", "util/dates.py") and the
     prompt mentions a path inside it ("billing/refunds.py")                                (+SCOPE_W)
   * anchor file edited by the agent earlier in this session                               (+ACTIVE_W)
-  * term overlap: IDF-weighted overlap of prompt and memory terms (identifiers are split, so
-    parse_items / ParseItems / "parse items" match), normalised by the prompt's term weight (0..TERM_W);
-    counts only with >= MIN_SHARED_TERMS shared terms
-Only memories scoring >= MIN_SCORE are shown, at most TOP_K, under TOKEN_CAP, never one already shown
-in this session (pinned or retrieved), never a stale one. Ranking: the relevance top TOP_K, plus up to PROMOTE_K extra slots
-for relevant memories outside it with strong cost evidence (restated by the user or a recurring failure, decayed weight
->= PROMOTE_MIN), best salience first.
+  * similarity: cosine of the prompt's and the memory's local embeddings (embed.py), counted from VEC_MIN
+    (0..VEC_W)
+Candidates: every live memory except facts not worth showing (facts.shown) and expired ones. Only memories scoring
+>= MIN_SCORE are shown, at most TOP_K, under TOKEN_CAP, never one already shown in this session (pinned or
+retrieved), never a stale one. Ranking: the relevance top TOP_K, plus up to HOP_K neighbours of those in the memory
+graph (graph.py), plus up to PROMOTE_K extra slots for relevant memories outside the top with strong cost evidence
+(restated by the user or a recurring failure, decayed weight >= PROMOTE_MIN), best salience first.
 Framing matches the pinned block: user rules as rules, everything else inside the untrusted wrapper.
 
 Scope hierarchy (scope.py, on unless MEMCODE_HIER=0): only memories whose scope is the repo, on or inside the request's
@@ -25,7 +25,6 @@ working set (prompt paths + files edited this session), or named by the prompt a
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 import time
@@ -37,8 +36,10 @@ PROMOTE_K = 2             # extra slots for costly memories outside the relevanc
 PROMOTE_MIN = 1.0         # decayed restatements + recurrences needed to qualify for promotion
 TOKEN_CAP = 600
 MIN_SCORE = 0.8
-MIN_SHARED_TERMS = 2      # one shared word is not enough to call a memory relevant
-PATH_W, SCOPE_W, ACTIVE_W, TERM_W = 3.0, 2.0, 1.0, 2.0
+HOP_K = 2                 # neighbours of the top memories in the memory graph
+HOP_MIN = 0.3             # link weight a neighbour needs
+VEC_MIN = 0.15            # cosine below this is noise
+PATH_W, SCOPE_W, ACTIVE_W, VEC_W = 3.0, 2.0, 1.0, 3.0
 STOP = set("""a an and are as at be but by can do does for from has have how i if in into is it its just
 let me my no not of on or our please so that the their them then there these this those to up us use
 using was we what when where which who why will with you your yes ok okay now also add make get set
@@ -112,27 +113,16 @@ def _active_files(con, session: str) -> set[str]:
     return out
 
 
-def _doc_terms(con, rows: list[dict], body) -> dict[int, set[str]]:
-    """Each memory's terms, cached in memories.terms as "<source hash> <term> <term>..." so a prompt does not
-    re-tokenize the whole store. A changed text, anchor or symbol changes the hash and refreshes the cache."""
-    import hashlib
-    docs, stale = {}, []
-    for r in rows:
-        src = body(r) + " " + (r["anchor_path"] or "") + " " + (r["anchor_symbol"] or "")
-        h = hashlib.sha1(src.encode("utf-8", "surrogatepass")).hexdigest()[:12]
-        cached = r.get("terms") or ""
-        if cached.startswith(h + " ") or cached == h:
-            docs[r["id"]] = set(cached.split()[1:])
-        else:
-            docs[r["id"]] = terms(src)
-            stale.append((" ".join([h, *sorted(docs[r["id"]])]), r["id"]))
-    if stale:
-        try:
-            con.executemany("UPDATE memories SET terms=? WHERE id=?", stale)
-            con.commit()
-        except Exception:          # a read-only or busy store must never break retrieval
-            pass
-    return docs
+def _candidates(con) -> list[dict]:
+    """Live memories that may be recalled: not expired; facts only those worth showing."""
+    from . import facts
+    try:
+        fact_ids = {fr["id"] for fr, _, _ in facts.shown(con, pinned.MAX_FACTS)}
+    except Exception:                     # noqa: BLE001
+        fact_ids = set()
+    return [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0 AND "
+                                         "(m.expires_at IS NULL OR m.expires_at>?)", (time.time(),))
+            if r["mkey"] is None or r["id"] in fact_ids]
 
 
 def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]:
@@ -147,20 +137,16 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     # block already listed it; a start-block mention among many was followed less often than one beside the request
     again = lambda r: (hier and src.get(r["id"]) == {"pinned"} and bool(r["anchor_path"])
                        and _mentions(prompt_l, r["anchor_path"], r["anchor_symbol"]))
-    rows = [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0 AND m.trigger!='decision'")
-            if r["id"] not in src or again(r)]
+    rows = [r for r in _candidates(con) if r["id"] not in src or again(r)]
     if not rows:
         return []
-    pt = terms(prompt)
-    body = lambda r: pinned._rule_text(r["text"]) if r["trigger"] == "correction" else r["text"]   # drop boilerplate
-    docs = _doc_terms(con, rows, body)
-    n = len(rows) + 1
-    df: dict[str, int] = {}
-    for d in docs.values():
-        for t in d:
-            df[t] = df.get(t, 0) + 1
-    idf = lambda t: math.log(1 + n / (1 + df.get(t, 0)))
-    p_weight = sum(idf(t) for t in pt) or 1.0
+    from . import embed
+    body = lambda r: pinned._rule_text(r["text"]) if r["from_user"] else r["text"]   # drop the context tail
+    embed.refresh(con)
+    vectors = embed.load(con)
+    idfs = embed.idf(vectors)
+    q = embed.weigh(embed.vector(prompt), idfs)
+    cos = {r["id"]: embed.cosine(q, embed.weigh(vectors[r["id"]], idfs)) if r["id"] in vectors else 0.0 for r in rows}
     active = _active_files(con, session)
     rootp = os.path.realpath(root).replace(os.sep, "/") + "/"
     prompt_paths = path_tokens(prompt)
@@ -178,8 +164,8 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
             sc_named = bool(sp) and sp != a and scope.scope_named(prompt_l, sp, r.get("scope_kind"))
             if spl and not (on_chain or named or sc_named or scope.inside(spl, ws)):
                 continue                                  # off-chain: outside this request's scope
-        shared = pt & docs[r["id"]]
-        s = TERM_W * sum(idf(t) for t in shared) / p_weight if len(shared) >= MIN_SHARED_TERMS else 0.0
+        c = cos[r["id"]]
+        s = VEC_W * c if c >= VEC_MIN else 0.0
         active_hit = bool(a) and any(f == a or f.endswith("/" + a) or f == rootp + a for f in active)
         if named or (hier and sc_named):
             s += PATH_W
@@ -197,13 +183,15 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     return out
 
 
-def select(con, scored: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
-    """The memories to show, in order: the top TOP_K by relevance, plus up to PROMOTE_K costly ones (repeated or
-    recurring mistakes) from further down."""
+def select(con, scored: list[tuple[float, dict]], session: str = "") -> list[tuple[float, dict]]:
+    """The memories to show, in order: the top TOP_K by relevance, their strongest neighbours in the memory graph
+    (up to HOP_K), plus up to PROMOTE_K costly ones (repeated or recurring mistakes) from further down."""
     top = scored[:TOP_K]
     if con is None:
         return top
-    rest = scored[TOP_K:]
+    top = top + _hops(con, top, session)
+    taken = {r["id"] for _, r in top}
+    rest = [(s, r) for s, r in scored[TOP_K:] if r["id"] not in taken]
     if not rest:
         return top
     from . import salience
@@ -217,31 +205,53 @@ def select(con, scored: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
     return top + [(s, r) for _, s, r in cands[:PROMOTE_K]]
 
 
-def render(scored: list[tuple[float, dict]], con=None) -> tuple[str, list[int]]:
-    """con enables the promotions of costly memories (see select)."""
+def _hops(con, top: list[tuple[float, dict]], session: str) -> list[tuple[float, dict]]:
+    """Neighbours of the top memories (graph.neighbours), not shown this session, not the user's words (those come
+    by scope), as candidates: [(parent score x link weight, row)]."""
+    if not top:
+        return []
+    from . import graph
+    best = {r["id"]: s for s, r in top}
+    shown = {m for (m,) in con.execute("SELECT memory_id FROM injections WHERE session=?", (session,))}
+    allowed = {r["id"] for r in _candidates(con)}
+    out = []
+    for o, w, _ in graph.neighbours(con, list(best), limit=HOP_K * 4):
+        if w < HOP_MIN or o in shown or o not in allowed:
+            continue
+        r = con.execute("SELECT * FROM memories WHERE id=?", (o,)).fetchone()
+        if r is None or r["from_user"]:
+            continue
+        out.append((max(best.values()) * w, dict(r)))
+        if len(out) >= HOP_K:
+            break
+    return out
+
+
+def render(scored: list[tuple[float, dict]], con=None, session: str = "") -> tuple[str, list[int]]:
+    """con enables the graph neighbours and the promotions of costly memories (see select)."""
     rules, notes, ids, used = [], [], [], 0
-    for s, r in select(con, scored):
-        if r["trigger"] == "correction":
-            line = f"- {pinned._one_line(pinned._rule_text(r['text']), 240)}"
+    for s, r in select(con, scored, session):
+        if r["from_user"]:
+            line = pinned._from_you_line(r)
         else:
-            line = f"- ({r['trigger']}) {pinned._one_line(r['text'])}" + (f" [{r['anchor_path']}]" if r["anchor_path"] else "")
+            line = pinned.memory_line(r)
         if (used + len(line)) / pinned.TOKEN_DIVISOR > TOKEN_CAP:
             break
         used += len(line) + 1
-        (rules if r["trigger"] == "correction" else notes).append(line)
+        (rules if r["from_user"] else notes).append(line)
         ids.append(r["id"])
     parts = []
     if rules:
-        parts.append("## Project rules relevant to this request (stated by the user earlier; follow them)\n" + "\n".join(rules))
+        parts.append("## From you, relevant to this request (stated by the user earlier; follow them)\n" + "\n".join(rules))
     if notes:
-        parts.append("\n".join([pinned.NOTES_HEADER, pinned.NOTES_OPEN, "## Notes relevant to this request",
+        parts.append("\n".join([pinned.NOTES_HEADER, pinned.NOTES_OPEN, "## Memory relevant to this request",
                                 *notes, pinned.NOTES_CLOSE]))
     return "\n\n".join(parts), ids
 
 
 def for_prompt(con, root: str, session: str, prompt: str) -> str:
     """Context to add for this prompt ('' when nothing is relevant). Records what was shown."""
-    text, ids = render(score(con, root, session, prompt), con)
+    text, ids = render(score(con, root, session, prompt), con, session)
     if ids:
         now = time.time()
         con.executemany("INSERT INTO injections(session,memory_id,ts,source) VALUES(?,?,?,'prompt')",

@@ -104,7 +104,7 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=mo
             raise RuntimeError((res or {}).get("error") or "model call failed")
         if _converses(extract_fn):
             conversation.record(con, session, res)
-        ids += curate.store_items(con, root, session, res["items"], piece, res.get("model", ""), stats)
+        ids += curate.store_items(con, root, session, res["items"], piece, res.get("model", ""))
         cost += res.get("cost_usd", 0.0)
         if stats is not None:
             stats["candidates"] = stats.get("candidates", 0) + len(res["items"])
@@ -173,7 +173,7 @@ def run_worker(root: str, extract_fn=model.extract) -> int:
                 off, ids, _ = scan_one(con, root, session, path, offset, extract_fn, stats)   # saves cost per chunk
                 stored += len(ids)
                 if stats.get("pieces"):          # the agent looked: say so, also when it kept nothing
-                    activity.note(con, "scanned", scan_line(stats["candidates"], len(ids), stats.get("facts", 0)),
+                    activity.note(con, "scanned", scan_line(stats["candidates"], len(ids)),
                                   stats["candidates"])
                 prev = con.execute("SELECT result FROM transcript_scans WHERE session=?", (session,)).fetchone()
                 last = db.loads(prev[0]) if prev else {}
@@ -200,14 +200,9 @@ def run_worker(root: str, extract_fn=model.extract) -> int:
         con.close()
 
 
-def scan_line(candidates: int, memories: int, facts: int) -> str:
-    """'15 candidates, kept 6', or with facts 'kept 3 (2 memories, 1 fact)': kept counts every memory added or changed
-    and every environment fact saved."""
-    kept = memories + facts
-    line = f"{candidates} candidate{'s' * (candidates != 1)}, kept {kept}"
-    if facts:
-        line += f" ({memories} memor{'y' if memories == 1 else 'ies'}, {facts} fact{'s' * (facts != 1)})"
-    return line
+def scan_line(candidates: int, kept: int) -> str:
+    """'15 candidates, kept 6': kept counts every memory added or changed (environment ones included)."""
+    return f"{candidates} candidate{'s' * (candidates != 1)}, kept {kept}"
 
 
 def health(con) -> str | None:

@@ -1,7 +1,7 @@
 """The memory agent at each moment of the coding agent's session (docs/architecture.md).
 
-  session_start   deliver: your rules, then the map, decisions, facts and notes; refresh staleness first
-  prompt          extract rules you state (pattern triggers); deliver the notes relevant to this request
+  session_start   deliver: what you said, then one ranked list of memories, then the map; refresh staleness first
+  prompt          extract rules you state (pattern triggers); deliver the memories relevant to this request
   tool_result     extract from what the agent ran and edited (triggers, facts); deliver a folder's memory on first read
   before_write    deliver: hold a first write into a folder once, with its unseen rules as the reason
   (Stop hook)     extract: the model-backed memory agent reads the turn (agent/, queued by hook_cli)
@@ -33,6 +33,8 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     _safely(con, lambda: (facts.scan_repo(con, root), facts.infer(con)))
     from . import scope
     _safely(con, lambda: scope.rescope_new(con, root))    # where each new or re-anchored memory applies
+    from . import graph
+    _safely(con, lambda: graph.update(con))               # vectors and links of new or changed memories
     text = pinned.render_pinned(con, root)
     rules, notes = pinned.count_injected(text)
     store.bump(con, session, "rules_injected", rules)
@@ -42,7 +44,7 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
                     [(session, i, now) for i in pinned.shown_ids(con, text)])
     con.commit()
     from . import activity
-    activity.note(con, "start", f"{rules} rule{'s' * (rules != 1)}, {notes} note{'s' * (notes != 1)} at session start",
+    activity.note(con, "start", f"{rules} from you, {notes} memor{'y' if notes == 1 else 'ies'} at session start",
                   rules + notes)
     store.prune_orphans(con)
     return text
@@ -137,10 +139,10 @@ def touch(con, root: str, ev: dict) -> str:
 
 
 def _safely(con, fn) -> None:
-    """Facts are an extra: a failure there is rolled back and reported, and never blocks capture or the block."""
+    """Extras (facts, scopes, the graph): a failure there is rolled back and reported, and never blocks capture or the block."""
     try:
         fn()
     except Exception as e:                    # noqa: BLE001
         con.rollback()
         import sys
-        print(f"memcode facts: {e}", file=sys.stderr)
+        print(f"memcode: {e}", file=sys.stderr)

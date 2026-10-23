@@ -1,5 +1,5 @@
 ---
-description: "memcode: facts about this repo (commands, environment, inferences)"
+description: "memcode: what memcode measures here (commands that work, environment, inferences)"
 allowed-tools: Bash(python3:*)
 ---
 !`python3 "${CLAUDE_PLUGIN_ROOT}/bin/memcode" facts`

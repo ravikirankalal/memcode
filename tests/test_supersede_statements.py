@@ -22,7 +22,7 @@ class RulesOrder(unittest.TestCase):
 
     def test_rules_listed_oldest_to_newest_with_override_note(self):
         for i, t in enumerate(["Indent with tabs.", "Indent with exactly 2 spaces."]):
-            mid = store.add_memory(self.con, "correction", f"Rule from user correction: {t}", "", None, {})
+            mid = store.add_memory(self.con, "correction", f"{t}", "", None, {})
             self.con.execute("UPDATE memories SET created_at=? WHERE id=?", (1000 + i, mid))
         self.con.commit()
         out = pinned.render_pinned(self.con, self.root)
@@ -32,7 +32,7 @@ class RulesOrder(unittest.TestCase):
 
     def test_cap_keeps_the_newest_rules(self):
         for i in range(pinned.MAX_RULES + 5):
-            mid = store.add_memory(self.con, "correction", f"Rule from user correction: Rule number {i}.", "", None, {})
+            mid = store.add_memory(self.con, "correction", f"Rule number {i}.", "", None, {})
             self.con.execute("UPDATE memories SET created_at=? WHERE id=?", (1000 + i, mid))
         self.con.commit()
         out = pinned.render_pinned(self.con, self.root, token_cap=4000)

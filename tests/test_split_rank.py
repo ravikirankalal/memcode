@@ -18,7 +18,7 @@ class Split(unittest.TestCase):
         now = time.time()
         self.ids = []
         for i in range(8):                       # id order = oldest first; all equally relevant
-            mid = store.add_memory(self.con, "correction", f"Rule from user correction: rule {i} for billing/ modules.",
+            mid = store.add_memory(self.con, "correction", f"rule {i} for billing/ modules.",
                                    "", None, {})
             ts = now - (40 - i) * DAY
             self.con.execute("UPDATE memories SET created_at=?, updated_at=? WHERE id=?", (ts, ts, mid))

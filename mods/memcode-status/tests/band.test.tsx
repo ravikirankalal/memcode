@@ -9,17 +9,18 @@ const BAND = { component: 'AbovePrompt', props: { hasSurvey: false, isWorking: f
 const T = 1_800_000_000
 const FEED: Feed = {
   updated: T,
-  counts: { memories: 37, rules: 12, notes: 25, facts: 9 },
+  counts: { memories: 37, from_you: 12 },
   events: [
-    { ts: T - 30, kind: 'start', text: '12 rules, 8 notes at session start', n: 20 },
-    { ts: T - 5, kind: 'saved', text: 'rule: Always use tabs for indentation in this repo.', n: 1 },
+    { ts: T - 30, kind: 'start', text: '12 from you, 8 memories at session start', n: 20 },
+    { ts: T - 5, kind: 'saved', text: 'from you: Always use tabs for indentation in this repo.', n: 1 },
   ],
   problems: {},
   busy: {},
 }
 
 test('parses the feed and rejects junk', async () => {
-  expect(parseFeed(JSON.stringify(FEED))?.counts.rules).toBe(12)
+  expect(parseFeed(JSON.stringify(FEED))?.counts.from_you).toBe(12)
+  expect(parseFeed('{"counts": {"memories": 3, "rules": 2}, "events": []}')?.counts).toEqual({ memories: 3, from_you: 2 })
   expect(parseFeed('{not json')).toBeNull()
   expect(parseFeed('{"counts": {}}')).toBeNull()
   expect(ago(4_000)).toBe('4s ago')
@@ -51,9 +52,9 @@ test('the band shows counts and the latest memory event on every surface', async
     expect(await ui.find({ type: 'Text', text: /^37$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: / memories · / })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^12$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^9$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: / from you/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /🧠 SAVED/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /rule: Always use tabs/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /from you: Always use tabs/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /0s ago|5s ago/ })).toBeDefined()
     await ui.unmount()
   }
@@ -68,10 +69,10 @@ test('a new memory shows up on the next poll', async ($, on) => {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
-  expect(await ui.find({ type: 'Text', text: /rule: Always use tabs/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /from you: Always use tabs/ })).toBeUndefined()
   file = JSON.stringify({ ...FEED, updated: T + 1 })
   await clock.advance(2500)
-  expect(await ui.find({ type: 'Text', text: /rule: Always use tabs/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /from you: Always use tabs/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -178,10 +179,10 @@ test("this session's tally counts only events since the session started", async 
 })
 
 test('a narrow terminal keeps the headline: the tally, the agent, then the count labels give way', async () => {
-  const parts = { counts: '37 memories · 12 rules · 9 facts', countsShort: '🧠37 📜12 ⚙9', head: 60, agent: '🔍 2m',
+  const parts = { counts: '37 memories · 12 from you', countsShort: '🧠37 📜12', head: 60, agent: '🔍 2m',
     tally: '+2 saved' }
   expect(layout(160, parts)).toMatchObject({ long: true, agent: true, tally: true })
-  expect(layout(100, parts)).toMatchObject({ long: true, agent: true, tally: false })
+  expect(layout(90, parts)).toMatchObject({ long: true, agent: true, tally: false })
   expect(layout(70, parts)).toMatchObject({ long: false, agent: false, tally: false })
   expect(cols('🧠37')).toBe(4)
   expect(cols('✏️ x')).toBe(4)
@@ -194,8 +195,8 @@ test('/memcode-status reads as a dashboard', async ($, on) => {
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const out = await $.command.run({ command: 'memcode-status' })
   const text = (out as { text: string }).text
-  expect(text).toMatch(/◆ memcode: 37 memories \(12 rules, 25 notes\) · 9 facts/)
+  expect(text).toMatch(/◆ memcode: 37 memories, 12 from you/)
   expect(text).toMatch(/memory agent: last read 2s ago \(3 candidates, kept 1\)/)
-  expect(text).toMatch(/🧠 SAVED +rule: Always use tabs/)
+  expect(text).toMatch(/🧠 SAVED +from you: Always use tabs/)
   expect(text).toMatch(/no terminal or desktop surface/)
 })

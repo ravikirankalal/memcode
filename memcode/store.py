@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS paths (
 );
 CREATE TABLE IF NOT EXISTS memories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  trigger TEXT NOT NULL,          -- correction|revert|fail_to_fix|retry|dep_change|manual
+  trigger TEXT NOT NULL,          -- where it came from: correction|revert|fail_to_fix|retry|dep_change|agent|manual
   text TEXT NOT NULL,             -- summary
   anchor_path TEXT NOT NULL,      -- paths.path this memory is attached to ('' = repo-wide)
   anchor_hash TEXT,               -- content hash of the anchor when written
@@ -63,6 +63,20 @@ CREATE TABLE IF NOT EXISTS outcomes (         -- reinforcement signal per (sessi
   PRIMARY KEY (session, memory_id)
 );
 CREATE TABLE IF NOT EXISTS scored_sessions (session TEXT PRIMARY KEY, ts REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS memory_links (    -- the memory graph: related memories (graph.py)
+  src INTEGER NOT NULL, dst INTEGER NOT NULL,
+  kind TEXT NOT NULL,                     -- related | refines | contradicts | same_file | similar
+  weight REAL NOT NULL DEFAULT 1.0,
+  source TEXT NOT NULL,                   -- agent | auto
+  ts REAL NOT NULL,
+  PRIMARY KEY (src, dst, kind)
+);
+CREATE INDEX IF NOT EXISTS links_dst ON memory_links(dst);
+CREATE TABLE IF NOT EXISTS memory_vectors (  -- local embedding per memory (embed.py)
+  memory_id INTEGER PRIMARY KEY,
+  vec TEXT NOT NULL,                      -- JSON {bucket: 1 + log(count)}, sparse; IDF applied when compared
+  src_hash TEXT NOT NULL                  -- hash of the text it was computed from
+);
 CREATE TABLE IF NOT EXISTS retrievals (      -- for reinforce-on-success only
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session TEXT NOT NULL, memory_id INTEGER NOT NULL, ts REAL NOT NULL
@@ -198,12 +212,71 @@ def _migrate(con) -> None:
                 con.execute(f"ALTER TABLE memories ADD COLUMN {col} {decl}")
             except sqlite3.OperationalError:
                 pass
+    # the flat memory model (0.15): one kind of memory; these replace rules / notes / facts / decisions
+    for col, decl in (("from_user", "INTEGER NOT NULL DEFAULT 0"),      # quoted from the user's words: an instruction
+                      ("topic", "TEXT NOT NULL DEFAULT ''"),            # workflow, stack, component, ...: display only
+                      ("importance", "INTEGER NOT NULL DEFAULT 3"),     # 1-5
+                      ("mkey", "TEXT"),                                 # set for memories updated in place
+                      ("expires_at", "REAL"),                           # ongoing state that lapses
+                      ("stats", "TEXT NOT NULL DEFAULT '{}'"),          # counters of keyed memories (runs, ok, fail)
+                      ("unusual", "INTEGER NOT NULL DEFAULT 0")):       # differs from the usual way for such a project
+        if col not in mcols:
+            try:
+                con.execute(f"ALTER TABLE memories ADD COLUMN {col} {decl}")
+            except sqlite3.OperationalError:
+                pass
+    try:
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_mem_key ON memories(mkey) WHERE mkey IS NOT NULL")
+    except sqlite3.OperationalError:
+        pass
+    # memories written before 0.15: rules -> from_user, the agent's categories -> topic, decisions -> an expiry
+    con.execute("UPDATE memories SET from_user=1 WHERE trigger='correction' AND from_user=0")
+    con.execute("""UPDATE memories SET topic=json_extract(provenance, '$.category') WHERE topic='' AND
+                   json_valid(provenance) AND json_extract(provenance, '$.category') IS NOT NULL
+                   AND json_extract(provenance, '$.category') NOT IN ('', 'rule')""")
+    con.execute("""UPDATE memories SET importance=CAST(json_extract(provenance, '$.importance') AS INTEGER)
+                   WHERE importance=3 AND json_valid(provenance) AND json_extract(provenance, '$.importance') BETWEEN 1 AND 5""")
+    con.execute("UPDATE memories SET topic='decision' WHERE trigger='decision' AND topic=''")
+    con.execute("UPDATE memories SET expires_at=updated_at+30*86400 WHERE trigger='decision' AND expires_at IS NULL")
+    con.execute("""UPDATE memories SET trigger='agent' WHERE trigger IN ('transcript', 'decision') OR (trigger='correction'
+                   AND json_valid(provenance) AND json_extract(provenance, '$.source')='transcript')""")
+    con.execute("""UPDATE memories SET text=substr(text, 28) WHERE text LIKE 'Rule from user correction: %'""")
+    _facts_to_memories(con)
+    con.execute("DROP VIEW IF EXISTS fact_rows")
+    con.execute(FACT_ROWS)
+
     for idx, cols in (("idx_mem_scope", "scope_path"), ("idx_mem_parent", "parent_id")):
         try:
             con.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON memories({cols})")
         except sqlite3.OperationalError:
             pass
     con.commit()
+
+
+# Keyed memories (what were facts): updated in place by key; origin command | repo | env | inference | manual (set
+# by the user with `memcode fact set`); counters in stats. fact_rows reads them in the old facts shape.
+FACT_ORIGINS = ("command", "repo", "env", "inference")
+FACT_ROWS = """CREATE VIEW fact_rows AS SELECT id, mkey AS key,
+  CASE WHEN trigger='manual' THEN 'user' ELSE trigger END AS category,
+  json_extract(stats, '$.role') AS role, text AS value, COALESCE(json_extract(stats, '$.source'), '') AS source,
+  COALESCE(json_extract(stats, '$.runs'), 0) AS runs, COALESCE(json_extract(stats, '$.ok'), 0) AS ok,
+  COALESCE(json_extract(stats, '$.fail'), 0) AS fail, created_at AS first_seen, updated_at AS last_seen,
+  json_extract(stats, '$.source_hash') AS source_hash
+  FROM memories WHERE mkey IS NOT NULL AND (trigger IN ('command', 'repo', 'env', 'inference') OR mkey LIKE 'user:%')"""
+
+
+def _facts_to_memories(con) -> None:
+    """Stores from before 0.15 kept facts in their own table: move each into a keyed memory, then drop the table."""
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='facts'").fetchone():
+        return
+    for r in con.execute("SELECT * FROM facts").fetchall():
+        stats = {"role": r["role"], "source": r["source"], "runs": r["runs"], "ok": r["ok"], "fail": r["fail"],
+                 "source_hash": r["source_hash"]}
+        con.execute("""INSERT OR IGNORE INTO memories(trigger, text, anchor_path, provenance, created_at, updated_at,
+                         topic, mkey, stats) VALUES(?,?,'','{}',?,?,?,?,?)""",
+                    ("manual" if r["category"] == "user" else r["category"], r["value"], r["first_seen"],
+                     r["last_seen"], r["role"] or "", r["key"], json.dumps(stats)))
+    con.execute("DROP TABLE facts")
 
 
 def scope_chain(path: str) -> list[str]:
@@ -222,8 +295,9 @@ def delete_ids(con, ids) -> int:
     ids = [(i,) for i in ids]
     if not ids:
         return 0
-    for t in ("retrievals", "injections", "outcomes"):
+    for t in ("retrievals", "injections", "outcomes", "memory_vectors"):
         con.executemany(f"DELETE FROM {t} WHERE memory_id=?", ids)
+    con.executemany("DELETE FROM memory_links WHERE src=? OR dst=?", [(i[0], i[0]) for i in ids])
     return sum(con.execute("DELETE FROM memories WHERE id=?", i).rowcount for i in ids)
 
 
@@ -269,20 +343,28 @@ def upsert_path(con, path: str, kind: str, content_hash: str | None = None,
 def add_memory(con, trigger: str, text: str, anchor_path: str = "",
                anchor_hash: str | None = None, provenance: dict | None = None,
                confidence: float = 0.5, commit: bool = True,
-               anchor_symbol: str | None = None, symbol_hash: str | None = None) -> int:
+               anchor_symbol: str | None = None, symbol_hash: str | None = None, *,
+               from_user: bool | None = None, topic: str = "", importance: int = 3,
+               key: str | None = None, expires_at: float | None = None, unusual: bool = False) -> int:
+    """One memory. trigger is where it came from (a correction, a revert, the agent, ...); from_user marks the user's
+    own words (delivered as an instruction; defaults to True for corrections); key makes it updatable in place."""
     now = time.time()
+    if from_user is None:
+        from_user = trigger == "correction"
     cur = con.execute(
-        """INSERT INTO memories(trigger,text,anchor_path,anchor_hash,provenance,
-             confidence,created_at,updated_at,anchor_symbol,symbol_hash) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-        (trigger, text, anchor_path, anchor_hash, json.dumps(provenance or {}),
-         confidence, now, now, anchor_symbol, symbol_hash))
+        """INSERT INTO memories(trigger,text,anchor_path,anchor_hash,provenance,confidence,created_at,updated_at,
+             anchor_symbol,symbol_hash,from_user,topic,importance,mkey,expires_at,unusual)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (trigger, text, anchor_path, anchor_hash, json.dumps(provenance or {}), confidence, now, now,
+         anchor_symbol, symbol_hash, int(bool(from_user)), topic or "", int(importance), key, expires_at, int(bool(unusual))))
     if commit:
         con.commit()
     return cur.lastrowid
 
 
-def list_memories(con, include_stale: bool = False) -> list[sqlite3.Row]:
-    q = "SELECT * FROM memories" + ("" if include_stale else " WHERE stale=0")
+def list_memories(con, include_stale: bool = False, measured: bool = False) -> list[sqlite3.Row]:
+    """Memories, newest first; measured=True includes the per-command counters (facts.py) too."""
+    q = "SELECT * FROM memories WHERE " + ("1" if measured else "trigger!='command'") + ("" if include_stale else " AND stale=0")
     return con.execute(q + " ORDER BY updated_at DESC").fetchall()
 
 

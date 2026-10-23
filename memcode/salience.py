@@ -141,7 +141,8 @@ def compute(con, memory_row, now: float | None = None, index: Index | None = Non
     cap = lambda x: min(CAP, _clamp(x))
     return {
         "surprise": cap(max(_SURPRISE.get(trig, 0.1) * own, _squash(ev["recurrences"]))),
-        "friction": cap(max(_FRICTION.get(trig, 0.1) * own, _squash(ev["repeats"]))),
+        "friction": cap(max((0.85 if memory_row["from_user"] else _FRICTION.get(trig, 0.1)) * own,
+                            _squash(ev["repeats"]))),
         "fragility": cap(_squash(ev["reverts"] + 0.5 * ev["fails"])),
         "confidence": cap(memory_row["confidence"]),
     }

@@ -50,7 +50,7 @@ class Counters(unittest.TestCase):
             store.bump(self.con, "s", "bogus; DROP TABLE memories")
 
     def test_count_injected_and_session_start_hook(self):
-        store.add_memory(self.con, "correction", "Rule from user correction: Always use tabs.", "", None, {})
+        store.add_memory(self.con, "correction", "Always use tabs.", "", None, {})
         (Path(self.root) / "a.py").write_text("x = 1\n")          # real anchor, so the start-up scan keeps it fresh
         store.add_memory(self.con, "fail_to_fix", "pytest failed then passed", "a.py", store.sha1(b"x = 1\n"), {})
         text = pinned.render_pinned(self.con, self.root)
@@ -61,7 +61,7 @@ class Counters(unittest.TestCase):
                        input=json.dumps({"session_id": "abc12345", "cwd": self.root}), text=True)
         con = store.connect(self.root)
         r = row(con, "abc12345")
-        self.assertEqual((r["rules_injected"], r["notes_injected"]), (1, 1))
+        self.assertEqual((r["rules_injected"], r["notes_injected"]), (1, 2))     # + the languages fact
         con.close()
 
     def test_cli_sessions_and_stats(self):

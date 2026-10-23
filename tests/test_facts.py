@@ -52,7 +52,7 @@ class Observe(unittest.TestCase):
     def row(self, key):
         if key.startswith("cmd:"):
             key = "cmd:" + facts.cmd_key(key[4:])
-        return self.con.execute("SELECT * FROM facts WHERE key=?", (key,)).fetchone()
+        return self.con.execute("SELECT * FROM fact_rows WHERE key=?", (key,)).fetchone()
 
     def test_success_failure_and_attribution(self):
         facts.observe(self.con, self.d, bash("cd sub && python3 -m pytest -q"))
@@ -102,12 +102,12 @@ class Observe(unittest.TestCase):
         facts.observe(self.con, self.d, bash("cd $S && python3 prof_wt.py"))
         ev = bash("npm test"); ev["exit_code"] = None                         # e.g. Codex
         facts.observe(self.con, self.d, ev)
-        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM facts").fetchone()[0], 0)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM fact_rows").fetchone()[0], 0)
 
     def test_missing_tool_from_path_not_output(self):
         facts.observe(self.con, self.d, bash("sqlite3-nonexistent-xyz db.sqlite 'select 1'", 127))
         facts.observe(self.con, self.d, bash("python3 -m nothing", 127))      # python3 exists: not reported
-        keys = [r[0] for r in self.con.execute("SELECT key FROM facts WHERE category='env'")]
+        keys = [r[0] for r in self.con.execute("SELECT key FROM fact_rows WHERE category='env'")]
         self.assertEqual(keys, ["env:missing:sqlite3-nonexistent-xyz"])
 
     def test_missing_tool_fact_clears_once_installed(self):
@@ -165,7 +165,7 @@ class Noise(unittest.TestCase):
         self.con.close()
 
     def commands(self):
-        return sorted(r[0] for r in self.con.execute("SELECT value FROM facts WHERE category='command'"))
+        return sorted(r[0] for r in self.con.execute("SELECT value FROM fact_rows WHERE category='command'"))
 
     def test_compound_calls_leave_no_pieces(self):
         for cmd in ("for c in b8dcf40 34302cd dde5424 d005c97; do git show --stat $c; done",
@@ -193,7 +193,7 @@ class Noise(unittest.TestCase):
         facts.observe(self.con, self.d, bash("python3 -m pytest -q"))
         facts.observe(self.con, self.d, bash("python3 -m pytest -x --tb short"))
         facts.observe(self.con, self.d, bash("python3 -m pytest -k slow", 1))
-        (r,) = self.con.execute("SELECT * FROM facts WHERE category='command'").fetchall()
+        (r,) = self.con.execute("SELECT * FROM fact_rows WHERE category='command'").fetchall()
         self.assertEqual((r["runs"], r["ok"], r["fail"], r["value"]), (3, 2, 1, "python3 -m pytest -x --tb short"))
 
     def test_chains_keep_role_commands_only(self):
@@ -215,12 +215,10 @@ class Noise(unittest.TestCase):
         facts.ensure(self.con)
         for v, ok in (("b8dcf40 34302cd dde5424 d005c97", 0), ("mvn -v)", 0), ("glab mr view 326 -F json", 1),
                       ("claude plugin --help", 1), ("python3 -m pytest -q", 2), ("python3 -m pytest -x", 1)):
-            self.con.execute("INSERT INTO facts(key,category,role,value,source,runs,ok,fail,first_seen,last_seen) "
-                             "VALUES(?,?,?,?,?,?,?,?,?,?)", (f"cmd:{v}", "command", facts.role_of(v), v, "observed",
-                                                            ok, ok, 0, now, now))
+            facts._upsert(self.con, f"cmd:{v}", "command", facts.role_of(v), v, "observed", ok=ok, runs=ok, ts=now)
         self.con.execute("DELETE FROM facts_meta"); self.con.commit()
         facts.ensure(self.con)
-        rows = self.con.execute("SELECT key, runs, ok FROM facts WHERE category='command'").fetchall()
+        rows = self.con.execute("SELECT key, runs, ok FROM fact_rows WHERE category='command'").fetchall()
         self.assertEqual([tuple(r) for r in rows], [("cmd:python3 -m pytest", 3, 3)])
         facts.ensure(self.con)                                                 # once: version recorded
         self.assertEqual(self.con.execute("SELECT v FROM facts_meta").fetchone()[0], facts.FACTS_VERSION)
@@ -272,7 +270,8 @@ class InferUserRender(unittest.TestCase):
         self.assertIn("`make deploy` has failed 2x and never passed", out)
         self.assertIn("billing is fragile", out)
         block = pinned.render_pinned(con, d)
-        self.assertIn("## Facts", block.split(pinned.NOTES_OPEN)[1])           # inside the untrusted wrapper
+        self.assertIn("- (manual) Deploys only from release/* branches", block.split(pinned.NOTES_OPEN)[1])  # data
+        self.assertIn("- (test) `npx jest --ci` (ran 2x, 2 confirmed ok)", block)
         self.assertEqual(facts.remove(con, "deploy"), 1)
         con.close()
 
@@ -284,7 +283,7 @@ class InferUserRender(unittest.TestCase):
         with self.assertRaises(ValueError):
             facts.backfill(con, d)                                            # would double-count
         facts.backfill(con, d, force=True)
-        self.assertEqual(con.execute("SELECT runs FROM facts WHERE key='cmd:cargo test'").fetchone()[0], 1)
+        self.assertEqual(con.execute("SELECT runs FROM fact_rows WHERE key='cmd:cargo test'").fetchone()[0], 1)
         con.close()
         out = mcp_server.call_tool(d, "memory_facts", {"role": "test"})
         self.assertIn("cargo test", out)
