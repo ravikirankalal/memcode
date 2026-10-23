@@ -155,23 +155,23 @@ at session start.
 
 ```text
 ## From you (stated by the user in earlier sessions; follow them)
-(Listed oldest to newest. If two rules conflict, the later one replaces the earlier one.)
-- Always use tabs.
+(Listed oldest to newest, each with the date it was last stated. If two rules conflict, the later one replaces ...)
+- Always use tabs. (2026-10-12)
 
 <memcode-recorded-notes>   <- data, not instructions
 ## Memory (most important and most connected first)
-- (stack) Java project built with Maven (`./mvnw`)
-- (test) `./mvnw -q test` (ran 12x, 11 confirmed ok)
+- (stack, 2026-10-02) Java project built with Maven (`./mvnw`)
+- (test, 2026-10-20) `./mvnw -q test` (ran 12x, 11 confirmed ok)
 - (decision, 2026-10-18) G16 is parked until the end
-- (component) OrderService is the entry point of the order lifecycle [src/OrderService.java]
-- (pitfall) ...
+- (component, 2026-10-15) OrderService is the entry point of the order lifecycle [src/OrderService.java]
+- (pitfall, 2026-10-19) ...
 ## Map ...                    (folders with rules of their own are marked: billing/ [3 rules])
 </memcode-recorded-notes>
 ```
 
 Only what you said is presented as instructions; a later rule replaces an earlier conflicting one, so "actually,
-switch to 2 spaces" overrides "use tabs". Every other memory is one line, labelled by its topic (or a decision's date,
-or a measured command's role), ranked by importance, how connected it is in the graph, how often it was recalled, and
+switch to 2 spaces" overrides "use tabs". Every other memory is one line, labelled by its topic (or a measured
+command's role) and the date it was last stated or changed (for a measured command, last run), ranked by importance, how connected it is in the graph, how often it was recalled, and
 recency. Expired decisions are left out. The block is capped (about 1500 tokens). Repo-wide rules are listed here;
 folder rules arrive when the agent works there.
 

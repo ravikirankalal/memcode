@@ -86,7 +86,8 @@ def _call_tool(con, root: str, name: str, args: dict) -> str:
         for r in rows:  # record retrievals (recall frequency ranks the start block)
             con.execute("INSERT INTO retrievals(session,memory_id,ts) VALUES('mcp',?,strftime('%s','now'))", (r["id"],))
         con.commit()
-        return "\n".join(f"#{r['id']} ({'from you' if r['from_user'] else pinned.label(r)}) {r['anchor_path'] or '/'}: "
+        return "\n".join(f"#{r['id']} ({'from you, ' + pinned.day(r['updated_at']) if r['from_user'] else pinned.label(r)}) "
+                         f"{r['anchor_path'] or '/'}: "
                          f"{r['text']}" for r in rows) or "no matches"
     if name == "memory_add":
         text = args.get("text")

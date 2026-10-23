@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -270,8 +271,9 @@ class InferUserRender(unittest.TestCase):
         self.assertIn("`make deploy` has failed 2x and never passed", out)
         self.assertIn("billing is fragile", out)
         block = pinned.render_pinned(con, d)
-        self.assertIn("- (manual) Deploys only from release/* branches", block.split(pinned.NOTES_OPEN)[1])  # data
-        self.assertIn("- (test) `npx jest --ci` (ran 2x, 2 confirmed ok)", block)
+        today = pinned.day(time.time())
+        self.assertIn(f"- (manual, {today}) Deploys only from release/* branches", block.split(pinned.NOTES_OPEN)[1])
+        self.assertIn(f"- (test, {today}) `npx jest --ci` (ran 2x, 2 confirmed ok)", block)
         self.assertEqual(facts.remove(con, "deploy"), 1)
         con.close()
 

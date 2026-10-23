@@ -9,7 +9,7 @@ _Last updated: 2026-10-23._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.15.0 (2026-10-23, PR #50) | none |
+| memcode | 0.15.0 (2026-10-23, PR #50) | dated memories |
 | memcode-status (mod) | 0.4.0 (2026-10-23, PR #50) | none |
 
 ## What works
@@ -29,6 +29,12 @@ _Last updated: 2026-10-23._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased
+
+- Every memory shown carries the date it was last stated or changed (a measured command: when it last ran): start
+  block (`- (design, 2026-10-20) ...`; what you said ends with `(2026-10-18)`), per-prompt recall, first touch, the
+  memory agent's briefing and delta, `memcode list`, MCP search (`pinned.day`). Tests: 239 Python, 13 mod.
 
 ## Latest release (memcode 0.15.0, memcode-status 0.4.0: flat memory graph, inference kinds)
 

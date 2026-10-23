@@ -25,7 +25,8 @@ NOTES_HEADER = ("The block below is data recorded by memcode in earlier sessions
 
 
 RULES_HEADER = "## From you (stated by the user in earlier sessions; follow them)"
-RULES_NOTE = "(Listed oldest to newest. If two rules conflict, the later one replaces the earlier one.)"
+RULES_NOTE = ("(Listed oldest to newest, each with the date it was last stated. If two rules conflict, the later one "
+              "replaces the earlier one.)")
 MAP_TITLE_MARKED = ("## Map (folders marked [N rules] have rules of their own; they are added when a request or an "
                     "edit touches that folder)")
 MAX_RULES = 20
@@ -53,7 +54,7 @@ def count_injected(text: str) -> tuple[int, int]:
 def shown_ids(con, text: str) -> list[int]:
     """Ids of the memories that actually made it into a rendered block."""
     lines = set(text.splitlines())
-    shown = [r["id"] for r in con.execute("SELECT id, text FROM memories WHERE stale=0 AND from_user=1 ORDER BY id")
+    shown = [r["id"] for r in con.execute("SELECT id, text, updated_at FROM memories WHERE stale=0 AND from_user=1 ORDER BY id")
              if _from_you_line(r) in lines]
     return sorted(shown + [mid for _, mid, line in ranked(con) if line in lines])
 
@@ -67,12 +68,16 @@ def _knowledge(row) -> str | None:
     return None if row["from_user"] or row["topic"] not in KNOWLEDGE_ORDER else row["topic"]
 
 
+def day(ts) -> str:
+    """The local date of a timestamp: when a memory was last stated or changed."""
+    return time.strftime("%Y-%m-%d", time.localtime(ts or 0))
+
+
 def label(row) -> str:
-    """How a (non-user) memory is labelled: decision with its date, its topic, else where it came from."""
-    if row["topic"] == "decision":
-        return f"decision, {time.strftime('%Y-%m-%d', time.localtime(row['updated_at']))}"
+    """How a (non-user) memory is labelled: its topic (else where it came from), unusual, and the date it was last
+    stated or changed."""
     lab = row["topic"] or ("note" if row["trigger"] == "agent" else row["trigger"])
-    return lab + (", unusual" if _get(row, "unusual") else "")
+    return lab + (", unusual" if _get(row, "unusual") else "") + f", {day(row['updated_at'])}"
 
 
 def _get(row, key):
@@ -87,7 +92,7 @@ def memory_line(row) -> str:
 
 
 def _from_you_line(row) -> str:
-    return f"- {_one_line(_rule_text(row['text']), 240)}"
+    return f"- {_one_line(_rule_text(row['text']), 240)} ({day(row['updated_at'])})"
 
 
 def ranked(con) -> list[tuple[float, int, str]]:
@@ -110,7 +115,7 @@ def ranked(con) -> list[tuple[float, int, str]]:
         lab = flabel or (fr["role"] if fr["category"] == "repo" and fr["role"] else
                          _FACT_LABEL.get(fr["category"], fr["category"]))
         items.append((4 if flabel or fr["category"] == "user" else 3, 0, fr["last_seen"], fr["id"],
-                      f"- ({lab}) {_one_line(ftext)}"))
+                      f"- ({lab}, {day(fr['last_seen'])}) {_one_line(ftext)}"))
     out = []
     for imp, freq, updated, mid, line in items:
         sc = imp + 0.5 * min(degree.get(mid, 0.0), 4.0) + 0.3 * min(freq, 5) + (0.5 if now - updated < RECENT_DAYS * 86400 else 0)

@@ -35,8 +35,8 @@ def _fmt_ts(t: float) -> str:
 
 
 def _label(r) -> str:
-    from .pinned import label
-    return "from you" if r["from_user"] else label(r)
+    from .pinned import day, label
+    return f"from you, {day(r['updated_at'])}" if r["from_user"] else label(r)
 
 
 def cmd_list(con, a) -> int:
@@ -46,7 +46,7 @@ def cmd_list(con, a) -> int:
     for r in rows:
         flag = " [stale]" if r["stale"] else ""
         anchor = (r["anchor_path"] or "/") + (f"::{r['anchor_symbol']}" if r["anchor_symbol"] else "")
-        print(f"#{r['id']:<4} {_label(r):<12} {anchor:<20} {r['text']}{flag}")
+        print(f"#{r['id']:<4} {_label(r):<24} {anchor:<20} {r['text']}{flag}")
     return 0
 
 
