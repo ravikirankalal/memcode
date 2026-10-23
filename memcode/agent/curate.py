@@ -9,12 +9,12 @@ import time
 from .. import store
 from . import checks, db
 
-MAX_ITEMS = 4                # memories kept per piece: the most important candidates
+MAX_ITEMS = 6                # memories kept per piece: the most important candidates
 MIN_IMPORTANCE = 4           # a note rated below this is not kept
-MIN_RULE_IMPORTANCE = 3      # the user's own rules and decisions get more room, and so does project knowledge
+MIN_RULE_IMPORTANCE = 3      # the user's own rules and decisions get more room, and so do project knowledge and the unusual
 # project knowledge the agent infers (the project profile: stack, component, ...): kept from a rating of 3, and never
 # pinned to its file's content (a central class's summary is updated, not hidden on every edit)
-from ..pinned import KNOWLEDGE_ORDER as KNOWLEDGE  # noqa: E402  (one list for keeping and showing)
+from ..kinds import PROFILE_TOPICS as KNOWLEDGE  # noqa: E402  (one list for keeping and showing)
 DECISION_DAYS = 30           # a decision is shown this long after it was last stated (MEMCODE_DECISION_DAYS), then expires
 MAX_LINKS = 5                # links the agent may give one memory
 
@@ -97,8 +97,9 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
             return None
         _log(con, session, "update", target, before=row, after=text, evidence=ev)
         now = time.time()
-        con.execute("UPDATE memories SET text=?, updated_at=?, expires_at=? WHERE id=?",
-                    (text, now, now + decision_days() * 86400 if is_decision else row["expires_at"], target))
+        con.execute("UPDATE memories SET text=?, updated_at=?, expires_at=?, unusual=? WHERE id=?",
+                    (text, now, now + decision_days() * 86400 if is_decision else row["expires_at"],
+                     int(item["unusual"]) if isinstance(item.get("unusual"), bool) else row["unusual"], target))
         activity.note(con, "updated", f"updated #{target}: {text}")
         return target
     return None
@@ -145,7 +146,8 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
                     _link(con, mid, item.get("links"))
             continue
         knowledge = item.get("kind") == "note" and item.get("category") in KNOWLEDGE
-        floor = MIN_RULE_IMPORTANCE if item.get("kind") in ("rule", "decision") or knowledge else MIN_IMPORTANCE
+        unusual = item.get("unusual") is True
+        floor = MIN_RULE_IMPORTANCE if item.get("kind") in ("rule", "decision") or knowledge or unusual else MIN_IMPORTANCE
         if rating(item) < floor or added >= MAX_ITEMS:
             continue
         kind = checks.verified(item, condensed, root)
@@ -175,7 +177,8 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         elif kind == "rule":
             cat = str(item.get("category", ""))[:20]
             mid = store.add_memory(con, "agent", text, "", None, prov, 0.6, commit=False, from_user=True,
-                                   topic="" if cat in ("rule", "decision") else cat, importance=rating(item))
+                                   topic="" if cat in ("rule", "decision") else cat, importance=rating(item),
+                                   unusual=unusual)
             activity.saved(con, "agent", text, from_user=True)
         else:
             a = _anchor(root, item.get("path", ""))
@@ -185,7 +188,8 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
                     h = store.sha1(fh.read())
             cat = str(item.get("category", ""))[:20]
             mid = store.add_memory(con, "agent", text, a, h, prov, 0.5, commit=False, from_user=False,
-                                   topic="" if cat in ("rule", "decision") else cat, importance=rating(item))
+                                   topic="" if cat in ("rule", "decision") else cat, importance=rating(item),
+                                   unusual=unusual)
             activity.saved(con, "agent", text, a, from_user=False, topic="" if cat in ("rule", "decision") else cat)
         try:
             from .. import scope

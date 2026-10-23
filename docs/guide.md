@@ -68,11 +68,16 @@ memories it belongs with (links):
 | decision (your words, or a result a command showed) | "G16 is parked until the end" |
 
 It also builds a **project profile** nobody needs to state, inferred from the commands that run, the files the coding
-agent reads (`[read]`, with their opening lines) and the code it writes:
+agent reads (`[read]`, with their opening lines), the code it writes and the links that are shared or opened:
 
 | Topic | Example |
 |---|---|
 | stack | "Java multi-module project built with Maven (`./mvnw`)" |
+| infra | "Runs on EKS in eu-west-1; Postgres 15 on RDS, Redis for sessions; Terraform in infra/" |
+| deployment | "Tags v* trigger deploy.yml: staging first, then a manual approval for prod" |
+| branching | "Work branches off develop as feature/(ticket); main only takes release merges" |
+| location | "Release steps are in docs/RELEASING.md; scripts/bootstrap.sh sets up a dev machine" |
+| reference | "Grafana board for checkout latency: https://grafana.example.com/d/checkout" |
 | integration | "PaymentGateway wraps the Stripe Java SDK; OrderService.pay calls it to charge orders" |
 | component | "OrderService is the central entry point for the order lifecycle (place, pay, ship, cancel)" |
 | structure | "Database migrations live in db/migrations, one file per change" |
@@ -80,11 +85,17 @@ agent reads (`[read]`, with their opening lines) and the code it writes:
 | convention (seen in code; information, not from you) | "Services return Result<T, Error> instead of throwing" |
 
 The profile is kept from a rating of 3, updated rather than duplicated as the agent learns more, and not hidden when
-its file changes.
+its file changes. Above all the agent looks for what is **different here from the usual way** for this kind of project
+(tests in `checks/`, `develop` as the default branch, deploys from a script): such a memory is marked *unusual*, kept
+from a rating of 3, ranked higher, and shown as `(topic, unusual)`.
+
+The kinds it looks for are one running list, `memcode/kinds.py` (topic, what to look for, an example); adding a line
+teaches the memory agent a new kind, and its prompt and output schema follow.
 
 It can also update or retire a memory it is shown, for example when you withdraw a rule ("don't use subagents" retires
 "delegate long runs to subagents" and adds the new rule). memcode keeps memories rated 4 or 5, and those from you,
-decisions and the profile from 3, best first, at most 4 per piece of log, and only when the checks pass:
+decisions, the profile and anything unusual from 3, best first, at most 6 per piece of log, and only when the
+checks pass:
 
 - the evidence is quoted from the log, and a memory from you or a decision quotes your words (never a fixture, an
   issue or another project's text the agent happened to read, never a summary of earlier turns);

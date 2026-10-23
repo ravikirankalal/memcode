@@ -47,6 +47,18 @@ graph's links come from shared files and folders, close vectors, and the memory 
 6. The memory agent's output is flat: add / update / retire a memory, with from_user, topic, importance, links, expiry.
 7. CLI, MCP, status bar, docs, a live check.
 
+## Done on the branch, not released: inference kinds as a running list (0.15.0)
+
+`memcode/kinds.py` is the list of what the memory agent looks for; the prompt, the output topics and the profile
+floor are built from it. Added: infra, deployment, branching, location (important docs and scripts), reference
+(important links), and an `unusual` flag for whatever differs from the usual way for this kind of project.
+
+Candidates to add next (one line each in kinds.py, then a live check): ownership (CODEOWNERS, who reviews what),
+feature flags (where they live, how they are toggled), configuration and secrets (where settings come from, which env
+vars matter, never the values), API contracts (public endpoints, versioning, generated clients), data model (key
+tables and schema migrations), local setup (what a fresh machine needs), monitoring and alerting (what pages whom),
+performance budgets, test data and fixtures, release cadence.
+
 ## Next steps
 
 1. **Guardian, first slice**: at `PreToolUse` for Bash, match the command against facts and pitfalls (for example

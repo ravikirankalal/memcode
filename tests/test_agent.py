@@ -100,6 +100,9 @@ class FlatOutput(unittest.TestCase):
                      "[user] Park G16 until the end.\n"
                      "[ran] `mvn -q package` -> ok | BUILD SUCCESS")
 
+    def tearDown(self):
+        self.con.close()
+
     def item(self, **kw):
         base = {"op": "add", "target": 0, "from_user": False, "topic": "stack", "subject": "", "importance": 4,
                 "text": "Java project built with Maven: `mvn -q package`.", "evidence": "mvn -q package", "path": "",
@@ -123,6 +126,35 @@ class FlatOutput(unittest.TestCase):
         not_said = self.item(from_user=True, topic="convention", text="Maven builds run quietly with -q.",
                              evidence="mvn -q package")                             # not the user's words
         self.assertEqual(curate.store_items(self.con, self.d, "s", [not_said], self.cond, "m"), [])
+
+    def test_new_kinds_and_unusual(self):
+        from pathlib import Path
+        from memcode import kinds, pinned
+        for t in ("reference", "location", "deployment", "branching", "infra"):
+            self.assertIn(t, kinds.PROFILE_TOPICS)
+            self.assertIn(f"- {t}: ", model.SYSTEM)
+        Path(self.d, "docs").mkdir()
+        Path(self.d, "docs", "RELEASING.md").write_text("# Releasing\n")
+        cond = ("[user] the board is https://grafana.example.com/d/checkout for latency\n"
+                "[read] docs/RELEASING.md | # Releasing\n"
+                "[ran] `git push origin feature/G16` -> ok | develop is the default branch, main takes releases\n")
+        link = self.item(topic="reference", importance=3, evidence="https://grafana.example.com/d/checkout",
+                         text="Checkout latency board: https://grafana.example.com/d/checkout")
+        doc = self.item(topic="location", importance=3, evidence="docs/RELEASING.md | # Releasing",
+                        text="Release steps are in docs/RELEASING.md.", path="docs/RELEASING.md")
+        branch = self.item(topic="branching", importance=3, unusual=True, evidence="develop is the default branch",
+                           text="develop is the default branch (not main); main only takes release merges.")
+        ids = curate.store_items(self.con, self.d, "s", [link, doc, branch], cond, "m")
+        self.assertEqual(len(ids), 3)                                      # profile kinds kept from a rating of 3
+        rows = {r["topic"]: r for r in self.con.execute("SELECT * FROM memories")}
+        self.assertIsNone(rows["location"]["anchor_hash"])                 # never pinned to the doc's content
+        self.assertEqual(rows["branching"]["unusual"], 1)
+        memory = pinned.render_pinned(self.con, self.d).split(pinned.MEMORY_TITLE)[1].splitlines()
+        self.assertEqual(memory[1], "- (branching, unusual) develop is the default branch (not main); main only takes "
+                                    "release merges.")                    # ranked first
+        odd = self.item(topic="pitfall", importance=3, unusual=True, text="Tests here run from checks/, not tests/.",
+                        evidence="develop is the default branch")
+        self.assertEqual(len(curate.store_items(self.con, self.d, "s", [odd], cond, "m")), 1)   # unusual: kept at 3
 
     def test_schema_is_flat(self):
         props = json.loads(model.SCHEMA)["properties"]["items"]["items"]["properties"]

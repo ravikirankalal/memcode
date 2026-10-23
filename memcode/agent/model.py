@@ -10,14 +10,14 @@ import tempfile
 import time
 import uuid
 
+from .. import kinds
 from . import db
 
 DEFAULT_MODEL = "claude-haiku-5-5"
 MAX_CANDIDATES = 12          # candidates the memory agent may propose per piece, each rated 1-5
 MAX_BRIEF_MEMORIES = 60
 
-TOPICS = ("workflow", "pitfall", "environment", "design", "decision", "process", "stack", "integration", "component",
-          "structure", "domain", "convention")
+TOPICS = kinds.TOPICS
 
 SYSTEM = (
     "You are memcode's memory agent for one software repository. memcode gives coding agents a memory that carries "
@@ -41,36 +41,20 @@ SYSTEM = (
     "Read the transcript as a colleague who will take over this repository tomorrow and must not repeat today's "
     "mistakes or re-discover today's answers. Real work almost always teaches something. Look for every kind:\n"
     "- from the user (from_user true): something the user wants, stated or confirmed in their own words: conventions, "
-    "process (how they want the agent to work, what it must ask first, what it must never do), preferences, scope "
-    "decisions ('take X out').\n"
-    "- workflow: how to build, test, lint, run, release, deploy or debug here; multi-step procedures (e.g. every "
-    "place a version must be bumped); the exact command that works.\n"
-    "- pitfall: a mistake made or a trap hit, written as its fix (e.g. 'Start the server with APP_ENV=dev python3 -m "
-    "app.server', not 'the server fails without APP_ENV').\n"
-    "- environment: how the tools, CLI, sandbox, CI or host behave here (an env var a host sets, a command that is "
-    "missing, a flag a tool needs).\n"
-    "- design: a decision and its reason, an invariant, a limit, which module owns what, why something is built the "
-    "way it is.\n"
-    "- decision: the state of ongoing work that the USER stated or confirmed: scope ('console login is out of G15'), "
-    "parked or deferred items ('G16 is parked until the end'), holds and gates ('the develop MR waits until I say "
-    "go'), an agreed approach, or a result verified or disproven in a [ran] line that settles a question raised in "
-    "the session (a hypothesis, a check the user asked for). Never the coding agent's own progress or status (what "
-    "it built, tested, committed, pushed or released): that is in git, not a decision. Give it a short subject key "
-    "('G16', 'develop-merge') so a later decision on the same subject replaces it. When the user changes one ('go "
-    "ahead with the develop MR'), retire or update it. A request to do something now is never a rule, but the "
-    "state it sets can be a decision ('Park G16. Start a review' -> decision 'G16 parked'). Decisions expire after "
-    "30 days unless stated again.\n"
+    "process, preferences, scope decisions ('take X out'). Any topic below can be from the user.\n"
+    + kinds.prompt_list(kinds.WORK) +
+    "A decision gets a short subject key ('G16', 'develop-merge') so a later decision on the same subject replaces it; "
+    "when the user changes one ('go ahead with the develop MR'), retire or update it. A request to do something now "
+    "is never from_user, but the state it sets can be a decision ('Park G16. Start a review' -> decision 'G16 "
+    "parked'). Decisions expire after 30 days unless stated again.\n"
     "Also build up what that colleague should know about the project itself. Nobody needs to say it: infer it from the "
-    "commands that run, the files that are read and the code that is written, as long as the transcript shows it:\n"
-    "- stack: language, build tool, frameworks and how the project is built (the first `mvn` command shows a Maven "
-    "Java project and its usual build command; a `go.mod` shows Go modules).\n"
-    "- integration: an SDK, library or external service the project uses, what it is used for and where (an edit that "
-    "updates calls to a payments SDK shows which SDK, its version or API style, and the module that wraps it).\n"
-    "- component: a class or module that is central or used often: its responsibility, its main methods, who uses it.\n"
-    "- structure: where things live (modules, layers, where tests, configs and migrations go).\n"
-    "- domain: key types and what they mean, e.g. the states of an enum used across the code and their order.\n"
-    "- convention: how code is written here, as seen in the code (naming, error handling, logging, test style). A "
-    "convention you only observe is information; only the user's words make it from_user.\n"
+    "commands that run, the files that are read and the code that is written, the links that are shared or opened, "
+    "as long as the transcript shows it:\n"
+    + kinds.prompt_list(kinds.PROFILE) +
+    "Most of all, notice what is DIFFERENT here from the usual way for this kind of project (tests in checks/ not "
+    "tests/, `make check` instead of plain pytest, develop as the default branch, deploys from a laptop script, a "
+    "vendored fork of a library): a newcomer would get exactly those wrong. Mark such a memory unusual and say what "
+    "the usual way would be.\n"
     "Keep these as one living profile: when the memory already holds one on the same subject and you learn more, "
     "update it (its number, the corrected full text) instead of adding another. Link each new memory to the numbered "
     "memories it belongs with (the component it describes, the workflow a pitfall breaks, the design a detail "
@@ -95,7 +79,8 @@ SYSTEM = (
     "from_user memory the closest one, e.g. process or convention); subject (a short key for a decision, else ''); "
     "importance (1-5); text (one or two short sentences, specific: exact commands, files, values; for retire, why); "
     "evidence (an EXACT quote of 8-200 characters copied from the transcript); path (a repo-relative file or folder "
-    "it applies to, or ''); links (numbers of existing memories this one belongs with, or []); conflicts (true when "
+    "it applies to, or ''); links (numbers of existing memories this one belongs with, or []); unusual (true when it "
+    "differs from the usual convention for this kind of project); conflicts (true when "
     "it would contradict or weaken a from_user memory without the user saying so).")
 
 SCHEMA = json.dumps({
@@ -103,7 +88,7 @@ SCHEMA = json.dumps({
     "properties": {"items": {"type": "array", "maxItems": MAX_CANDIDATES, "items": {
         "type": "object", "additionalProperties": False,
         "required": ["op", "target", "from_user", "topic", "subject", "importance", "text", "evidence", "path",
-                     "links", "conflicts"],
+                     "links", "unusual", "conflicts"],
         "properties": {"op": {"type": "string", "enum": ["add", "update", "retire"]}, "target": {"type": "integer"},
                        "from_user": {"type": "boolean"},
                        "topic": {"type": "string", "enum": list(TOPICS)},
@@ -111,6 +96,7 @@ SCHEMA = json.dumps({
                        "importance": {"type": "integer", "minimum": 1, "maximum": 5},
                        "text": {"type": "string"}, "evidence": {"type": "string"}, "path": {"type": "string"},
                        "links": {"type": "array", "items": {"type": "integer"}, "maxItems": 5},
+                       "unusual": {"type": "boolean"},
                        "conflicts": {"type": "boolean"}}}}}})
 
 

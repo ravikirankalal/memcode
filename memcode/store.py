@@ -218,7 +218,8 @@ def _migrate(con) -> None:
                       ("importance", "INTEGER NOT NULL DEFAULT 3"),     # 1-5
                       ("mkey", "TEXT"),                                 # set for memories updated in place
                       ("expires_at", "REAL"),                           # ongoing state that lapses
-                      ("stats", "TEXT NOT NULL DEFAULT '{}'")):         # counters of keyed memories (runs, ok, fail)
+                      ("stats", "TEXT NOT NULL DEFAULT '{}'"),          # counters of keyed memories (runs, ok, fail)
+                      ("unusual", "INTEGER NOT NULL DEFAULT 0")):       # differs from the usual way for such a project
         if col not in mcols:
             try:
                 con.execute(f"ALTER TABLE memories ADD COLUMN {col} {decl}")
@@ -344,7 +345,7 @@ def add_memory(con, trigger: str, text: str, anchor_path: str = "",
                confidence: float = 0.5, commit: bool = True,
                anchor_symbol: str | None = None, symbol_hash: str | None = None, *,
                from_user: bool | None = None, topic: str = "", importance: int = 3,
-               key: str | None = None, expires_at: float | None = None) -> int:
+               key: str | None = None, expires_at: float | None = None, unusual: bool = False) -> int:
     """One memory. trigger is where it came from (a correction, a revert, the agent, ...); from_user marks the user's
     own words (delivered as an instruction; defaults to True for corrections); key makes it updatable in place."""
     now = time.time()
@@ -352,9 +353,10 @@ def add_memory(con, trigger: str, text: str, anchor_path: str = "",
         from_user = trigger == "correction"
     cur = con.execute(
         """INSERT INTO memories(trigger,text,anchor_path,anchor_hash,provenance,confidence,created_at,updated_at,
-             anchor_symbol,symbol_hash,from_user,topic,importance,mkey,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             anchor_symbol,symbol_hash,from_user,topic,importance,mkey,expires_at,unusual)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (trigger, text, anchor_path, anchor_hash, json.dumps(provenance or {}), confidence, now, now,
-         anchor_symbol, symbol_hash, int(bool(from_user)), topic or "", int(importance), key, expires_at))
+         anchor_symbol, symbol_hash, int(bool(from_user)), topic or "", int(importance), key, expires_at, int(bool(unusual))))
     if commit:
         con.commit()
     return cur.lastrowid

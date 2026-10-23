@@ -58,7 +58,7 @@ def shown_ids(con, text: str) -> list[int]:
     return sorted(shown + [mid for _, mid, line in ranked(con) if line in lines])
 
 
-KNOWLEDGE_ORDER = ("stack", "structure", "component", "domain", "integration", "convention")   # project-profile topics
+from .kinds import PROFILE_TOPICS as KNOWLEDGE_ORDER  # noqa: E402  (project-profile topics)
 _FACT_LABEL = {"user": "manual", "env": "environment", "inference": "inferred", "repo": "repo", "command": "command"}
 
 
@@ -71,7 +71,15 @@ def label(row) -> str:
     """How a (non-user) memory is labelled: decision with its date, its topic, else where it came from."""
     if row["topic"] == "decision":
         return f"decision, {time.strftime('%Y-%m-%d', time.localtime(row['updated_at']))}"
-    return row["topic"] or ("note" if row["trigger"] == "agent" else row["trigger"])
+    lab = row["topic"] or ("note" if row["trigger"] == "agent" else row["trigger"])
+    return lab + (", unusual" if _get(row, "unusual") else "")
+
+
+def _get(row, key):
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return None
 
 
 def memory_line(row) -> str:
@@ -84,8 +92,8 @@ def _from_you_line(row) -> str:
 
 def ranked(con) -> list[tuple[float, int, str]]:
     """Every memory for ## Memory (not the user's own words; facts only those worth showing), best first:
-    [(score, id, line)]. Score: importance (1-5) + 0.5 per graph connection weight (up to 2) + 0.3 per recall (up
-    to 1.5) + 0.5 when changed in the last RECENT_DAYS days."""
+    [(score, id, line)]. Score: importance (1-5) + 1 when it differs from the usual way (unusual) + 0.5 per graph
+    connection weight (up to 2) + 0.3 per recall (up to 1.5) + 0.5 when changed in the last RECENT_DAYS days."""
     from . import facts, graph
     now = time.time()
     degree = graph.degree(con)
@@ -93,7 +101,7 @@ def ranked(con) -> list[tuple[float, int, str]]:
     for r in con.execute("""SELECT m.*, (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq
                             FROM memories m WHERE m.stale=0 AND m.from_user=0 AND m.mkey IS NULL
                             AND (m.expires_at IS NULL OR m.expires_at>?)""", (now,)):
-        items.append((r["importance"], r["freq"], r["updated_at"], r["id"], memory_line(r)))
+        items.append((r["importance"] + (1 if r["unusual"] else 0), r["freq"], r["updated_at"], r["id"], memory_line(r)))
     try:
         shown_facts = facts.shown(con, MAX_FACTS)
     except Exception:                     # noqa: BLE001  (facts never block the block)

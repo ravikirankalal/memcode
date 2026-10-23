@@ -20,7 +20,7 @@ _Last updated: 2026-10-23._
 | Extract | Memory agent: a running conversation per coding session (opened at SessionStart, resumed each turn); candidates of every kind rated 1–5, best kept | 0.9 (ranking 0.11, conversation 0.13) | Haiku through the user's `claude` login; per-session budget $0.10–0.50; restarts after 30 calls or ~40k tokens |
 | Extract | Decisions about ongoing work, with subject keys, dated, expire after 30 days | 0.11 | never the agent's own progress (0.11.1) |
 | Extract | Facts: confirmed commands, repo manifests (npm, make, pyproject, Cargo, Go, Maven, Gradle), missing tools, fragile folders | 0.5 (Maven/Gradle 0.14) | scripts and one-off commands are not recorded (#36) |
-| Extract | Project profile inferred by the memory agent: stack, integration, component, structure, domain, convention | 0.14 | from commands, [read] and [edited] lines; shown as ## Project |
+| Extract | Project profile inferred by the memory agent: stack, integration, component, structure, domain, convention | 0.14 | from commands, [read] and [edited] lines; on the branch: also infra, deployment, branching, location, reference, and an unusual flag (memcode/kinds.py) |
 | Store | One store per repository, shared by worktrees; files read from the session's checkout | 0.10.4 | #32, #37, #39 |
 | Store | Staleness per file or Python function; how-tos stay shown across edits | 0.10.4 | |
 | Store | Scopes (repo, folder, file, symbol); every agent change in `memcode history` | 0.8 / 0.9 | |
@@ -64,7 +64,16 @@ _Last updated: 2026-10-23._
   `stats` counts from you, stale and links; `export` includes the command counters. MCP `memory_search` is embedding
   search plus graph neighbours; `memory_add` takes a topic. Status mod 0.4.0: `37 memories · 12 from you` (reads old
   feeds too). README, guide and architecture describe the flat model. Versions bumped (memcode 0.15.0, mod 0.4.0).
-- Tests: 238 Python, 13 mod.
+- Step 8 (asked after step 7): inference kinds as a running list. `memcode/kinds.py` holds every kind the memory
+  agent looks for (topic, what to look for, example); the prompt, the schema's topics and the profile floor come from
+  it. New kinds: infra, deployment, branching, location, reference. New `unusual` flag (column `memories.unusual`):
+  set when a memory differs from the usual way for this kind of project; kept from a rating of 3, +1 in the start
+  block's ranking, shown as `(topic, unusual)`. memcode keeps up to 6 candidates per piece of log (was 4).
+- Live check (Haiku, a synthetic shop-service log): 7 candidates, kept 6, $0.0015: from you, the branching rule (off
+  develop, never main); unusual, tests in checks/ with the working command; infra (EKS eu-west-1, ECR, RDS); the
+  deployment pipeline (release.sh tags v*, deploy.yml staging then approved prod); the Grafana link; the runbook's
+  location. A component summary rated 2 was dropped.
+- Tests: 239 Python, 13 mod.
 
 ## Latest release (memcode 0.14.0)
 
