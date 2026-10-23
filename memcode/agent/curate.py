@@ -171,7 +171,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             mid = store.add_memory(con, "agent", text, "", None, prov, 0.6, commit=False, from_user=False,
                                    topic="decision", importance=rating(item),
                                    expires_at=time.time() + decision_days() * 86400)
-            activity.note(con, "saved", f"decision: {text}")
+            activity.saved(con, "agent", text, from_user=False, topic="decision")
         elif kind == "rule":
             cat = str(item.get("category", ""))[:20]
             mid = store.add_memory(con, "agent", text, "", None, prov, 0.6, commit=False, from_user=True,
@@ -186,7 +186,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             cat = str(item.get("category", ""))[:20]
             mid = store.add_memory(con, "agent", text, a, h, prov, 0.5, commit=False, from_user=False,
                                    topic="" if cat in ("rule", "decision") else cat, importance=rating(item))
-            activity.saved(con, "agent", text, a, from_user=False)
+            activity.saved(con, "agent", text, a, from_user=False, topic="" if cat in ("rule", "decision") else cat)
         try:
             from .. import scope
             if kind != "decision":             # decisions are repo-wide context: no folder scope

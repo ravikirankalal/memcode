@@ -1,5 +1,5 @@
 ---
-description: "memcode: what is stored, per-session counters, and facts"
+description: "memcode: what is stored and per-session counters"
 allowed-tools: Bash(python3:*)
 ---
 !`python3 "${CLAUDE_PLUGIN_ROOT}/bin/memcode" stats && python3 "${CLAUDE_PLUGIN_ROOT}/bin/memcode" sessions -n 5`

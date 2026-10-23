@@ -69,7 +69,8 @@ class FlatModel(unittest.TestCase):
         self.assertEqual((m["user:deploy"]["trigger"], m["user:deploy"]["from_user"]), ("manual", 0))
         self.assertIn("- test: `make check` (ran 4x, 3 confirmed ok, 1 failed)", facts.lines(con))
         self.assertIn("- deploys need VPN", facts.lines(con))
-        self.assertEqual(store.list_memories(con), [])                         # not notes (until one delivery)
+        self.assertEqual([r["mkey"] for r in store.list_memories(con)], ["user:deploy"])   # command counters aside
+        self.assertEqual(len(store.list_memories(con, measured=True)), 2)
         con.close()
 
 if __name__ == "__main__":

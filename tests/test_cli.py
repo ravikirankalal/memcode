@@ -50,12 +50,12 @@ class Cli(unittest.TestCase):
 
     def test_stats_export_prune(self):
         _, out, _ = run(self.root, "stats")
-        self.assertIn("memories: 2 (1 stale)", out)
+        self.assertIn("memories: 2 (1 from you, 1 stale, 0 links)", out)
         _, out, _ = run(self.root, "export")
         data = json.loads(out)
         self.assertEqual(len(data), 2); self.assertIsInstance(data[0]["provenance"], dict)
         self.assertIn("pruned 1", run(self.root, "prune-stale")[1])
-        self.assertIn("memories: 1 (0 stale)", run(self.root, "stats")[1])
+        self.assertIn("memories: 1 (1 from you, 0 stale, 0 links)", run(self.root, "stats")[1])
 
 
 if __name__ == "__main__":

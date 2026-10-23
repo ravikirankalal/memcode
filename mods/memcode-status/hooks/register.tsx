@@ -65,7 +65,8 @@ export function parseFeed(text: string): Feed | null {
     if (d.busy && typeof d.busy === 'object') {
       for (const [k, v] of Object.entries(d.busy)) if (typeof v === 'number' && v > 0) busy[k] = v
     }
-    return { updated: Number(d.updated) || 0, counts: d.counts, events: d.events, problems, busy }
+    const counts = { memories: Number(d.counts.memories) || 0, from_you: Number(d.counts.from_you ?? d.counts.rules) || 0 }
+    return { updated: Number(d.updated) || 0, counts, events: d.events, problems, busy }
   } catch {
     return null
   }
@@ -227,7 +228,7 @@ export const register: Register = on => {
       return { text: `◆ memcode: ${why}\n  feed: ${path || '(no repository root)'}` }
     }
     const c = f.counts
-    const lines = [`◆ memcode: ${c.memories} memories (${c.rules} rules, ${c.notes} notes) · ${c.facts} facts`]
+    const lines = [`◆ memcode: ${c.memories} memories, ${c.from_you} from you`]
     for (const [k, lk] of PROBLEMS) if (f.problems[k]) lines.push(`  ${lk.icon} ${lk.tag}: ${f.problems[k]}`)
     const st = agentState(f, t)
     lines.push(st.reading ? '  🔍 memory agent: reading the latest turn now'
@@ -278,8 +279,8 @@ export const register: Register = on => {
     const headLook = problem ? problem.look : lk
     const headCols = headText ? cols(` ${headLook!.icon} ${headLook!.tag} `) + 1 + cols(headText) + (ev ? 10 : 0) : 0
     const fit = layout(e.props.bodyColumns || 120, {
-      counts: `${c.memories} memories · ${c.rules} rules · ${c.facts} facts`,
-      countsShort: `🧠${c.memories} 📜${c.rules} ⚙${c.facts}`,
+      counts: `${c.memories} memories · ${c.from_you} from you`,
+      countsShort: `🧠${c.memories} 📜${c.from_you}`,
       head: headCols, agent: agentText, tally: tl ? `+${tl}` : '',
     })
     const badgeCols = headLook ? cols(` ${headLook.icon} ${headLook.tag} `) + 1 : 0
@@ -292,16 +293,13 @@ export const register: Register = on => {
           <Text>
             <Text color="remember" bold>{c.memories}</Text>
             <Text dimColor> memories · </Text>
-            <Text color="merged" bold>{c.rules}</Text>
-            <Text dimColor> rules · </Text>
-            <Text color="planMode" bold>{c.facts}</Text>
-            <Text dimColor> facts</Text>
+            <Text color="merged" bold>{c.from_you}</Text>
+            <Text dimColor> from you</Text>
           </Text>
         ) : (
           <Text>
             <Text color="remember">🧠{c.memories} </Text>
-            <Text color="merged">📜{c.rules} </Text>
-            <Text color="planMode">⚙{c.facts}</Text>
+            <Text color="merged">📜{c.from_you}</Text>
           </Text>
         )}
         {headLook && (

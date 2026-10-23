@@ -3,14 +3,14 @@
 Keep this file current: update it with every change that lands (what changed, the version, what is pending). The plan
 is in [`PLAN.md`](PLAN.md).
 
-_Last updated: 2026-10-20._
+_Last updated: 2026-10-23._
 
 ## Versions
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.14.0 (2026-10-20, PR #49) | flat memory graph in progress (0.15.0, steps 1–6 of 7 done) |
-| memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | none |
+| memcode | 0.14.0 (2026-10-20, PR #49) | 0.15.0: flat memory graph |
+| memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | 0.4.0: counts are memories and from you |
 
 ## What works
 
@@ -58,7 +58,12 @@ _Last updated: 2026-10-20._
   checks are unchanged (from_user needs the user's own words; decisions the user's words or a settled result).
   Environment observations are ordinary memories (no separate env facts, no cap); the scan line is `N candidates,
   kept K`. The briefing lists memories as `#id from you|<label> [where]` and shows facts as measured by memcode.
-- Pending: step 7 (CLI, MCP, status bar, docs, live check, version bump).
+- Step 7: surfaces. The activity feed counts `{memories, from_you}` (command counters aside); saved events read
+  `from you: ...` or `(topic) ...`; the session-start event `N from you, M memories`. `memcode list` labels each
+  memory (from you, topic, decision with date, origin); `show` gives importance, key, expiry and links; `add --topic`;
+  `stats` counts from you, stale and links; `export` includes the command counters. MCP `memory_search` is embedding
+  search plus graph neighbours; `memory_add` takes a topic. Status mod 0.4.0: `37 memories · 12 from you` (reads old
+  feeds too). README, guide and architecture describe the flat model. Versions bumped (memcode 0.15.0, mod 0.4.0).
 - Tests: 238 Python, 13 mod.
 
 ## Latest release (memcode 0.14.0)

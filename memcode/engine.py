@@ -1,7 +1,7 @@
 """The memory agent at each moment of the coding agent's session (docs/architecture.md).
 
-  session_start   deliver: your rules, then the map, decisions, facts and notes; refresh staleness first
-  prompt          extract rules you state (pattern triggers); deliver the notes relevant to this request
+  session_start   deliver: what you said, then one ranked list of memories, then the map; refresh staleness first
+  prompt          extract rules you state (pattern triggers); deliver the memories relevant to this request
   tool_result     extract from what the agent ran and edited (triggers, facts); deliver a folder's memory on first read
   before_write    deliver: hold a first write into a folder once, with its unseen rules as the reason
   (Stop hook)     extract: the model-backed memory agent reads the turn (agent/, queued by hook_cli)
@@ -44,7 +44,7 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
                     [(session, i, now) for i in pinned.shown_ids(con, text)])
     con.commit()
     from . import activity
-    activity.note(con, "start", f"{rules} rule{'s' * (rules != 1)}, {notes} note{'s' * (notes != 1)} at session start",
+    activity.note(con, "start", f"{rules} from you, {notes} memor{'y' if notes == 1 else 'ies'} at session start",
                   rules + notes)
     store.prune_orphans(con)
     return text

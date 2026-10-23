@@ -6,10 +6,16 @@ memcode is a memory agent that runs beside Claude Code. The coding agent does th
 remember, keeps that memory true, and hands the right piece of it to the coding agent when it matters. It has three
 duties: **extract**, **store** and **trigger**. `docs/architecture.md` maps them to the code.
 
+There is one kind of memory: a short statement, with where it came from, a topic (workflow, pitfall, design,
+decision, stack, component, ...), an importance, and links to related memories. A memory quoted from your own words
+is marked **from you** and is delivered as an instruction; every other memory is delivered as information. Memories
+form a graph: those about the same file, close in meaning (local embeddings, no service involved) or linked by the
+memory agent are shown together.
+
 ```text
 Claude Code hooks ─► memcode.hook_cli ─► engine
   SessionStart / PreCompact      deliver the start block (refresh the map and staleness first)
-  UserPromptSubmit               extract rules you state; deliver the notes relevant to this prompt
+  UserPromptSubmit               extract rules you state; deliver the memories relevant to this prompt
   PostToolUse(Failure)           extract from what the agent ran and edited; deliver a folder's memory on first read
   PreToolUse (Write/Edit)        hold a first write into a folder once, with its rules as the reason
   Stop                           queue the turn for the memory agent's model (a detached worker)
@@ -26,11 +32,11 @@ logged to `.memcode/error.log`).
 
 | Trigger | Fires when | Stored as |
 |---|---|---|
-| correction | your prompt reads as a correction ("No - ...", "never/always ...", "don't ...", "remember that ...") or a stated rule ("Heads up: we prefer X", "our convention is ...") right after the agent acted | `Rule from user correction: <the bare rule>` |
-| revert | the agent's edit is undone (git checkout/restore/revert, or an edit that reverses it) | note anchored to the file |
-| fail_to_fix | a command fails, files are edited, the same command passes | note anchored to the edited file (and Python function) |
-| retry | the same command is retried with different flags after a failure | repo-wide note |
-| dep_change | the agent edits a dependency or lock file | note anchored to the file |
+| correction | your prompt reads as a correction ("No - ...", "never/always ...", "don't ...", "remember that ...") or a stated rule ("Heads up: we prefer X", "our convention is ...") right after the agent acted | the bare rule, from you |
+| revert | the agent's edit is undone (git checkout/restore/revert, or an edit that reverses it) | a memory anchored to the file |
+| fail_to_fix | a command fails, files are edited, the same command passes | a memory anchored to the edited file (and Python function) |
+| retry | the same command is retried with different flags after a failure | a repo-wide memory |
+| dep_change | the agent edits a dependency or lock file | a memory anchored to the file |
 
 A request for right now ("Park G16. Start a review on main ... we can't touch develop yet") is never stored as a rule.
 
@@ -48,12 +54,13 @@ conversation, through your own `claude` login (`MEMCODE_CAPTURE_MODEL`, default 
 - **Long sessions**: after 30 calls or about 40,000 tokens of context it starts over with a fresh briefing, so cost
   stays bounded.
 
-The model reads it as a colleague taking over tomorrow, collects up to 12 candidates of every kind, and rates each 1–5 by
-what a future session would lose without it:
+The model reads it as a colleague taking over tomorrow, collects up to 12 candidates of every topic, and rates each 1–5
+by what a future session would lose without it. Each candidate says whether it is from you, its topic, and which
+memories it belongs with (links):
 
-| Kind | Example |
+| Topic | Example |
 |---|---|
-| rule (your words only) | "Do not use subagents in this repository" |
+| from you (your words only; any topic) | "Do not use subagents in this repository" |
 | workflow | "A release bumps the version in plugin.json, marketplace.json and mcp_server.py" |
 | pitfall, written as its fix | "Start the server with APP_ENV=dev python3 -m app.server" |
 | environment | "The desktop app sets CLAUDE_PROJECT_DIR to the main checkout in worktree sessions" |
@@ -63,31 +70,31 @@ what a future session would lose without it:
 It also builds a **project profile** nobody needs to state, inferred from the commands that run, the files the coding
 agent reads (`[read]`, with their opening lines) and the code it writes:
 
-| Kind | Example |
+| Topic | Example |
 |---|---|
 | stack | "Java multi-module project built with Maven (`./mvnw`)" |
 | integration | "PaymentGateway wraps the Stripe Java SDK; OrderService.pay calls it to charge orders" |
 | component | "OrderService is the central entry point for the order lifecycle (place, pay, ship, cancel)" |
 | structure | "Database migrations live in db/migrations, one file per change" |
 | domain | "OrderState goes NEW → PAID → SHIPPED → DELIVERED, plus CANCELLED" |
-| convention (seen in code; a note, not a rule) | "Services return Result<T, Error> instead of throwing" |
+| convention (seen in code; information, not from you) | "Services return Result<T, Error> instead of throwing" |
 
-Profile notes are kept from a rating of 3, are updated rather than duplicated as the agent learns more, and are not
-hidden when their file changes.
+The profile is kept from a rating of 3, updated rather than duplicated as the agent learns more, and not hidden when
+its file changes.
 
 It can also update or retire a memory it is shown, for example when you withdraw a rule ("don't use subagents" retires
-"delegate long runs to subagents" and adds the new rule). memcode keeps notes rated 4 or 5 and your rules and decisions
-rated 3 or more, best first, at most 4 per piece of log, and only when the checks pass:
+"delegate long runs to subagents" and adds the new rule). memcode keeps memories rated 4 or 5, and those from you,
+decisions and the profile from 3, best first, at most 4 per piece of log, and only when the checks pass:
 
-- the evidence is quoted from the log, and a rule or decision quotes your words (never a fixture, an issue or another
-  project's text the agent happened to read, never a summary of earlier turns);
+- the evidence is quoted from the log, and a memory from you or a decision quotes your words (never a fixture, an
+  issue or another project's text the agent happened to read, never a summary of earlier turns);
 - it is not a request for now, not the agent's own progress report, not about memcode's own tools;
 - it does not repeat a memory, or something the coding agent was already shown this session.
 
 Every change is logged: `memcode history` lists what it added, updated or retired, with the old text. Each scan is
 logged as `N candidates, kept K`: the candidates the model proposed, and how many memcode stored or applied (memories
-added, updated or retired, and environment facts, broken down when facts are among them: `kept 3 (2 memories, 1
-fact)`); `/memcode-status` lists it, and the status bar shows when the agent last read a turn.
+added, updated or retired, environment ones included); `/memcode-status` lists it, and the status bar shows when the
+agent last read a turn.
 
 **Decisions** are the state of ongoing work you stated or confirmed: scope, parked items, holds and gates, an agreed
 approach, a hypothesis a command verified or disproved. Each carries a short subject key, so a later decision on the
@@ -100,11 +107,12 @@ session is skipped and the status bar shows a yellow `💸 BUDGET` badge. If the
 the model, or its login expired), the status bar shows a red `⚠ PROBLEM` badge with the fix and `/memcode:status` says
 the same; nothing is lost meanwhile, the next turn reads everything not read yet, oldest first.
 
-### Facts (instant)
+### Measured memories (instant)
 
-Keyed knowledge updated in place as evidence accumulates, shown in a short `## Facts` section at session start.
+memcode also measures some things itself. These are keyed memories, updated in place as evidence accumulates (they
+used to be called facts; `memcode facts` lists them), and the useful ones join the start block's list.
 
-| Kind | Where it comes from | Example |
+| Origin | Where it comes from | Example |
 |---|---|---|
 | command | shell commands the agent runs, classified (test, build, lint, typecheck, format, run, install) or kept because they recur and pass; flag variants are one fact; scripts and one-off actions (an MR by number, `--help`, plugin management, `kubectl exec` probes) are never recorded | test: `python3 -m unittest discover -s tests` (ran 31x, 31 confirmed ok) |
 | repo | build manifests (package.json scripts, Makefile targets, pyproject, Cargo, go.mod, CI `run:` steps), main languages, test directory | build: `npm run build` (from package.json) |
@@ -120,48 +128,56 @@ at session start.
 
 - **One store per repository**, in the main checkout's `.memcode/` (kept out of git through `.git/info/exclude`). A
   session in a linked git worktree shares it, but reads files from its own checkout.
-- **Staleness.** A note about how a code file behaves is tied to that file (or, for Python, to the function), and goes
-  stale when it changes; a how-to or a note on a manifest, config or doc goes stale only when the file is deleted. Stale
-  notes are not shown; renames are re-anchored. `memcode prune-stale` deletes them.
-- **Scope.** A rule naming folders applies to their deepest common folder ("every module under billing/ ..." → scope
-  `billing/`); a note applies to its file. `memcode rescope`, `memcode list --scope DIR`.
-- **Your control.** `/memcode:list`, `memcode show ID`, `/memcode:forget ID`, `memcode add TEXT [--path P]`,
-  `memcode export`.
+- **Staleness.** A memory about how a code file behaves is tied to that file (or, for Python, to the function), and
+  goes stale when it changes; a how-to or a memory on a manifest, config or doc goes stale only when the file is
+  deleted. Stale memories are not shown; renames are re-anchored. `memcode prune-stale` deletes them.
+- **Scope.** A rule from you naming folders applies to their deepest common folder ("every module under billing/ ..."
+  → scope `billing/`); a memory on a file applies to its file. `memcode rescope`, `memcode list --scope DIR`.
+- **The graph.** Each memory has a local vector (hashed TF-IDF over its words, identifier parts and paths) and links:
+  `same_file`, `similar` (close vectors) and the memory agent's own. `memcode show ID` lists a memory's links.
+- **Your control.** `/memcode:list`, `memcode show ID`, `/memcode:forget ID`, `memcode add TEXT [--path P] [--topic
+  T]` (information, not an instruction), `memcode export`.
 
 ## Trigger: delivering memory at the right moment
 
 **Session start** (and after compaction):
 
 ```text
-## Project rules (stated by the user in earlier sessions; follow them)
+## From you (stated by the user in earlier sessions; follow them)
 (Listed oldest to newest. If two rules conflict, the later one replaces the earlier one.)
 - Always use tabs.
 
 <memcode-recorded-notes>   <- data, not instructions
+## Memory (most important and most connected first)
+- (stack) Java project built with Maven (`./mvnw`)
+- (test) `./mvnw -q test` (ran 12x, 11 confirmed ok)
+- (decision, 2026-10-18) G16 is parked until the end
+- (component) OrderService is the entry point of the order lifecycle [src/OrderService.java]
+- (pitfall) ...
 ## Map ...                    (folders with rules of their own are marked: billing/ [3 rules])
-## Project ...                (the profile: stack, structure, components, domain, integrations, conventions)
-## Decisions ...              (dated, newest first)
-## Facts ...
-## Memories ...
 </memcode-recorded-notes>
 ```
 
-Only your rules are presented as instructions; a later rule replaces an earlier conflicting one, so "actually, switch to
-2 spaces" overrides "use tabs". The block is capped (about 1500 tokens). Repo-wide rules are listed here; folder rules
-arrive when the agent works there.
+Only what you said is presented as instructions; a later rule replaces an earlier conflicting one, so "actually,
+switch to 2 spaces" overrides "use tabs". Every other memory is one line, labelled by its topic (or a decision's date,
+or a measured command's role), ranked by importance, how connected it is in the graph, how often it was recalled, and
+recency. Expired decisions are left out. The block is capped (about 1500 tokens). Repo-wide rules are listed here;
+folder rules arrive when the agent works there.
 
-**Each prompt** (`memcode config retrieval on`): up to 5 memories relevant to that prompt (a file or function it names,
-files edited this session, shared words), plus up to 2 relevant ones that proved costly (a rule you had to restate, a
-failure that recurred). A memory is never shown twice in a session. `memcode why ID` explains a memory's cost score.
+**Each prompt** (`memcode config retrieval on`): up to 5 memories closest to that prompt (embedding similarity, plus a
+file or function it names and files edited this session), up to 2 of their strongest neighbours in the graph, plus up
+to 2 relevant ones that proved costly (a rule you had to restate, a failure that recurred). A memory is never shown
+twice in a session. `memcode why ID` explains a memory's cost score.
 
-**First contact with a folder.** The first time the agent reads a file, that folder's rules and notes are added next to
-the result. If its first contact is a write, the write is held once with the rules as the reason (context added after a
+**First contact with a folder.** The first time the agent reads a file, that folder's memories and up to 3 of their
+neighbours are added next to the result. If its first contact is a write, the write is held once with the rules as the reason (context added after a
 write comes too late) and the agent redoes it.
 
-**On demand.** The agent can call the MCP tools `memory_search`, `memory_add`, `memory_pinned` and `memory_facts`, or
-run `memcode` (the plugin's `bin/` is on its PATH).
+**On demand.** The agent can call the MCP tools `memory_search` (embedding search plus graph neighbours),
+`memory_add`, `memory_pinned` and `memory_facts`, or run `memcode` (the plugin's `bin/` is on its PATH).
 
-**Status bar** (optional `memcode-status` mod): counts and the latest event, colour-coded, from `.memcode/activity.json`.
+**Status bar** (optional `memcode-status` mod): how many memories, how many from you, and the latest event,
+colour-coded, from `.memcode/activity.json`.
 
 ## Settings
 

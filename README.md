@@ -31,18 +31,22 @@ what patterns miss: rules you state as description, workflows that work, pitfall
 written as their fix, how the environment behaves, design decisions, and the state of ongoing work you decide ("G16 is
 parked until the end"). From the commands that run and the code the agent reads and writes, it also builds a project
 profile nobody has to state: the stack and build, the SDKs in use and what for, central classes, key enums and types,
-where things live, and the conventions the code follows. It rates every candidate and keeps the best few, and only what passes its checks: quoted
-evidence, your own words for rules and decisions, no requests for right now, no repeats. Facts track the commands that
-actually work here and the tools that are missing.
+where things live, and the conventions the code follows. It rates every candidate and keeps the best few, and only
+what passes its checks: quoted evidence, your own words for anything marked as from you and for decisions, no requests
+for right now, no repeats. memcode also measures the commands that actually work here and the tools that are missing.
 
-**Store.** One store per repository, shared by its worktrees. Notes about code go stale when that code changes and are
-re-anchored across renames; the memory agent updates or retires what is no longer true, and every change it makes is in
-`memcode history`. Rules and notes apply where they belong: a rule about `billing/` is for work in `billing/`.
+**Store.** One kind of memory: a short statement with a topic, an importance and links to related memories. What you
+said is marked *from you* and becomes an instruction; everything else is information. Memories form a graph (same
+file, close in meaning by local embeddings, or linked by the memory agent). Memories about code go stale when that
+code changes and are re-anchored across renames; the memory agent updates or retires what is no longer true, and every
+change it makes is in `memcode history`. Memories apply where they belong: a rule about `billing/` is for work in
+`billing/`.
 
-**Trigger.** At session start the agent gets your rules as instructions, then a compact repo map, decisions, facts and
-notes as data. On each prompt it gets the few memories relevant to that prompt. The first time it reads a folder it gets
-that folder's rules; if its first contact is a write, the write is held once with the rules as the reason. It can also
-ask for memory any time through MCP tools.
+**Trigger.** At session start the agent gets what you said as instructions, then one list of memories ranked by
+importance and connections, and a compact repo map, as data. On each prompt it gets the few memories closest to that
+prompt and their neighbours. The first time it reads a folder it gets that folder's memories; if its first contact is
+a write, the write is held once with the folder's rules as the reason. It can also ask for memory any time through MCP
+tools.
 
 ## Try it
 
@@ -52,7 +56,7 @@ session and ask where tests go.
 ```text
 /memcode:status                  what is stored; memory-agent problems
 /memcode:list                    memories (add --all to include stale ones)
-/memcode:facts                   build/test/run commands, environment limits, fragile areas
+/memcode:facts                   measured: build/test/run commands, environment limits, fragile areas
 /memcode:forget 3                delete memory #3
 /memcode:cli                     every other command: show, add, history, config, export, why...
 ```
@@ -66,7 +70,7 @@ alias memcode='python3 "$(ls -d ~/.claude/plugins/cache/memcode/memcode/*/ | sor
 ### Status above the prompt (optional mod)
 
 ```text
-◆ memcode 37 memories · 12 rules · 9 facts  ┃  🧠 SAVED  rule: Always use tabs in this repo. · 5s ago  🔍 reading..  +2 saved
+◆ memcode 37 memories · 12 from you  ┃  🧠 SAVED  from you: Always use tabs in this repo. · 5s ago  🔍 reading..  +2 saved
 ```
 
 One line above the prompt: what memcode holds; the latest thing it did, as a coloured badge (`🧠 SAVED`, `✏️ UPDATED`,

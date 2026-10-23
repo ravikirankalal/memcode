@@ -360,8 +360,9 @@ def add_memory(con, trigger: str, text: str, anchor_path: str = "",
     return cur.lastrowid
 
 
-def list_memories(con, include_stale: bool = False) -> list[sqlite3.Row]:
-    q = "SELECT * FROM memories WHERE mkey IS NULL" + ("" if include_stale else " AND stale=0")
+def list_memories(con, include_stale: bool = False, measured: bool = False) -> list[sqlite3.Row]:
+    """Memories, newest first; measured=True includes the per-command counters (facts.py) too."""
+    q = "SELECT * FROM memories WHERE " + ("1" if measured else "trigger!='command'") + ("" if include_stale else " AND stale=0")
     return con.execute(q + " ORDER BY updated_at DESC").fetchall()
 
 

@@ -29,7 +29,7 @@ agent never edits code or talks to the user; a failure in memcode never blocks t
 | 4 | Librarian: merges near-duplicates, keeps the store small and well organized | Store | Planned |
 | 5 | Briefer: a task-specific briefing when a new task starts, instead of a fixed start block | Trigger | Planned |
 
-## In progress: flat memory graph (0.15.0)
+## Done on the branch, not released: flat memory graph (0.15.0)
 
 One kind of memory instead of rules, notes, facts and decisions. Each memory has its text, where it came from, a
 `from_user` flag (quoted from the user's words: delivered as an instruction; everything else as information), an

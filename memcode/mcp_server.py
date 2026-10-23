@@ -1,6 +1,6 @@
 """Minimal stdio MCP server (JSON-RPC 2.0, newline-delimited), stdlib only.
 
-Tools: memory_search, memory_add, memory_pinned, memory_facts.
+Tools: memory_search (embedding search plus graph neighbours), memory_add, memory_pinned, memory_facts.
 """
 from __future__ import annotations
 
@@ -11,14 +11,17 @@ import sys
 from . import store
 
 TOOLS = [
-    {"name": "memory_search", "description": "Search stored coding memories by keyword.",
+    {"name": "memory_search", "description": "Search this repository's memories (closest by meaning first, with the "
+     "memories linked to them).",
      "inputSchema": {"type": "object", "properties": {"query": {"type": "string"},
                      "limit": {"type": "integer"}},
                      "required": ["query"]}},
-    {"name": "memory_add", "description": "Manually record a memory anchored to a repo path.",
+    {"name": "memory_add", "description": "Record a memory (information, not an instruction), optionally anchored "
+     "to a repo path and given a topic (workflow, pitfall, design, component, ...).",
      "inputSchema": {"type": "object", "properties": {"text": {"type": "string"},
-                     "path": {"type": "string"}}, "required": ["text"]}},
-    {"name": "memory_pinned", "description": "Return the current pinned repo map and notes.",
+                     "path": {"type": "string"}, "topic": {"type": "string"}}, "required": ["text"]}},
+    {"name": "memory_pinned", "description": "Return the session-start memory block: what the user said, the ranked "
+     "memories, the repo map.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "memory_facts", "description": "Facts about this repo: build/test/lint/run commands that work here "
      "(with how often they passed), commands declared in manifests, environment limitations, fragile areas.",
@@ -75,15 +78,16 @@ def call_tool(root: str, name: str, args: dict) -> str:
 
 def _call_tool(con, root: str, name: str, args: dict) -> str:
     if name == "memory_search":
-        q = str(args.get("query", "")).lower().split()
-        rows = [r for r in store.list_memories(con)
-                if all(w in (r["text"] + " " + r["anchor_path"]).lower() for w in q)]
-        rows = rows[: _bounded_int(args.get("limit"), 10, 1, 50)]
-        for r in rows:  # record retrievals for reinforce-on-success
+        from . import embed, graph, pinned
+        limit = _bounded_int(args.get("limit"), 10, 1, 50)
+        hits = [mid for mid, _ in embed.search(con, str(args.get("query", "")), k=limit, where="m.trigger!='command'")]
+        hits += [o for o, _, _ in graph.neighbours(con, hits, limit=3) if o not in hits][: max(0, limit - len(hits))]
+        rows = [con.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone() for mid in hits]
+        for r in rows:  # record retrievals (recall frequency ranks the start block)
             con.execute("INSERT INTO retrievals(session,memory_id,ts) VALUES('mcp',?,strftime('%s','now'))", (r["id"],))
         con.commit()
-        return "\n".join(f"#{r['id']} [{r['trigger']}] {r['anchor_path'] or '/'}: {r['text']}"
-                         for r in rows) or "no matches"
+        return "\n".join(f"#{r['id']} ({'from you' if r['from_user'] else pinned.label(r)}) {r['anchor_path'] or '/'}: "
+                         f"{r['text']}" for r in rows) or "no matches"
     if name == "memory_add":
         text = args.get("text")
         if not isinstance(text, str) or not text.strip():
@@ -94,10 +98,12 @@ def _call_tool(con, root: str, name: str, args: dict) -> str:
         if f and os.path.isfile(f) and os.path.getsize(f) <= MAX_HASH_BYTES:
             with open(f, "rb") as fh:
                 h = store.sha1(fh.read())
+        topic = str(args.get("topic") or "").strip().lower()[:20]
         mid = store.add_memory(con, "manual", text.strip()[:MAX_TEXT], rel, h,
-                               {"source": "mcp"}, confidence=0.6)
-        from . import activity
-        activity.saved(con, "manual", text, rel)
+                               {"source": "mcp"}, confidence=0.6, from_user=False, topic=topic)
+        from . import activity, graph
+        graph.update(con)
+        activity.saved(con, "manual", text, rel, from_user=False, topic=topic)
         return f"stored memory #{mid}"
     if name == "memory_facts":
         from . import facts
@@ -132,7 +138,7 @@ def handle(root: str, msg) -> dict | None:
             want = params.get("protocolVersion")
             ver = want if want in SUPPORTED_VERSIONS else SUPPORTED_VERSIONS[0]
             res = {"protocolVersion": ver, "capabilities": {"tools": {}},
-                   "serverInfo": {"name": "memcode", "version": "0.14.0"}}
+                   "serverInfo": {"name": "memcode", "version": "0.15.0"}}
         elif method == "tools/list":
             res = {"tools": TOOLS}
         elif method == "tools/call":

@@ -1,14 +1,14 @@
 """`python3 -m memcode <command>`: inspect and control the memory store.
 
-  list [--all]        memories (stale hidden unless --all)
+  list [--all]        memories, labelled (from you, topic, decision, origin); stale hidden unless --all
   show ID             one memory with provenance
   forget ID...        delete memories (and their retrievals / salience rows)
-  add TEXT [--path P] record a manual memory (path confined to the repo)
-  stats               counts by trigger, stale, retrievals, events
-  sessions [-n N]     per-session counters: rules/notes injected, captured, repeated corrections
+  add TEXT [--path P] [--topic T]  record a memory by hand (information, not an instruction; path confined to the repo)
+  stats               counts by origin, stale, links, retrievals, events
+  sessions [-n N]     per-session counters: from you / memories shown at start, captured, repeated corrections
   why ID              salience score and the evidence behind it
-  facts [--backfill [--force]]  facts: commands, repo, environment, inferences (backfill from the event log)
-  fact set KEY VALUE | fact rm KEY   add or remove a fact by hand
+  facts [--backfill [--force]]  what memcode measures: commands, repo, environment, inferences (keyed memories)
+  fact set KEY VALUE | fact rm KEY   add or remove a keyed memory by hand
   config [KEY on|off] show or set switches: memory-agent, decision-capture, retrieval, hierarchy
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
@@ -34,6 +34,11 @@ def _fmt_ts(t: float) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(t))
 
 
+def _label(r) -> str:
+    from .pinned import label
+    return "from you" if r["from_user"] else label(r)
+
+
 def cmd_list(con, a) -> int:
     rows = store.list_memories(con, include_stale=a.all)
     if not rows:
@@ -41,7 +46,7 @@ def cmd_list(con, a) -> int:
     for r in rows:
         flag = " [stale]" if r["stale"] else ""
         anchor = (r["anchor_path"] or "/") + (f"::{r['anchor_symbol']}" if r["anchor_symbol"] else "")
-        print(f"#{r['id']:<4} {r['trigger']:<9} {anchor:<20} {r['text']}{flag}")
+        print(f"#{r['id']:<4} {_label(r):<12} {anchor:<20} {r['text']}{flag}")
     return 0
 
 
@@ -51,7 +56,10 @@ def cmd_show(con, a) -> int:
         print(f"no memory #{a.id}", file=sys.stderr)
         return 1
     n = con.execute("SELECT COUNT(*) FROM retrievals WHERE memory_id=?", (a.id,)).fetchone()[0]
-    print(f"#{r['id']} [{r['trigger']}] confidence={r['confidence']:.2f} stale={bool(r['stale'])} retrievals={n}")
+    print(f"#{r['id']} ({_label(r)}) origin={r['trigger']} importance={r['importance']} stale={bool(r['stale'])} "
+          f"retrievals={n}" + (f" key={r['mkey']}" if r["mkey"] else ""))
+    if r["expires_at"]:
+        print(f"expires {_fmt_ts(r['expires_at'])}")
     where = r["anchor_path"] or "(repo-wide)"
     if r["anchor_symbol"]:
         where += f"::{r['anchor_symbol']}"
@@ -61,6 +69,10 @@ def cmd_show(con, a) -> int:
     outs = con.execute("SELECT outcome, COUNT(*) FROM outcomes WHERE memory_id=? GROUP BY outcome", (a.id,)).fetchall()
     if outs:
         print("outcomes: " + ", ".join(f"{o} x{n}" for o, n in outs))
+    from . import graph
+    near = graph.neighbours(con, [r["id"]])
+    if near:
+        print("linked: " + ", ".join(f"#{o} ({k} {w:.2f})" for o, w, k in near))
     print(f"\n{r['text']}")
     return 0
 
@@ -93,9 +105,12 @@ def cmd_add(con, a, root: str) -> int:
     if f and os.path.isfile(f):
         with open(f, "rb") as fh:
             h = store.sha1(fh.read())
-    mid = store.add_memory(con, "manual", a.text.strip()[:2000], rel, h, {"source": "cli"}, confidence=0.6)
-    from . import activity
-    activity.saved(con, "manual", a.text, rel)
+    topic = (a.topic or "").strip().lower()[:20]
+    mid = store.add_memory(con, "manual", a.text.strip()[:2000], rel, h, {"source": "cli"}, confidence=0.6,
+                           from_user=False, topic=topic)
+    from . import activity, graph
+    graph.update(con)
+    activity.saved(con, "manual", a.text, rel, from_user=False, topic=topic)
     print(f"stored memory #{mid}")
     return 0
 
@@ -103,10 +118,11 @@ def cmd_add(con, a, root: str) -> int:
 def cmd_stats(con, a) -> int:
     by = con.execute("SELECT trigger, COUNT(*), SUM(stale) FROM memories GROUP BY trigger ORDER BY 2 DESC").fetchall()
     total = sum(r[1] for r in by)
-    print(f"memories: {total} ({sum(r[2] or 0 for r in by)} stale)")
+    one = lambda q: con.execute(q).fetchone()[0]
+    print(f"memories: {total} ({one('SELECT COUNT(*) FROM memories WHERE from_user=1 AND stale=0')} from you, "
+          f"{sum(r[2] or 0 for r in by)} stale, {one('SELECT COUNT(*) FROM memory_links')} links); by origin:")
     for t, n, st in by:
         print(f"  {t:<10} {n:>4}  ({st or 0} stale)")
-    one = lambda q: con.execute(q).fetchone()[0]
     from . import agent
     h = agent.health(con)
     if h:
@@ -123,7 +139,7 @@ def cmd_sessions(con, a) -> int:
     if not rows:
         print("no sessions recorded yet")
         return 0
-    print(f"{'session':<10} {'started':<16} {'rules':>5} {'notes':>5} {'captured':>8} {'repeated':>8}")
+    print(f"{'session':<10} {'started':<16} {'yours':>5} {'other':>5} {'captured':>8} {'repeated':>8}")
     for r in rows:
         print(f"{r['session'][:8]:<10} {_fmt_ts(r['started_at']):<16} {r['rules_injected']:>5} "
               f"{r['notes_injected']:>5} {r['captured']:>8} {r['repeated_corrections']:>8}")
@@ -225,7 +241,7 @@ def cmd_config(con, a, root: str) -> int:
     return 0
 
 def cmd_export(con, a) -> int:
-    rows = [dict(r) for r in store.list_memories(con, include_stale=True)]
+    rows = [dict(r) for r in store.list_memories(con, include_stale=True, measured=True)]
     for r in rows:
         r["provenance"] = json.loads(r["provenance"] or "{}")
     out = json.dumps(rows, indent=2)
@@ -258,7 +274,7 @@ def cmd_list_scope(con, a) -> int:
     for r in rows:
         flag = " [stale]" if r["stale"] else ""
         where = (r["scope_path"] or "/") + ("/" if r["scope_kind"] == "dir" else "")
-        print(f"#{r['id']:<4} {r['trigger']:<9} {r['scope_kind']:<6} {where:<24} {r['text']}{flag}")
+        print(f"#{r['id']:<4} {_label(r):<12} {r['scope_kind']:<6} {where:<24} {r['text']}{flag}")
     return 0
 # --- end scope (A) ---
 
@@ -289,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("list"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("show"); p.add_argument("id", type=int)
     p = sub.add_parser("forget"); p.add_argument("ids", type=int, nargs="+")
-    p = sub.add_parser("add"); p.add_argument("text"); p.add_argument("--path")
+    p = sub.add_parser("add"); p.add_argument("text"); p.add_argument("--path"); p.add_argument("--topic")
     sub.add_parser("stats")
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
     p = sub.add_parser("why"); p.add_argument("id", type=int)
