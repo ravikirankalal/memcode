@@ -9,8 +9,8 @@ _Last updated: 2026-10-23._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.14.0 (2026-10-20, PR #49) | 0.15.0: flat memory graph |
-| memcode-status (mod) | 0.3.0 (2026-10-20, PR #46) | 0.4.0: counts are memories and from you |
+| memcode | 0.15.0 (2026-10-23, PR #50) | none |
+| memcode-status (mod) | 0.4.0 (2026-10-23, PR #50) | none |
 
 ## What works
 
@@ -30,7 +30,7 @@ _Last updated: 2026-10-23._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (flat memory graph, 0.15.0)
+## Latest release (memcode 0.15.0, memcode-status 0.4.0: flat memory graph, inference kinds)
 
 - Step 1: memories gain `from_user`, `topic`, `importance`, `mkey`, `expires_at`, `stats`; new tables `memory_links`
   and `memory_vectors`; old rows migrate (corrections -> from_user, categories -> topic, decisions -> expiry).
@@ -75,7 +75,7 @@ _Last updated: 2026-10-23._
   location. A component summary rated 2 was dropped.
 - Tests: 239 Python, 13 mod.
 
-## Latest release (memcode 0.14.0)
+## Previous release (memcode 0.14.0)
 
 - Facts know Maven (`pom.xml`, `./mvnw` when present) and Gradle (`build.gradle[.kts]`, `./gradlew`) builds, and show
   "built with Maven" next to the languages.
