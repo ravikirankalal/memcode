@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.17.4 (2026-10-29, PR #60) | none |
+| memcode | 0.17.4 (2026-10-29, PR #60) | 0.18.0: feedback to the memory agent, stale review and eviction |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -29,6 +29,28 @@ _Last updated: 2026-10-29._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.18.0: the memory agent learns from feedback and keeps memory fresh)
+
+- Acceptance feedback (feedback.py, table memory_feedback): a memory shown next to the work (per prompt, after an
+  action, first touch, flagged) is judged `used` when a reply names it in a `memcode:` line, else `unused`; judged
+  at each scan, before the memory agent reads. The agent hears the verdicts with running counts; a memory shown 3x
+  next to the work and never used (since it last changed) is muted from recall; used ones rank higher at start.
+- Proposal feedback (agent table proposals): every proposal memcode does not keep is told back with its reason
+  (rated below the bar, evidence not an exact quote, not the user's words, a repeat, past the cap, no such memory).
+- Stale memories: the briefing lists up to 12 with the opening of their file as it is now, and the next message
+  names any that just went stale; an update revives one anchored to the file as it is now (curate._revive), a retire
+  may quote the file; memories stale for 14 days are evicted (curate.evict_stale, at session start and in the worker;
+  logged as `evict`; MEMCODE_STALE_DAYS). This repository had 10 stale memories, the oldest stale for 11 days.
+- Configuration review: the briefing now has today's date, how each memory was taken when shown, and up to 150
+  memories (was 60: past that the agent could not update, retire or link the rest); effort is configurable
+  (MEMCODE_AGENT_EFFORT, default low; not changed without a measurement). Unchanged: Haiku, 24k characters per call,
+  a fresh conversation after 30 calls or 40k tokens, 12 candidates, 6 kept per piece, $0.25 per call.
+- Live check (Haiku): a stale memory about orders.total(items), its file now total(items, tax_rate), one turn adding
+  the tax: the agent updated it ("orders.total(items, tax_rate) sums the item prices and multiplies by
+  (1 + tax_rate)"), memcode revived it on the current file; a muted noise memory was left alone (no evidence either
+  way in the turn); $0.0015.
+- Tests: 275 Python, 14 mod.
 
 ## Latest release (memcode 0.17.4)
 

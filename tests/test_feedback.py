@@ -81,3 +81,53 @@ class Feedback(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProposalFeedback(unittest.TestCase):
+    """What memcode did not keep of the memory agent's proposals, and why, is told back to it."""
+
+    def setUp(self):
+        from memcode.agent import db
+        self.d = tempfile.mkdtemp()
+        self.con = store.connect(self.d)
+        db.ensure(self.con)
+        self.cond = "[user] please always run make check before pushing\n[ran] `make check` -> ok | 12 passed"
+
+    def tearDown(self):
+        self.con.close()
+
+    def item(self, **kw):
+        base = {"op": "add", "target": 0, "from_user": False, "topic": "workflow", "subject": "", "importance": 4,
+                "text": "Run make check before pushing.", "evidence": "12 passed", "path": "", "links": [],
+                "unusual": False, "conflicts": False}
+        return dict(base, **kw)
+
+    def test_each_refusal_is_told_with_its_reason(self):
+        from memcode.agent import curate
+        items = [self.item(importance=2, text="A minor thing about the build output."),
+                 self.item(text="Tests print a summary line.", evidence="not in the transcript"),
+                 self.item(from_user=True, topic="process", text="Run make check before every push.",
+                           evidence="12 passed"),
+                 self.item(op="retire", target=999, text="gone", evidence="12 passed"),
+                 self.item(op="recall", target=999, text="now", evidence="12 passed")]
+        curate.store_items(self.con, self.d, "s", items, self.cond, "m")
+        text = conversation.delta(self.con, "s", 0)
+        self.assertIn('- not kept, your add "A minor thing about the build output.": rated 2; this kind is kept from 4',
+                      text)
+        self.assertIn('"Tests print a summary line.": the evidence is not an exact quote of the transcript', text)
+        self.assertIn("from_user needs the user's own words as evidence", text)
+        self.assertIn("- not kept, your retire #999", text)
+        self.assertIn("- not kept, your recall #999", text)
+
+    def test_the_briefing_has_today_and_how_memories_were_taken(self):
+        from memcode.agent import model
+        mid = store.add_memory(self.con, "agent", "The final design excludes docs/salvage.", "", None, {})
+        for s in ("a", "b", "c"):
+            self.con.execute("INSERT INTO injections(session,memory_id,ts,source) VALUES(?,?,?, 'prompt')",
+                             (s, mid, time.time()))
+            self.con.commit()
+            feedback.judge(self.con, s, "[agent] an answer")
+        brief = model.briefing(self.con, self.d, "s")
+        self.assertIn(f"Today: {time.strftime('%Y-%m-%d')}", brief)
+        self.assertIn(f"#{mid} note", brief)
+        self.assertIn("(shown 3x, never used: no longer recalled until changed)", brief)

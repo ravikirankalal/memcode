@@ -30,6 +30,7 @@ Together the memories form a graph: links come from shared files, close vectors 
 | `store.py` | The SQLite store, shared by every checkout of a repository, and root resolution. |
 | `agent/curate.py` | Applies the agent's operations after the checks in `agent/checks.py`: evidence quoted from the log, `from_user` memories and decisions only from the user's words, no requests for now, no repeats. Logs every change (`memcode history`); handles decisions' subjects and expiry; records the agent's links. |
 | `embed.py` | Local embeddings, stdlib only: hashed TF-IDF vectors over words, identifier parts and paths, kept per memory and rebuilt when its text changes; `search`. |
+| `feedback.py` | Whether the coding agent used each memory shown next to the work (a `memcode:` line in its reply); verdicts go to the memory agent; never-used memories stop being recalled. |
 | `graph.py` | The memory graph: `same_file` and `similar` links rebuilt for new or changed memories, the agent's links kept; `neighbours`, `degree`. |
 | `tree.py`, `symbols.py` | The repository map; staleness by file or Python symbol hash; re-anchoring on renames. |
 | `scope.py` | Where a memory applies: repo, folder, file or symbol. |

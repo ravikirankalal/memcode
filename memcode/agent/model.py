@@ -13,9 +13,10 @@ import uuid
 from .. import kinds
 from . import db
 
-DEFAULT_MODEL = "claude-haiku-5-5"
+DEFAULT_MODEL = "claude-haiku-5-5"   # MEMCODE_CAPTURE_MODEL
+DEFAULT_EFFORT = "low"               # MEMCODE_AGENT_EFFORT (low | medium | high): how much the model thinks per call
 MAX_CANDIDATES = 12          # candidates the memory agent may propose per piece, each rated 1-5
-MAX_BRIEF_MEMORIES = 60
+MAX_BRIEF_MEMORIES = 150      # the agent can only update, retire or link what it is shown
 MAX_BRIEF_STALE = 12
 
 TOPICS = kinds.TOPICS
@@ -140,7 +141,12 @@ def briefing(con, root: str, session: str) -> str:
     context), plus what memcode measures itself (facts)."""
     shown = shown_ids(con, session)
     lines = [f"Repository: {os.path.basename(os.path.realpath(root)) or root}", f"Session: {session}",
-             "Memory now (number, from you or topic, date last stated or changed, where it applies, text):"]
+             f"Today: {time.strftime('%Y-%m-%d')}",
+             "Memory now (number, from you or topic, date last stated or changed, where it applies, how the coding "
+             "agent took it when shown, text):"]
+    from .. import feedback
+    took = feedback.counts(con)
+    quiet = feedback.muted(con)
     rows = con.execute("SELECT id, trigger, text, anchor_path, scope_path, provenance, updated_at, from_user, topic FROM memories "
                        "WHERE stale=0 AND mkey IS NULL AND (expires_at IS NULL OR expires_at>?) "
                        "ORDER BY from_user DESC, (topic='decision') DESC, updated_at DESC LIMIT ?",
@@ -154,6 +160,11 @@ def briefing(con, root: str, session: str) -> str:
             subj = db.loads(r["provenance"]).get("subject") or ""
             where = f"subject {subj}" if subj else "repo"
         mark = " (in the agent's context)" if r["id"] in shown else ""
+        u, n = took.get(r["id"], (0, 0))
+        if r["id"] in quiet:
+            mark += f" (shown {n}x, never used: no longer recalled until changed)"
+        elif u or n:
+            mark += f" (used {u}x, shown unused {n}x)"
         lines.append(f"- #{r['id']} {kind} [{where}]{mark}: {' '.join(r['text'].split())[:300]}")
     if not rows:
         lines.append("- (empty)")
@@ -188,7 +199,8 @@ def extract(text: str, context: str = "", model: str | None = None, timeout: int
         convo = ["--resume", session["id"]] if session.get("resume") else ["--session-id", session["id"]]
     else:
         convo = ["--no-session-persistence", "--session-id", str(uuid.uuid4())]
-    cmd = ["claude", "-p", prompt, "--model", model, "--effort", "low", "--setting-sources", "", "--strict-mcp-config",
+    effort = os.environ.get("MEMCODE_AGENT_EFFORT") or DEFAULT_EFFORT
+    cmd = ["claude", "-p", prompt, "--model", model, "--effort", effort, "--setting-sources", "", "--strict-mcp-config",
            "--tools", "", *convo, "--max-budget-usd", "0.25", "--output-format", "json",
            "--system-prompt", SYSTEM, "--json-schema", SCHEMA]
     env = dict(os.environ, MEMCODE_DISABLE="1")

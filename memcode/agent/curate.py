@@ -211,6 +211,22 @@ def queue_recall(con, session: str, item: dict, condensed: str) -> int | None:
                 (session, target, why, time.time()))
     return target
 
+KEEP_PROPOSALS_DAYS = 7
+
+
+def _not_kept(con, session: str, item: dict, reason: str) -> None:
+    """Note a proposal memcode did not keep, and why; the memory agent hears it in its next message."""
+    db.ensure(con)
+    try:
+        target = int(item.get("target") or 0) or None
+    except (TypeError, ValueError):
+        target = None
+    con.execute("INSERT INTO proposals(ts, session, op, target, text, reason) VALUES(?,?,?,?,?,?)",
+                (time.time(), session, str(item.get("op") or "add"), target,
+                 " ".join(str(item.get("text", "")).split())[:200], reason))
+    con.execute("DELETE FROM proposals WHERE ts < ?", (time.time() - KEEP_PROPOSALS_DAYS * 86400,))
+
+
 def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "",
                 max_items: int = MAX_ITEMS) -> list[int]:
     """Apply the memory agent's operations: add (default), update, retire, and recall (queued for the coding agent's
@@ -229,8 +245,12 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
     recalls = 0
     for item in items:
         if item.get("op") == "recall":
-            if recalls < MAX_RECALLS and queue_recall(con, session, item, condensed) is not None:
+            if recalls >= MAX_RECALLS:
+                _not_kept(con, session, item, f"at most {MAX_RECALLS} recalls per message")
+            elif queue_recall(con, session, item, condensed) is not None:
                 recalls += 1
+            else:
+                _not_kept(con, session, item, "no such memory, or the evidence is not an exact quote of the transcript")
             continue
         if item.get("op") in ("update", "retire"):
             mid = change(con, session, item, condensed, root)
@@ -238,21 +258,37 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
                 ids.append(mid)
                 if item.get("op") == "update":
                     _link(con, mid, item.get("links"))
+            else:
+                _not_kept(con, session, item, "no such memory, the text is unchanged, or the evidence is not an exact "
+                          "quote (of the user's own words for a from_user memory or a decision; of the file for a "
+                          "stale one)")
             continue
         knowledge = item.get("kind") == "note" and item.get("category") in KNOWLEDGE
         unusual = item.get("unusual") is True
         floor = MIN_RULE_IMPORTANCE if item.get("kind") in ("rule", "decision") or knowledge or unusual else MIN_IMPORTANCE
-        if rating(item) < floor or added >= max_items:
+        if rating(item) < floor:
+            _not_kept(con, session, item, f"rated {rating(item)}; this kind is kept from {floor}")
+            continue
+        if added >= max_items:
+            _not_kept(con, session, item, f"only the {max_items} most important of a piece are kept")
             continue
         kind = checks.verified(item, condensed, root)
         text = " ".join(str(item.get("text", "")).split())[:300]
-        if kind is None or checks.is_repeat(con, text) or checks.echoes_context(con, session, item, condensed):
+        if kind is None:
+            _not_kept(con, session, item, checks.why_not(item, condensed, root))
+            continue
+        if checks.is_repeat(con, text):
+            _not_kept(con, session, item, "the memory already says it")
+            continue
+        if checks.echoes_context(con, session, item, condensed):
+            _not_kept(con, session, item, "the coding agent was only repeating a memory it was shown")
             continue
         prov = {"session": session, "source": "agent", "model": model, "ts": time.time(),
                 "evidence": str(item.get("evidence", ""))[:200],
                 "category": str(item.get("category", ""))[:20], "importance": rating(item)}
         if kind == "decision":
             if not decisions_enabled(root):
+                _not_kept(con, session, item, "decision capture is off in this repository")
                 continue
             subject = " ".join(str(item.get("subject", "")).split())[:40].lower()
             prov["subject"] = subject
