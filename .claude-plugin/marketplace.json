@@ -11,7 +11,7 @@
       "name": "memcode",
       "source": "./",
       "description": "A memory agent beside Claude Code: it extracts what is worth remembering, keeps it true, and delivers it when it matters.",
-      "version": "0.16.0",
+      "version": "0.16.1",
       "category": "productivity"
     },
     {

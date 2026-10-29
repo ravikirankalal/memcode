@@ -3,6 +3,7 @@
   list [--all]        memories, labelled (from you, topic, decision, origin); stale hidden unless --all
   show ID             one memory with provenance
   forget ID...        delete memories (and their retrievals / salience rows)
+  edit ID TEXT [--topic T]  correct a memory's text (and topic); logged in `history` with the old text
   add TEXT [--path P] [--topic T]  record a memory by hand (information, not an instruction; path confined to the repo)
   stats               counts by origin, stale, links, retrievals, events
   sessions [-n N]     per-session counters: from you / memories shown at start, captured, repeated corrections
@@ -90,6 +91,40 @@ def cmd_forget(con, a) -> int:
     n = _delete(con, a.ids)
     print(f"forgot {n} of {len(a.ids)}")
     return 0 if n == len(a.ids) else 1
+
+
+def cmd_edit(con, a) -> int:
+    """`memcode edit ID TEXT [--topic T]`: correct a memory in place. It keeps whether it is from you; a decision is
+    restated (its expiry starts over); measured commands are not edited (the next run would overwrite them)."""
+    r = con.execute("SELECT * FROM memories WHERE id=?", (a.id,)).fetchone()
+    if not r:
+        print(f"no memory #{a.id}", file=sys.stderr)
+        return 1
+    if r["trigger"] == "command":
+        print(f"#{a.id} is a measured command (memcode facts); it is rebuilt as commands run, so it is not edited",
+              file=sys.stderr)
+        return 2
+    text = " ".join(a.text.split())[:2000]
+    topic = r["topic"] if a.topic is None else a.topic.strip().lower()[:20]
+    if not text:
+        print("the new text is empty", file=sys.stderr)
+        return 2
+    if text == r["text"] and topic == r["topic"]:
+        print(f"#{a.id} unchanged")
+        return 0
+    from . import activity, graph
+    from .agent import curate
+    now = time.time()
+    expires = now + curate.decision_days() * 86400 if topic == "decision" else (
+        None if r["topic"] == "decision" else r["expires_at"])
+    curate._log(con, "cli", "edit", a.id, before=r, after=text, evidence="memcode edit")
+    con.execute("UPDATE memories SET text=?, topic=?, updated_at=?, expires_at=? WHERE id=?",
+                (text, topic, now, expires, a.id))
+    con.commit()
+    graph.update(con)
+    activity.note(con, "updated", f"edited #{a.id}: {text}")
+    print(f"edited #{a.id}")
+    return 0
 
 
 def cmd_prune_stale(con, a) -> int:
@@ -280,7 +315,7 @@ def cmd_list_scope(con, a) -> int:
 
 
 def cmd_history(con, a) -> int:
-    """`memcode history [-n N]`: what the memory agent added, updated or retired."""
+    """`memcode history [-n N]`: what the memory agent added, updated or retired, and what `memcode edit` changed."""
     from .agent import db
     db.ensure(con)
     rows = con.execute("SELECT * FROM memory_log ORDER BY id DESC LIMIT ?", (a.n,)).fetchall()
@@ -305,6 +340,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("list"); p.add_argument("--all", action="store_true")
     p = sub.add_parser("show"); p.add_argument("id", type=int)
     p = sub.add_parser("forget"); p.add_argument("ids", type=int, nargs="+")
+    p = sub.add_parser("edit", help="correct a memory's text (and topic)"); p.add_argument("id", type=int)
+    p.add_argument("text"); p.add_argument("--topic")
     p = sub.add_parser("add"); p.add_argument("text"); p.add_argument("--path"); p.add_argument("--topic")
     sub.add_parser("stats")
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
@@ -343,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_facts(con, a, root)
         if a.cmd == "fact":
             return cmd_fact(con, a)
-        return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "stats": cmd_stats,
+        return {"list": cmd_list, "show": cmd_show, "forget": cmd_forget, "edit": cmd_edit, "stats": cmd_stats,
                 "export": cmd_export, "history": cmd_history, "sessions": cmd_sessions, "why": cmd_why, "prune-stale": cmd_prune_stale}[a.cmd](con, a)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)

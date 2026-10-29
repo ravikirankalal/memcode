@@ -60,7 +60,8 @@ session and ask where tests go.
 /memcode:list                    memories (add --all to include stale ones)
 /memcode:facts                   measured: build/test/run commands, environment limits, fragile areas
 /memcode:forget 3                delete memory #3
-/memcode:cli                     every other command: show, add, history, config, export, why...
+/memcode:cli edit 3 "new text"   correct memory #3 in place (the old text stays in history)
+/memcode:cli                     every other command: show, add, edit, history, config, export, why...
 ```
 
 From a terminal, the same CLI is `bin/memcode` in the plugin directory:
