@@ -24,7 +24,7 @@ Update with `/plugin marketplace update memcode` then `/plugin update memcode@me
 
 ## What you'll see
 
-The first session in a repository: one line saying memcode is on (with the status mod's install command), while the
+The first session in a repository: one line saying memcode is on (with the status mod's install command if it is not installed), while the
 memory agent reads the repository's key files once in the background. From then on, each session starts with a block
 like this in the agent's context:
 

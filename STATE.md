@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.17.1 (2026-10-29, PR #57) | none |
+| memcode | 0.17.1 (2026-10-29, PR #57) | 0.17.2: the welcome suggests the status mod only when missing |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -29,6 +29,17 @@ _Last updated: 2026-10-29._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.17.2)
+
+- The one-time welcome suggests `/plugin install memcode-status@memcode` only when the mod is missing: memcode reads
+  enabledPlugins in the user's and the project's Claude Code settings and Claude Code's installed_plugins.json
+  (installed for the user, or for this project); `memcode doctor` reports it as a `status mod` line. Seen live: the
+  welcome in this repository suggested the mod although it was installed.
+- Live check of 0.17.1 (a fresh Claude Code session in this repository, tmux): the welcome and the start block showed
+  under `SessionStart:startup says:`; the status line read `📥22 injected`; the one-time read kept 2 ($0.0027; the
+  store already had most of it). Restarting this cloud session from the app reconnects without a SessionStart.
+- Tests: 259 Python, 14 mod.
 
 ## Latest release (memcode 0.17.1)
 

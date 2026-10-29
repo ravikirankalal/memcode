@@ -1,7 +1,8 @@
 """Is memcode working here? `memcode doctor` runs every check; session start runs the cheap ones and tells the user.
 
 Session start shows a message to the user (the hook's systemMessage, not the coding agent's context) when:
-  * this is the first session in the repository: a one-time welcome, with the status mod's install command;
+  * this is the first session in the repository: a one-time welcome (with the status mod's install command when the
+    mod is not installed for this repository or the user);
   * the store's SQLite has no JSON functions (the flat memory model needs them);
   * the memory agent is on but the `claude` CLI is not on PATH;
   * memcode logged errors since the last session start (.memcode/error.log).
@@ -17,8 +18,42 @@ from . import config, store
 
 WELCOME = ("memcode is on for this repository: it remembers what you say and what the agent learns, and hands it back "
            "when it matters. Memory lives in .memcode/ (kept out of git); /memcode:status shows what it holds, "
-           "/memcode:cli doctor checks the setup. For a status line above the prompt: "
-           "/plugin install memcode-status@memcode")
+           "/memcode:doctor checks the setup.")
+SUGGEST_MOD = " For a status line above the prompt: /plugin install memcode-status@memcode"
+MOD = "memcode-status@"
+
+
+def _claude_dir() -> str:
+    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+
+
+def status_mod_installed(root) -> bool:
+    """Whether the memcode-status mod is on for this repository: enabled in the user's or the project's settings, or
+    installed for the user or for this project (Claude Code's installed_plugins.json). Unknown reads as not."""
+    import json
+    rootp = os.path.realpath(str(root))
+    for p in (os.path.join(_claude_dir(), "settings.json"), os.path.join(rootp, ".claude", "settings.json"),
+              os.path.join(rootp, ".claude", "settings.local.json")):
+        try:
+            with open(p) as fh:
+                enabled = json.load(fh).get("enabledPlugins") or {}
+            if any(k.startswith(MOD) and v for k, v in enabled.items()):
+                return True
+        except (OSError, ValueError, AttributeError):
+            continue
+    try:
+        with open(os.path.join(_claude_dir(), "plugins", "installed_plugins.json")) as fh:
+            plugins = json.load(fh).get("plugins") or {}
+    except (OSError, ValueError, AttributeError):
+        return False
+    for name, installs in plugins.items():
+        if name.startswith(MOD):
+            for i in installs if isinstance(installs, list) else []:
+                where = i.get("projectPath") if isinstance(i, dict) else None
+                if isinstance(i, dict) and (i.get("scope") == "user" or
+                                            (where and os.path.realpath(where) == rootp)):
+                    return True
+    return False
 
 
 def _error_log(root) -> str:
@@ -61,7 +96,7 @@ def at_start(con, root) -> list[str]:
     try:
         cfg = config.read(root)
         if not cfg.get("welcomed"):
-            out.append(WELCOME)
+            out.append(WELCOME + ("" if status_mod_installed(root) else SUGGEST_MOD))
             config.write(root, welcomed=True)
         if not _json_ok():
             out.append("memcode: this Python's SQLite has no JSON functions, so memories cannot be stored; use a "
@@ -103,6 +138,9 @@ def checks(con, root) -> list[tuple[str, str, str]]:
     res.append(("ok", "recall", "on: per prompt and after each command or edit") if retrieval.enabled(root) else
                ("warn", "recall", "off: memories arrive only at session start and first touch (memcode config "
                 "retrieval on)"))
+    res.append(("ok", "status mod", "installed: the status line shows memcode above the prompt")
+               if status_mod_installed(root) else
+               ("warn", "status mod", "not installed (optional): /plugin install memcode-status@memcode"))
     row = con.execute("SELECT MAX(ts) FROM injections WHERE source='pinned'").fetchone()
     res.append(("ok", "hooks", "the session-start hook has delivered memory here") if row and row[0] else
                ("warn", "hooks", "no session start recorded in this repository yet: if Claude Code was restarted "

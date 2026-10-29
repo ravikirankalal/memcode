@@ -76,12 +76,34 @@ class Doctor(unittest.TestCase):
     def test_welcome_once_then_quiet(self):
         from unittest import mock
         from memcode import doctor
-        with mock.patch.dict(os.environ, {"MEMCODE_TRANSCRIPT_CAPTURE": "0"}):
+        home = tempfile.mkdtemp()                                            # a Claude Code with no plugins recorded
+        with mock.patch.dict(os.environ, {"MEMCODE_TRANSCRIPT_CAPTURE": "0", "CLAUDE_CONFIG_DIR": home}):
             first = doctor.at_start(self.con, self.d)
             second = doctor.at_start(self.con, self.d)
-        self.assertEqual(first, [doctor.WELCOME])
+        self.assertEqual(first, [doctor.WELCOME + doctor.SUGGEST_MOD])
         self.assertIn("/plugin install memcode-status@memcode", first[0])
         self.assertEqual(second, [])
+
+    def test_the_welcome_suggests_the_mod_only_when_it_is_missing(self):
+        from unittest import mock
+        from memcode import config, doctor
+        home = tempfile.mkdtemp()
+        os.makedirs(os.path.join(home, "plugins"))
+        installed = lambda **i: Path(home, "plugins", "installed_plugins.json").write_text(json.dumps(
+            {"version": 2, "plugins": {"memcode-status@memcode": [i]}}))
+        welcome = lambda: (config.write(self.d, welcomed=False), doctor.at_start(self.con, self.d))[1][0]
+        with mock.patch.dict(os.environ, {"MEMCODE_TRANSCRIPT_CAPTURE": "0", "CLAUDE_CONFIG_DIR": home}):
+            installed(scope="project", projectPath=os.path.realpath(self.d))
+            self.assertEqual(welcome(), doctor.WELCOME)                      # installed for this project
+            installed(scope="project", projectPath="/somewhere/else")
+            self.assertTrue(welcome().endswith(doctor.SUGGEST_MOD))          # only for another project
+            installed(scope="user")
+            self.assertEqual(welcome(), doctor.WELCOME)                      # installed for the user
+            os.remove(Path(home, "plugins", "installed_plugins.json"))
+            os.makedirs(os.path.join(self.d, ".claude"), exist_ok=True)
+            Path(self.d, ".claude", "settings.json").write_text('{"enabledPlugins": {"memcode-status@memcode": true}}')
+            self.assertEqual(welcome(), doctor.WELCOME)                      # enabled in the project's settings
+            self.assertTrue(doctor.status_mod_installed(self.d))
 
     def test_a_missing_claude_cli_and_new_errors_are_told_once(self):
         from unittest import mock
