@@ -11,7 +11,7 @@ is not: a repository with its own json.py, sqlite3.py or memcode/ cannot shadow 
 import os
 import sys
 
-MIN_PYTHON = (3, 11)
+MIN_PYTHON = (3, 9)    # the python3 of Xcode's command-line tools on macOS; the test suite runs on 3.9
 
 
 def _too_old(args):

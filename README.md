@@ -8,7 +8,7 @@ A Claude Code plugin. Stdlib-only Python; memory is stored locally, per reposito
 
 ## Install
 
-You need **Claude Code** and **`python3`** 3.11 or newer on macOS or Linux (no packages to install). In Claude Code:
+You need **Claude Code** and **`python3`** 3.9 or newer on macOS or Linux (no packages to install). In Claude Code:
 
 ```text
 /plugin marketplace add ravikirankalal/memcode

@@ -195,10 +195,13 @@ _Last updated: 2026-10-29._
 ## How to verify and release
 
 ```text
-python3 -m unittest discover -s tests          # 227 tests, offline
+python3 -m unittest discover -s tests          # 250 tests, offline
 claude plugin test mods/memcode-status         # 13 mod tests
 claude plugin validate .claude-plugin/plugin.json --strict
 ```
+
+The minimum Python is 3.9 (bin/memcode MIN_PYTHON): when touching the code, also run the suite with a 3.9 interpreter
+(`uv python install 3.9`, then `$(uv python find 3.9) -m unittest discover -s tests`).
 
 Release: bump the version in `.claude-plugin/plugin.json`, the memcode entry of `.claude-plugin/marketplace.json` and
 `memcode/mcp_server.py` (serverInfo); for the mod, `mods/memcode-status/.claude-plugin/plugin.json` and its
