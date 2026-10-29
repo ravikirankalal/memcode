@@ -59,7 +59,7 @@ vars matter, never the values), API contracts (public endpoints, versioning, gen
 tables and schema migrations), local setup (what a fresh machine needs), monitoring and alerting (what pages whom),
 performance budgets, test data and fixtures, release cadence.
 
-## On the branch, not released: recall beyond the prompt (0.16.0)
+## Released: recall beyond the prompt (0.16.0)
 
 Per-prompt recall also reads the recent conversation; memories about a command or an edit come back right after it;
 the memory agent flags memories for the coding agent's next step (`recall`), delivered with the reason; a start-block
