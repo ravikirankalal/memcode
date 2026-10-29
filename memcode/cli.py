@@ -11,6 +11,7 @@
   facts [--backfill [--force]]  what memcode measures: commands, repo, environment, inferences (keyed memories)
   fact set KEY VALUE | fact rm KEY   add or remove a keyed memory by hand
   config [KEY on|off] show or set switches: memory-agent, decision-capture, retrieval, hierarchy
+  doctor              is memcode working here? python, sqlite, store, memory agent, recall, hooks, errors
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
   history [-n N]      what the memory agent added, updated or retired, with the old text
@@ -241,7 +242,7 @@ SWITCHES = [
     ("memory-agent", "transcript_capture", "MEMCODE_TRANSCRIPT_CAPTURE", True,
      "after each turn, the new part of the session log is sent to the model through your `claude` login"),
     ("decision-capture", "decision_capture", "MEMCODE_DECISION_CAPTURE", True, ""),
-    ("retrieval", "retrieval", "MEMCODE_RETRIEVAL", False, ""),
+    ("retrieval", "retrieval", "MEMCODE_RETRIEVAL", True, ""),
     ("hierarchy", "hierarchy", "MEMCODE_HIER", True, ""),
 ]
 ALIASES = {"transcript-capture": "memory-agent"}
@@ -314,6 +315,16 @@ def cmd_list_scope(con, a) -> int:
 # --- end scope (A) ---
 
 
+def cmd_doctor(con, a, root) -> int:
+    """`memcode doctor`: every setup check; exit 1 when one fails."""
+    from . import doctor
+    res = doctor.checks(con, root)
+    mark = {"ok": "ok  ", "warn": "warn", "fail": "FAIL"}
+    for status, what, detail in res:
+        print(f"{mark[status]}  {what:<13} {detail}")
+    return 1 if any(s == "fail" for s, _, _ in res) else 0
+
+
 def cmd_history(con, a) -> int:
     """`memcode history [-n N]`: what the memory agent added, updated or retired, and what `memcode edit` changed."""
     from .agent import db
@@ -344,6 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("text"); p.add_argument("--topic")
     p = sub.add_parser("add"); p.add_argument("text"); p.add_argument("--path"); p.add_argument("--topic")
     sub.add_parser("stats")
+    sub.add_parser("doctor", help="is memcode working here?")
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
     p = sub.add_parser("why"); p.add_argument("id", type=int)
     p = sub.add_parser("facts"); p.add_argument("--backfill", action="store_true"); p.add_argument("--force", action="store_true")
@@ -376,6 +388,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_add(con, a, root)
         if a.cmd == "config":
             return cmd_config(con, a, root)
+        if a.cmd == "doctor":
+            return cmd_doctor(con, a, root)
         if a.cmd == "facts":
             return cmd_facts(con, a, root)
         if a.cmd == "fact":

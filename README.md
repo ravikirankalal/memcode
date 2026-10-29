@@ -16,8 +16,8 @@ You need **Claude Code** and **`python3`** 3.9 or newer on macOS or Linux (no pa
 ```
 
 Restart Claude Code. memcode now works in every repo you open; memory lives in `<repo>/.memcode/`, kept out of git.
-
-Recommended: per-prompt recall, so each prompt gets the memories relevant to it: `/memcode:cli config retrieval on`.
+The first session in a repository says so in one line; if something is wrong (no `claude` CLI on PATH, an old
+Python, errors logged), session start tells you, and `/memcode:doctor` checks the whole setup.
 
 Update with `/plugin marketplace update memcode` then `/plugin update memcode@memcode`. To try a checkout instead:
 `claude --plugin-dir /path/to/memcode`.
@@ -57,6 +57,7 @@ session and ask where tests go.
 
 ```text
 /memcode:status                  what is stored; memory-agent problems
+/memcode:doctor                  is memcode working here? (python, sqlite, store, memory agent, recall, hooks)
 /memcode:list                    memories (add --all to include stale ones)
 /memcode:facts                   measured: build/test/run commands, environment limits, fragile areas
 /memcode:forget 3                delete memory #3

@@ -177,7 +177,7 @@ command's role) and the date it was last stated or changed (for a measured comma
 recency. Expired decisions are left out. The block is capped (about 1500 tokens). Repo-wide rules are listed here;
 folder rules arrive when the agent works there.
 
-**Each prompt** (`memcode config retrieval on`): up to 5 memories closest to that prompt and to the recent
+**Each prompt** (on by default; `memcode config retrieval off` to stop it): up to 5 memories closest to that prompt and to the recent
 conversation (embedding similarity with the prompt, plus half as much with your last 3 prompts and the last 12
 commands, files and edits; a file or function the prompt names; files edited this session), up to 2 of their
 strongest neighbours in the graph, plus up to 2 relevant ones that proved costly (a rule you had to restate, a failure
@@ -185,7 +185,7 @@ that recurred). So a decision or a fact about what the work is on comes back eve
 A memory is shown once per session; one that was only in the start block comes back once more when it becomes
 clearly relevant. `memcode why ID` explains a memory's cost score.
 
-**After each command or edit** (retrieval on): up to 2 memories closely related to what was just run or changed,
+**After each command or edit** (with per-prompt recall): up to 2 memories closely related to what was just run or changed,
 next to its result (after a test command: the pitfall or the fact about how tests run here).
 
 **Flagged by the memory agent.** After each turn the memory agent checks the memory against what the session is
@@ -214,7 +214,7 @@ recalled, on first touch, on held writes.
 |---|---|---|---|
 | memory-agent | on | `MEMCODE_TRANSCRIPT_CAPTURE` | the model reads each turn (needs the `claude` CLI) |
 | decision-capture | on | `MEMCODE_DECISION_CAPTURE` | the memory agent keeps decisions |
-| retrieval | off | `MEMCODE_RETRIEVAL` | relevant memories on every prompt |
+| retrieval | on | `MEMCODE_RETRIEVAL` | relevant memories on every prompt and after each command or edit (on by default since 0.17) |
 | hierarchy | on | `MEMCODE_HIER` | folder scopes, first-read delivery and held first writes |
 
 ## Privacy
@@ -229,6 +229,7 @@ recalled, on first touch, on held writes.
 
 | Symptom | Check |
 |---|---|
+| Anything | `/memcode:doctor` (or `memcode doctor`): python, sqlite, the store, the memory agent and its `claude` CLI, recall, whether the hooks ran here, errors logged. Session start also tells you when the memory agent cannot run or errors were logged. |
 | Nothing is injected | `memcode stats` (any memories?); `/memcode:status` for memory-agent problems. |
 | A correction was not captured | The memory agent usually catches it after the turn; check `memcode history`. |
 | Hook errors | Logged to `.memcode/error.log`; they never block the agent. |

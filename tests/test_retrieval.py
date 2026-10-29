@@ -76,7 +76,7 @@ class Retrieval(unittest.TestCase):
         with mock.patch.dict(os.environ, {"MEMCODE_RANK": "salience"}):
             self.assertEqual(set(self.ids("timezone naive datetime invoice rounding", session="z")), set(base))
 
-    def test_hook_flag_off_by_default_on_when_enabled(self):
+    def test_hook_on_by_default_off_when_switched_off(self):
         self.con.close()
         def run(**env):
             e = dict(os.environ, PYTHONPATH=str(ROOT), **env)
@@ -85,8 +85,8 @@ class Retrieval(unittest.TestCase):
                                capture_output=True, input=json.dumps({"session_id": "h", "cwd": self.root,
                                                                        "prompt": "fix the bug in invoice.py"}))
             return p.stdout
-        self.assertEqual(run().strip(), "")
-        out = json.loads(run(MEMCODE_RETRIEVAL="1"))
+        self.assertEqual(run(MEMCODE_RETRIEVAL="0").strip(), "")
+        out = json.loads(run())                                              # on by default since 0.17
         self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit")
         self.assertIn("rounding of invoice totals", out["hookSpecificOutput"]["additionalContext"])
 

@@ -62,3 +62,60 @@ class Launcher(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Doctor(unittest.TestCase):
+    def setUp(self):
+        from memcode import store
+        self.d = tempfile.mkdtemp()
+        self.con = store.connect(self.d)
+
+    def tearDown(self):
+        self.con.close()
+
+    def test_welcome_once_then_quiet(self):
+        from unittest import mock
+        from memcode import doctor
+        with mock.patch.dict(os.environ, {"MEMCODE_TRANSCRIPT_CAPTURE": "0"}):
+            first = doctor.at_start(self.con, self.d)
+            second = doctor.at_start(self.con, self.d)
+        self.assertEqual(first, [doctor.WELCOME])
+        self.assertIn("/plugin install memcode-status@memcode", first[0])
+        self.assertEqual(second, [])
+
+    def test_a_missing_claude_cli_and_new_errors_are_told_once(self):
+        from unittest import mock
+        from memcode import doctor, store
+        from memcode.config import write
+        write(self.d, welcomed=True)
+        Path(store.memdir(self.d), "error.log").write_text("2026-10-29 10:00:00 OSError: disk full\n")
+        with mock.patch.dict(os.environ, {"MEMCODE_TRANSCRIPT_CAPTURE": "1"}), \
+                mock.patch("shutil.which", lambda name: None):
+            msgs = doctor.at_start(self.con, self.d)
+            again = doctor.at_start(self.con, self.d)
+        self.assertTrue(any("`claude` CLI is not on PATH" in m for m in msgs))
+        self.assertTrue(any("logged 1 error since the last session (newest: 2026-10-29 10:00:00 OSError: disk full)"
+                            in m for m in msgs))
+        self.assertFalse(any("logged" in m for m in again))                  # each error is told once
+
+    def test_the_session_start_hook_shows_the_user_a_message(self):
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        env.update(MEMCODE_TRANSCRIPT_CAPTURE="0")
+        run = lambda: subprocess.run([sys.executable, str(LAUNCHER), "hook", "SessionStart"], env=env, text=True,
+                                     input=json.dumps({"session_id": "s1", "cwd": self.d}), capture_output=True,
+                                     timeout=60).stdout
+        out = json.loads(run())
+        self.assertIn("memcode is on for this repository", out["systemMessage"])
+        later = run().strip()
+        self.assertNotIn("systemMessage", json.loads(later) if later else {})
+
+    def test_doctor_command(self):
+        from unittest import mock
+        from memcode import cli
+        out = io.StringIO()
+        with redirect_stdout(out), mock.patch.dict(os.environ, {"MEMCODE_TRANSCRIPT_CAPTURE": "0"}):
+            code = cli.main(["--root", self.d, "doctor"])
+        self.assertEqual(code, 0)
+        self.assertRegex(out.getvalue(), r"ok\s+sqlite\s+\S+ with JSON")
+        self.assertIn("recall        on", out.getvalue())
+        self.assertIn("no session start recorded", out.getvalue())

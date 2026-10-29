@@ -58,7 +58,7 @@ _CAMEL = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
 
 def enabled(root) -> bool:
     from . import config
-    return config.switch(root, "MEMCODE_RETRIEVAL", "retrieval", False)
+    return config.switch(root, "MEMCODE_RETRIEVAL", "retrieval", True)
 
 
 def terms(text: str) -> set[str]:
