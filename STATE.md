@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.18.0 (2026-10-29, PR #61) | 0.18.1: verdicts only for showings since the previous judging |
+| memcode | 0.18.1 (2026-10-29, PR #62) | none |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,7 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.18.1)
+## Latest release (memcode 0.18.1)
 
 - Fix, found testing 0.18.0 in this session: the first scan after the upgrade judged every memory shown during the
   whole session against only the replies since the previous scan, so memories named in earlier replies were marked
@@ -42,7 +42,7 @@ _Last updated: 2026-10-29._
   waits for the next session: the stale list is in the briefing, sent when the conversation opens.
 - Tests: 273 Python, 14 mod.
 
-## Latest release (memcode 0.18.0: the memory agent learns from feedback and keeps memory fresh)
+## Previous release (memcode 0.18.0: the memory agent learns from feedback and keeps memory fresh)
 
 - Acceptance feedback (feedback.py, table memory_feedback): a memory shown next to the work (per prompt, after an
   action, first touch, flagged) is judged `used` when a reply names it in a `memcode:` line, else `unused`; judged
