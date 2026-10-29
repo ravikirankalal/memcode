@@ -10,7 +10,8 @@
   why ID              salience score and the evidence behind it
   facts [--backfill [--force]]  what memcode measures: commands, repo, environment, inferences (keyed memories)
   fact set KEY VALUE | fact rm KEY   add or remove a keyed memory by hand
-  config [KEY on|off] show or set switches: memory-agent, decision-capture, retrieval, hierarchy, show-injections
+  config [KEY on|off] show or set switches: memory-agent, decision-capture, retrieval, hierarchy, show-injections,
+                      mention-memories
   doctor              is memcode working here? python, sqlite, store, memory agent, recall, hooks, errors
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
@@ -245,6 +246,7 @@ SWITCHES = [
     ("retrieval", "retrieval", "MEMCODE_RETRIEVAL", True, ""),
     ("hierarchy", "hierarchy", "MEMCODE_HIER", True, ""),
     ("show-injections", "show_injections", "MEMCODE_SHOW_INJECTIONS", True, ""),
+    ("mention-memories", "mention_memories", "MEMCODE_MENTION", True, ""),
 ]
 ALIASES = {"transcript-capture": "memory-agent"}
 

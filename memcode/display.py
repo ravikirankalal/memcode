@@ -3,6 +3,10 @@
 additionalContext reaches only the agent; Claude Code shows a hook's systemMessage in the conversation. Each
 injection gets a short copy: one line saying when and how much, then one clipped line per memory (the map and the
 untrusted-data framing are left out). Off with `memcode config show-injections off` (MEMCODE_SHOW_INJECTIONS=0).
+
+Surfaces that draw no hook message (the mobile and web apps) see a memory in the agent's reply instead: each injected
+block ends with MENTION, asking the agent to name, in one "memcode:" line, a memory its answer relied on. Off with
+`memcode config mention-memories off` (MEMCODE_MENTION=0).
 """
 from __future__ import annotations
 
@@ -11,10 +15,19 @@ from . import config, pinned
 WIDTH = 140
 MAX_LINES = 25
 WHEN = {"start": "at session start", "prompt": "for this prompt", "tool": "after this tool call"}
+# memcode's own words to the coding agent, after the block (outside the untrusted wrapper): the agent's reply is the one
+# thing every surface shows (the mobile and web apps draw no hook message), so a memory that mattered is named there
+MENTION = ("memcode: when your answer or your next step relies on one of the memories above, say so in one short line "
+           "starting with \"memcode:\" (for example: memcode: tests run with `make check` here). Do not mention memories "
+           "you did not use.")
 
 
 def enabled(root) -> bool:
     return config.switch(root, "MEMCODE_SHOW_INJECTIONS", "show_injections", True)
+
+
+def mention_enabled(root) -> bool:
+    return config.switch(root, "MEMCODE_MENTION", "mention_memories", True)
 
 
 def render(text: str, when: str) -> str:

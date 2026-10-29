@@ -137,8 +137,9 @@ def main(argv: list[str]) -> int:
                     notice = doctor.at_start(con, root)    # for the user: a welcome, or what is broken
             res = {}
             if out:
-                res["hookSpecificOutput"] = {"hookEventName": name, "additionalContext": out}
                 from . import display
+                ctx = out + ("\n\n" + display.MENTION if display.mention_enabled(root) else "")
+                res["hookSpecificOutput"] = {"hookEventName": name, "additionalContext": ctx}
                 if display.enabled(root):              # the user sees what the agent was given, in the conversation
                     shown = display.render(out, {"prompt": "prompt", "start": "start"}.get(action, "tool"))
                     notice = list(notice) + ([shown] if shown else [])
