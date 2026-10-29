@@ -184,12 +184,13 @@ recency. Expired decisions are left out. The block is capped (about 1500 tokens)
 folder rules arrive when the agent works there.
 
 **Each prompt** (on by default; `memcode config retrieval off` to stop it): up to 5 memories closest to that prompt and to the recent
-conversation (embedding similarity with the prompt, plus half as much with your last 3 prompts and the last 12
-commands, files and edits; a file or function the prompt names; files edited this session), up to 2 of their
+conversation (embedding similarity with the prompt, plus 0.6 times as much with your last 3 prompts and the last 12
+commands, files and edits; each memory is compared with the words for its topic too, so "how do I run the tests?"
+finds a measured `python3 -m unittest ...`; a file or function the prompt names; files edited this session), up to 2 of their
 strongest neighbours in the graph, plus up to 2 relevant ones that proved costly (a rule you had to restate, a failure
 that recurred). So a decision or a fact about what the work is on comes back even when the prompt does not name it.
-A memory is shown once per session; one that was only in the start block comes back once more when it becomes
-clearly relevant. `memcode why ID` explains a memory's cost score.
+A memory is shown once per session next to the work; one that was only in the start block comes back once when a
+prompt is about it. `memcode why ID` explains a memory's cost score.
 
 **After each command or edit** (with per-prompt recall): up to 2 memories closely related to what was just run or changed,
 next to its result (after a test command: the pitfall or the fact about how tests run here).
@@ -210,21 +211,22 @@ shows a hook's `systemMessage` there):
 ```text
 ❯ how do I cut a release with scripts/release.sh?
   ⎿  UserPromptSubmit says: memcode → agent context for this prompt: 1 memory
-       (location, 2026-10-29) Release steps are in docs/RELEASING.md; run scripts/release.sh VERSION.
+     │ (location, 2026-10-29) Release steps are in docs/RELEASING.md; run scripts/release.sh VERSION.
 ```
 
-The start block, per-prompt recall, recall after a tool call, first touch of a folder and the memory agent's flags
+In the terminal it is coloured so it stands out from the grey hook notices: a bold cyan header, a cyan bar down the
+left, what you said in magenta (`NO_COLOR` or `MEMCODE_COLOR=0` turns colour off). The start block, per-prompt recall, recall after a tool call, first touch of a folder and the memory agent's flags
 all show this way (the map and the untrusted-data framing are left out). `memcode config show-injections off` hides
 it; the agent still gets the memories.
 
 The mobile and web apps draw no hook message, so there the agent says it instead: after each injected block memcode
-asks it (in its own words, outside the untrusted wrapper) to name a memory its answer or next step relied on, in one
-line starting with `memcode:`, and never one it did not use:
+asks it (in its own words, outside the untrusted wrapper) to name a memory its answer or next step relied on, first,
+as a quote line starting with `> memcode:`, and never one it did not use. Every surface draws it as a quote block:
 
 ```text
-> How do I cut a release here?
-memcode: release steps come from a recorded note that says they are in docs/RELEASING.md.
-Run `scripts/release.sh VERSION` as described in `docs/RELEASING.md`.
+❯ How do I cut a release here?
+● ▎ memcode: release steps are in docs/RELEASING.md, and the release is run with scripts/release.sh VERSION.
+  Run scripts/release.sh VERSION as described in docs/RELEASING.md.
 ```
 
 `memcode config mention-memories off` stops it.

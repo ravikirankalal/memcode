@@ -15,8 +15,8 @@ Relevance (stdlib, deterministic), summed per memory:
     comes back even when this prompt does not name it
 Candidates: every live memory except facts not worth showing (facts.shown) and expired ones. Only memories scoring
 >= MIN_SCORE are shown, at most TOP_K, under TOKEN_CAP, never one already shown in this session (pinned or
-retrieved; a memory that was only in the start block is shown once more when it scores RESHOW_MIN), never a stale
-one. Ranking: the relevance top TOP_K, plus up to HOP_K neighbours of those in the memory
+retrieved; a memory that was only in the start block is shown once more next to the work when it scores RESHOW_MIN),
+never a stale one. Ranking: the relevance top TOP_K, plus up to HOP_K neighbours of those in the memory
 graph (graph.py), plus up to PROMOTE_K extra slots for relevant memories outside the top with strong cost evidence
 (restated by the user or a recurring failure, decayed weight >= PROMOTE_MIN), best salience first.
 Framing matches the pinned block: user rules as rules, everything else inside the untrusted wrapper.
@@ -42,9 +42,9 @@ MIN_SCORE = 0.8
 HOP_K = 2                 # neighbours of the top memories in the memory graph
 HOP_MIN = 0.3             # link weight a neighbour needs
 VEC_MIN = 0.15            # cosine below this is noise
-CONTEXT_W = 0.5           # the recent conversation counts half as much as the prompt itself
+CONTEXT_W = 0.6           # the recent conversation counts a bit over half as much as the prompt itself
 CONTEXT_PROMPTS, CONTEXT_TOOLS = 3, 12   # how much of the recent conversation: earlier prompts, tool calls
-RESHOW_MIN = 2.4          # a memory already in the start block is shown again next to the work only this relevant
+RESHOW_MIN = 0.8          # a memory only in the start block comes back next to the work (once) as soon as it is relevant
 ACTION_MIN, ACTION_K = 1.5, 2   # recall after a command or an edit: stricter, and at most this many
 ACTION_COS = 0.3          # ... and about the same thing: a path the command names is not enough on its own
 PATH_W, SCOPE_W, ACTIVE_W, VEC_W = 3.0, 2.0, 1.0, 3.0

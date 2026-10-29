@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.17.3 (2026-10-29, PR #59) | none |
+| memcode | 0.17.3 (2026-10-29, PR #59) | 0.17.4: recall finds natural questions; coloured copy; quote line |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -29,6 +29,27 @@ _Last updated: 2026-10-29._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.17.4)
+
+- Recall for natural questions (asked live: "How do I run the tests in this repo?" recalled nothing):
+  - Each memory's vector also carries words for its topic, or a measured command's role (embed.WORDS: test -> "run
+    the tests test suite testing", deployment -> "deploy release ship production", ...), at half weight (twice for a
+    measured command, whose own text is mostly flags); light stemming (branching/branch, release/releasing).
+  - A memory only in the start block comes back next to the work once it scores the normal 0.8 (was 2.4).
+  - The recent conversation weighs 0.6 of the prompt (was 0.5): topic words dilute long memories a little.
+  - Measured on a copy of this repository's store, a fresh session, 10 questions: before 2 of 7 answerable ones
+    found their memory; after 6 of 7 (tests, manifests, branching, docs, subagents; release has no memory to find;
+    lint just under, 0.76); the 3 unrelated questions still recall nothing. Left: "Where does memcode keep its
+    database?" recalls two memories filed under memcode/, because the prompt names that folder.
+- The terminal copy is coloured (Claude Code keeps ANSI colours in a hook's systemMessage and shows markdown
+  literally, checked in tmux): a bold cyan header, a cyan `│` bar down the left, the user's own words in magenta;
+  NO_COLOR or MEMCODE_COLOR=0 turns it off.
+- The agent's `memcode:` line is a markdown quote (`> memcode: ...`), drawn as a quote block everywhere (seen live:
+  `▎ memcode: release steps are in docs/RELEASING.md, ...`).
+- Testing note: every Claude Code started in this cloud container inherits this session's id, so scratch tests share
+  "already shown this session" state.
+- Tests: 260 Python, 14 mod.
 
 ## Latest release (memcode 0.17.3)
 

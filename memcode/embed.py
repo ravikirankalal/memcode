@@ -25,11 +25,25 @@ def tokens(text: str, anchor: str = "") -> list[str]:
         for part in dict.fromkeys([w] + w.split("_") + retrieval._CAMEL.findall(w)):
             p = part.lower()
             if len(p) >= 3 and p not in STOP:
-                plural = p.endswith("s") and len(p) > 4 and not p.endswith(("ss", "us", "is", "ys"))
-                out.append(p[:-1] if plural else p)
+                out.append(stem(p))
     for path in retrieval.path_tokens(text or "") | ({anchor} if anchor else set()):
         out.append("path:" + path.strip("/").lower())
     return out
+
+
+def stem(w: str) -> str:
+    """Light stemming, so branching / branches / branch and release / releasing / released meet."""
+    if len(w) > 5 and w.endswith("ing"):
+        w = w[:-3]
+    elif len(w) > 4 and w.endswith("ed"):
+        w = w[:-2]
+    elif len(w) > 4 and w.endswith("es") and not w.endswith(("ses", "xes")):
+        w = w[:-1]
+    if len(w) > 4 and w.endswith("s") and not w.endswith(("ss", "us", "is", "ys")):
+        w = w[:-1]
+    if len(w) > 4 and w.endswith("e"):
+        w = w[:-1]
+    return w
 
 
 def vector(text: str, anchor: str = "") -> dict[int, float]:
@@ -40,18 +54,57 @@ def vector(text: str, anchor: str = "") -> dict[int, float]:
     return {b: 1.0 + math.log(n) for b, n in counts.items()}
 
 
+# What a memory is about, in the words people ask with: a measured `python3 -m unittest ...` shares almost no word with
+# "how do I run the tests?", so each memory's vector also carries words for its topic (or a measured command's role)
+WORDS = {
+    "test": "run the tests test suite testing", "build": "build compile package", "lint": "lint linter check style",
+    "typecheck": "type check types typing", "format": "format formatter formatting", "run": "run start launch",
+    "install": "install dependencies setup", "often used": "command often run",
+    "workflow": "how to steps procedure", "pitfall": "mistake avoid fails broken", "environment": "environment tool host",
+    "design": "design why architecture", "decision": "decision status plan parked", "process": "process how to work",
+    "stack": "stack language build framework", "infra": "infrastructure servers database cloud",
+    "deployment": "deploy deployment release releasing ship production", "branching": "branch branches branching merge "
+    "pull request", "structure": "structure layout where folders", "location": "where docs scripts find location",
+    "reference": "link url dashboard reference", "integration": "integration sdk library service api",
+    "component": "class module component", "domain": "domain types states", "convention": "convention style naming",
+    "languages": "language languages", "build_system": "build system", "tests": "tests test folder",
+    "missing": "missing not installed tool", "fragile": "fragile failures reverts", "failing": "failing fails test",
+}
+
+
+ABOUT_W = 0.5                # topic words count half as much as the memory's own words...
+ABOUT_W_COMMAND = 2.0        # ...but twice for a measured command, whose own text is mostly flags
+
+
+def about(row) -> str:
+    """The extra words for a memory: its topic's (a measured command's topic is its role)."""
+    keys = row.keys() if hasattr(row, "keys") else row
+    topic = (row["topic"] if "topic" in keys else "") or ""
+    return WORDS.get(topic, topic.replace("_", " "))
+
+
+def memory_vector(row) -> dict[int, float]:
+    """A memory's vector: its text and anchor, plus its topic words at ABOUT_W (ABOUT_W_COMMAND for a measured
+    command)."""
+    vec = vector(row["text"], row["anchor_path"])
+    w = ABOUT_W_COMMAND if row["trigger"] == "command" else ABOUT_W
+    for b, x in vector(about(row)).items():
+        vec[b] = vec.get(b, 0.0) + w * x
+    return vec
+
+
 def _src(row) -> str:
-    return store.sha1(f"{row['text']}\0{row['anchor_path']}".encode("utf-8"))
+    return store.sha1(f"{row['text']}\0{row['anchor_path']}\0{about(row)}".encode("utf-8"))
 
 
 def refresh(con) -> list[int]:
     """Build the vectors of new or changed memories; -> their ids. The caller commits."""
     have = dict(con.execute("SELECT memory_id, src_hash FROM memory_vectors").fetchall())
     changed = []
-    for r in con.execute("SELECT id, text, anchor_path FROM memories").fetchall():
+    for r in con.execute("SELECT id, text, anchor_path, topic, trigger FROM memories").fetchall():
         h = _src(r)
         if have.get(r["id"]) != h:
-            vec = vector(r["text"], r["anchor_path"])
+            vec = memory_vector(r)
             con.execute("INSERT OR REPLACE INTO memory_vectors(memory_id, vec, src_hash) VALUES(?,?,?)",
                         (r["id"], json.dumps(vec), h))
             changed.append(r["id"])

@@ -47,11 +47,11 @@ when the memory agent flags one for the next step. Each time, you see it in the 
 ```text
 ❯ how do I cut a release with scripts/release.sh?
   ⎿  UserPromptSubmit says: memcode → agent context for this prompt: 1 memory
-       (location, 2026-10-29) Release steps are in docs/RELEASING.md; run scripts/release.sh VERSION.
+     │ (location, 2026-10-29) Release steps are in docs/RELEASING.md; run scripts/release.sh VERSION.
 ```
 
 (`/memcode:cli config show-injections off` hides it.) The mobile and web apps draw no hook message; there, when the
-agent's answer relies on a memory, it says so in one line starting with `memcode:` (`config mention-memories off`
+agent's answer relies on a memory, it says so first, in a quote block starting with `memcode:` (`config mention-memories off`
 stops it).
 
 ## What it does

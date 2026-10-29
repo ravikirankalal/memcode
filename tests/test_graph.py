@@ -18,7 +18,7 @@ class Embeddings(unittest.TestCase):
     def test_tokens_split_identifiers_and_paths(self):
         t = embed.tokens("OrderService.cancelOrder lives in billing/orders.py", "billing/orders.py")
         self.assertIn("order", t)
-        self.assertIn("service", t)
+        self.assertIn("servic", t)                                         # stemmed, like the question's words
         self.assertIn("path:billing/orders.py", t)
 
     def test_search_finds_the_closest_memory(self):
