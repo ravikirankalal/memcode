@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -42,10 +43,23 @@ class Render(unittest.TestCase):
         self.assertEqual(lines[-1], "  (+5 more)")
 
 
+    def test_colours_for_the_terminal(self):
+        out = display.render(BLOCK, "start", color=True).splitlines()
+        self.assertEqual(out[0], display.BOLD_CYAN + "memcode → agent context at session start: 1 from you, 2 memories"
+                         + display.RESET)
+        self.assertEqual(out[1], display.CYAN + display.BAR + display.RESET + display.MAGENTA
+                         + "from you: Never branch off main. (2026-10-28)" + display.RESET)
+        self.assertTrue(out[2].startswith(display.CYAN + display.BAR + display.RESET + "(workflow"))
+        with mock.patch.dict(os.environ, {"NO_COLOR": "1"}):
+            self.assertFalse(display.colored())
+        with mock.patch.dict(os.environ, {"NO_COLOR": "", "MEMCODE_COLOR": "1"}):
+            self.assertTrue(display.colored())
+
+
 class Hook(unittest.TestCase):
     def run_hook(self, d, event, payload, **env):
         e = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-        e.update(MEMCODE_TRANSCRIPT_CAPTURE="0", **env)
+        e.update(MEMCODE_TRANSCRIPT_CAPTURE="0", NO_COLOR="1", **env)
         p = subprocess.run([sys.executable, str(ROOT / "bin" / "memcode"), "hook", event], env=e, text=True,
                            input=json.dumps(dict(payload, session_id="s1", cwd=d)), capture_output=True, timeout=60)
         return json.loads(p.stdout) if p.stdout.strip() else {}

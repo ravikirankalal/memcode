@@ -10,6 +10,8 @@ block ends with MENTION, asking the agent to name, in one "memcode:" line, a mem
 """
 from __future__ import annotations
 
+import os
+
 from . import config, pinned
 
 WIDTH = 140
@@ -17,9 +19,18 @@ MAX_LINES = 25
 WHEN = {"start": "at session start", "prompt": "for this prompt", "tool": "after this tool call"}
 # memcode's own words to the coding agent, after the block (outside the untrusted wrapper): the agent's reply is the one
 # thing every surface shows (the mobile and web apps draw no hook message), so a memory that mattered is named there
-MENTION = ("memcode: when your answer or your next step relies on one of the memories above, say so in one short line "
-           "starting with \"memcode:\" (for example: memcode: tests run with `make check` here). Do not mention memories "
-           "you did not use.")
+MENTION = ("memcode: when your answer or your next step relies on one of the memories above, say so first, in one short "
+           "markdown quote line starting with \"> memcode:\" (for example: > memcode: tests run with `make check` here). "
+           "Do not mention memories you did not use.")
+# the terminal draws a hook's systemMessage in dim grey and keeps ANSI colours (markdown is shown literally): a bold
+# cyan header, a cyan bar down the left so the copy reads as one block, the user's own words in magenta
+CYAN, BOLD_CYAN, MAGENTA, RESET = "\x1b[36m", "\x1b[1;36m", "\x1b[35m", "\x1b[0m"
+BAR = "│ "
+
+
+def colored() -> bool:
+    """ANSI colours unless NO_COLOR is set (https://no-color.org) or MEMCODE_COLOR=0."""
+    return not os.environ.get("NO_COLOR") and os.environ.get("MEMCODE_COLOR", "1").lower() not in ("0", "false", "off")
 
 
 def enabled(root) -> bool:
@@ -30,8 +41,8 @@ def mention_enabled(root) -> bool:
     return config.switch(root, "MEMCODE_MENTION", "mention_memories", True)
 
 
-def render(text: str, when: str) -> str:
-    """The user's copy of an injected block ('' when it holds no memory)."""
+def render(text: str, when: str, color: bool = False) -> str:
+    """The user's copy of an injected block ('' when it holds no memory); color: ANSI colours for the terminal."""
     lines, yours, other, in_map = [], 0, 0, False
     section = ""
     for raw in (text or "").splitlines():
@@ -48,11 +59,19 @@ def render(text: str, when: str) -> str:
         else:
             other += 1
             body = line[2:]
-        lines.append("  " + (body if len(body) <= WIDTH else body[: WIDTH - 1] + "…"))
+        body = body if len(body) <= WIDTH else body[: WIDTH - 1] + "…"
+        if color:
+            body = (MAGENTA + body + RESET) if section == "yours" else body
+            lines.append(CYAN + BAR + RESET + body)
+        else:
+            lines.append("  " + body)
     if not lines:
         return ""
     counts = ", ".join(p for p in (f"{yours} from you" if yours else "",
                                    f"{other} memor{'y' if other == 1 else 'ies'}" if other else "") if p)
     head = f"memcode → agent context {WHEN.get(when, when)}: {counts}"
     more = [f"  (+{len(lines) - MAX_LINES} more)"] if len(lines) > MAX_LINES else []
+    if color:
+        head = BOLD_CYAN + head + RESET
+        more = [CYAN + BAR + RESET + m.strip() for m in more]
     return "\n".join([head] + lines[:MAX_LINES] + more)
