@@ -50,7 +50,7 @@ _Last updated: 2026-10-29._
   the tax: the agent updated it ("orders.total(items, tax_rate) sums the item prices and multiplies by
   (1 + tax_rate)"), memcode revived it on the current file; a muted noise memory was left alone (no evidence either
   way in the turn); $0.0015.
-- Tests: 275 Python, 14 mod.
+- Tests: 271 Python, 14 mod.
 
 ## Latest release (memcode 0.17.4)
 
