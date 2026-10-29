@@ -51,7 +51,9 @@ def spawn_worker(root: str) -> None:
     try:
         pkg_parent = str(Path(__file__).resolve().parent.parent.parent)
         env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in (pkg_parent, os.environ.get("PYTHONPATH")) if p))
-        subprocess.Popen([sys.executable, "-m", "memcode.agent", str(root)], env=env,
+        # started from the plugin's own directory: `-m` puts the working directory first on the import path, and the
+        # user's repository must never shadow memcode's imports
+        subprocess.Popen([sys.executable, "-m", "memcode.agent", str(root)], env=env, cwd=pkg_parent,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True, close_fds=True)
     except OSError:

@@ -6,12 +6,9 @@
     "memcode": {
       "command": "python3",
       "args": [
-        "-m",
-        "memcode.mcp_server"
-      ],
-      "env": {
-        "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}"
-      }
+        "${CLAUDE_PLUGIN_ROOT}/bin/memcode",
+        "mcp"
+      ]
     }
   },
   "author": {

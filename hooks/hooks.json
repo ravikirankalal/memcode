@@ -1,10 +1,10 @@
 {
   "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "timeout": 30, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli SessionStart"}]}],
-    "UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli UserPromptSubmit"}]}],
-    "PreToolUse": [{"matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli PreToolUse"}]}],
-    "PostToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|Read", "hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli PostToolUse"}]}],
-    "Stop": [{"hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli Stop"}]}],
-    "PostToolUseFailure": [{"matcher": "Bash", "hooks": [{"type": "command", "timeout": 10, "command": "PYTHONPATH=\"${CLAUDE_PLUGIN_ROOT}\" python3 -m memcode.hook_cli PostToolUseFailure"}]}]
+    "SessionStart": [{"hooks": [{"type": "command", "timeout": 30, "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/memcode\" hook SessionStart"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 10, "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/memcode\" hook UserPromptSubmit"}]}],
+    "PreToolUse": [{"matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "timeout": 10, "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/memcode\" hook PreToolUse"}]}],
+    "PostToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|Read", "hooks": [{"type": "command", "timeout": 10, "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/memcode\" hook PostToolUse"}]}],
+    "Stop": [{"hooks": [{"type": "command", "timeout": 10, "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/memcode\" hook Stop"}]}],
+    "PostToolUseFailure": [{"matcher": "Bash", "hooks": [{"type": "command", "timeout": 10, "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/memcode\" hook PostToolUseFailure"}]}]
   }
 }
