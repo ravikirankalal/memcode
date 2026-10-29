@@ -36,7 +36,9 @@ _Last updated: 2026-10-29._
   - Per-prompt recall also scores against the recent conversation (the session's last 3 prompts and 12 tool calls:
     commands, files, edit text) at half weight, so a decision or fact about what the work is on comes back unnamed.
   - After a command or an edit (PostToolUse, retrieval on): up to 2 memories scoring 1.5+ about that action
-    (`for_action`; measured commands are skipped, they would echo the action).
+    (`for_action`; measured commands are skipped, they would echo the action; the memory's content must be close too,
+    cosine 0.3+, since a command naming a memory's folder is not enough: seen live, a tmux note came back for
+    `claude plugin test mods/memcode-status`).
   - The memory agent gets a `recall` operation: a numbered memory that matters for the next step, with why; its
     evidence must quote the transcript; at most 3 per piece. Queued in `pending_recalls` and delivered once at the next
     prompt or tool call (`flagged`), whether or not per-prompt recall is on, as `(why now: ...)`.

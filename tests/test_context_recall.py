@@ -53,11 +53,15 @@ class ContextRecall(unittest.TestCase):
         with mock.patch.dict(os.environ, ON):
             out = engine.tool_result(self.con, self.d, bash("pytest -q checks/ --fixtures"))
             none = engine.tool_result(self.con, self.d, bash("ls -la"))
+            store.add_memory(self.con, "agent", "In the tmux test, send Down then Enter at the trust prompt.",
+                             "assets/brand", None, {})
+            named = engine.tool_result(self.con, self.d, bash("du -sh assets/brand"))   # names the folder only
         self.assertIn("## Memory relevant to what you just did", out)
         self.assertIn("make check", out)
         self.assertEqual(none, "")
+        self.assertNotIn("tmux", named)                                     # anchored there, but about something else
         src = [r[0] for r in self.con.execute("SELECT source FROM injections")]
-        self.assertEqual(src, ["action"])
+        self.assertEqual(set(src), {"action"})
         with mock.patch.dict(os.environ, {"MEMCODE_RETRIEVAL": "0"}):
             self.assertEqual(engine.tool_result(self.con, self.d, bash("pytest -q checks/", "s3")), "")
 

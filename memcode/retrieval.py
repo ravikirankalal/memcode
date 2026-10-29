@@ -46,6 +46,7 @@ CONTEXT_W = 0.5           # the recent conversation counts half as much as the p
 CONTEXT_PROMPTS, CONTEXT_TOOLS = 3, 12   # how much of the recent conversation: earlier prompts, tool calls
 RESHOW_MIN = 2.4          # a memory already in the start block is shown again next to the work only this relevant
 ACTION_MIN, ACTION_K = 1.5, 2   # recall after a command or an edit: stricter, and at most this many
+ACTION_COS = 0.3          # ... and about the same thing: a path the command names is not enough on its own
 PATH_W, SCOPE_W, ACTIVE_W, VEC_W = 3.0, 2.0, 1.0, 3.0
 STOP = set("""a an and are as at be but by can do does for from has have how i if in into is it its just
 let me my no not of on or our please so that the their them then there these this those to up us use
@@ -161,7 +162,7 @@ def _candidates(con) -> list[dict]:
             if r["mkey"] is None or r["id"] in fact_ids]
 
 
-def score(con, root: str, session: str, prompt: str, context: str = "") -> list[tuple[float, dict]]:
+def score(con, root: str, session: str, prompt: str, context: str = "", min_cos: float = 0.0) -> list[tuple[float, dict]]:
     """[(score, memory row as dict)] for candidate memories, best first (only score >= MIN_SCORE). With MEMCODE_HIER
     the first TOP_K are the per-level allocation (scope.allocate), nearest scope first; the rest follow by score."""
     hier = scope.hier_enabled()
@@ -206,6 +207,8 @@ def score(con, root: str, session: str, prompt: str, context: str = "") -> list[
             if spl and not (on_chain or named or sc_named or scope.inside(spl, ws)):
                 continue                                  # off-chain: outside this request's scope
         c, cc = cos[r["id"]], ccos[r["id"]]
+        if c < min_cos:
+            continue
         s = (VEC_W * c if c >= VEC_MIN else 0.0) + (CONTEXT_W * VEC_W * cc if cc >= VEC_MIN else 0.0)
         active_hit = bool(a) and any(f == a or f.endswith("/" + a) or f == rootp + a for f in active)
         if named or (hier and sc_named):
@@ -314,7 +317,7 @@ def for_action(con, root: str, session: str, ev: dict) -> str:
     query = action_text(ev)
     if not query:
         return ""
-    scored = [x for x in score(con, root, session, query)            # a measured command would only echo the action
+    scored = [x for x in score(con, root, session, query, min_cos=ACTION_COS)   # a measured command would echo it
               if x[0] >= ACTION_MIN and x[1]["trigger"] != "command"][:ACTION_K]
     text, ids = render(scored, None)
     if not ids:
