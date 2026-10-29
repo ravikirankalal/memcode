@@ -204,6 +204,19 @@ doing now`, each with `(why now: ...)`. This works whether or not per-prompt rec
 neighbours are added next to the result. If its first contact is a write, the write is held once with the rules as the reason (context added after a
 write comes too late) and the agent redoes it.
 
+**You see it too.** Each injection is also shown in the conversation, under the event that caused it (Claude Code
+shows a hook's `systemMessage` there):
+
+```text
+❯ how do I cut a release with scripts/release.sh?
+  ⎿  UserPromptSubmit says: memcode → agent context for this prompt: 1 memory
+       (location, 2026-10-29) Release steps are in docs/RELEASING.md; run scripts/release.sh VERSION.
+```
+
+The start block, per-prompt recall, recall after a tool call, first touch of a folder and the memory agent's flags
+all show this way (the map and the untrusted-data framing are left out). `memcode config show-injections off` hides
+it; the agent still gets the memories.
+
 **On demand.** The agent can call the MCP tools `memory_search` (embedding search plus graph neighbours),
 `memory_add`, `memory_pinned` and `memory_facts`, or run `memcode` (the plugin's `bin/` is on its PATH).
 
@@ -222,6 +235,7 @@ recalled, on first touch, on held writes.
 | decision-capture | on | `MEMCODE_DECISION_CAPTURE` | the memory agent keeps decisions |
 | retrieval | on | `MEMCODE_RETRIEVAL` | relevant memories on every prompt and after each command or edit (on by default since 0.17) |
 | hierarchy | on | `MEMCODE_HIER` | folder scopes, first-read delivery and held first writes |
+| show-injections | on | `MEMCODE_SHOW_INJECTIONS` | show in the conversation what memcode gave the agent (each injection, one line per memory) |
 
 ## Privacy
 

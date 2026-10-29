@@ -65,7 +65,7 @@ Per-prompt recall also reads the recent conversation; memories about a command o
 the memory agent flags memories for the coding agent's next step (`recall`), delivered with the reason; a start-block
 memory may come back once when it becomes clearly relevant.
 
-## On the branch, not released: easier installation (0.17.0)
+## Released: easier installation (0.17.0)
 
 Hooks, MCP and the worker never import from the user's repository; Python 3.9 is enough (checked, with one clear
 message when older); `memcode doctor` and session-start notices (welcome once, a missing `claude` CLI, errors
