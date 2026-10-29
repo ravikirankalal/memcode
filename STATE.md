@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.17.1 (2026-10-29, PR #57) | 0.17.2: the welcome suggests the status mod only when missing |
+| memcode | 0.17.2 (2026-10-29, PR #58) | none |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,7 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.17.2)
+## Latest release (memcode 0.17.2)
 
 - The one-time welcome suggests `/plugin install memcode-status@memcode` only when the mod is missing: memcode reads
   enabledPlugins in the user's and the project's Claude Code settings and Claude Code's installed_plugins.json
@@ -41,7 +41,7 @@ _Last updated: 2026-10-29._
   store already had most of it). Restarting this cloud session from the app reconnects without a SessionStart.
 - Tests: 259 Python, 14 mod.
 
-## Latest release (memcode 0.17.1)
+## Previous release (memcode 0.17.1)
 
 - Every injection is shown to the user in the conversation as well (display.py, the hook's systemMessage): one line
   saying when and how much (`memcode → agent context for this prompt: 1 memory`), then one clipped line per memory;
