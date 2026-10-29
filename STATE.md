@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.17.0 (2026-10-29, PR #56) | none |
+| memcode | 0.17.0 (2026-10-29, PR #56) | 0.17.1: injections shown in the conversation |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -29,6 +29,19 @@ _Last updated: 2026-10-29._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.17.1)
+
+- Every injection is shown to the user in the conversation as well (display.py, the hook's systemMessage): one line
+  saying when and how much (`memcode → agent context for this prompt: 1 memory`), then one clipped line per memory;
+  the map and the untrusted-data framing are left out; at most 25 lines. Covers the start block, per-prompt recall,
+  recall after tool calls, first touch and the memory agent's flags. `memcode config show-injections off`
+  (MEMCODE_SHOW_INJECTIONS=0) hides it; the agent's context is unchanged.
+- Live check (Claude Code 2.1.312 in tmux, this checkout as --plugin-dir): the start block shows under
+  `SessionStart:startup says:` with the welcome; a prompt about releasing shows `UserPromptSubmit says: memcode →
+  agent context for this prompt: 1 memory` and the memory, above the agent's answer. In `-p --output-format
+  stream-json` the text arrives inside the hook_response event's output.
+- Tests: 258 Python, 14 mod.
 
 ## Latest release (memcode 0.17.0: easier installation)
 

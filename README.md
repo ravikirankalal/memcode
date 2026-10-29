@@ -42,7 +42,15 @@ like this in the agent's context:
 ```
 
 and memories come back next to the work: on the prompt they relate to, after the command or edit they are about, or
-when the memory agent flags one for the next step.
+when the memory agent flags one for the next step. Each time, you see it in the conversation too:
+
+```text
+❯ how do I cut a release with scripts/release.sh?
+  ⎿  UserPromptSubmit says: memcode → agent context for this prompt: 1 memory
+       (location, 2026-10-29) Release steps are in docs/RELEASING.md; run scripts/release.sh VERSION.
+```
+
+(`/memcode:cli config show-injections off` hides it.)
 
 ## What it does
 

@@ -138,6 +138,10 @@ def main(argv: list[str]) -> int:
             res = {}
             if out:
                 res["hookSpecificOutput"] = {"hookEventName": name, "additionalContext": out}
+                from . import display
+                if display.enabled(root):              # the user sees what the agent was given, in the conversation
+                    shown = display.render(out, {"prompt": "prompt", "start": "start"}.get(action, "tool"))
+                    notice = list(notice) + ([shown] if shown else [])
             if notice:
                 res["systemMessage"] = "\n".join(notice)
             if res:
