@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.16.1 (2026-10-29, PR #55) | 0.17.0: easier installation |
+| memcode | 0.17.0 (2026-10-29, PR #56) | none |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -25,12 +25,12 @@ _Last updated: 2026-10-29._
 | Store | Staleness per file or Python function; how-tos stay shown across edits | 0.10.4 | |
 | Store | Scopes (repo, folder, file, symbol); every agent change in `memcode history` | 0.8 / 0.9 | |
 | Trigger | Start block: rules as instructions; map, decisions, facts, notes as data | 0.1 (decisions 0.11) | ~1500-token cap; on the branch: From you, then one ranked Memory list, then the map |
-| Trigger | Per-prompt recall with promotions for costly memories | 0.3 | on by default on the branch (0.17); since 0.16 also the recent conversation, after each command or edit, and what the memory agent flags |
+| Trigger | Per-prompt recall with promotions for costly memories | 0.3 | on by default since 0.17; since 0.16 also the recent conversation, after each command or edit, and what the memory agent flags |
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.17.0: easier installation)
+## Latest release (memcode 0.17.0: easier installation)
 
 - Hooks, the MCP server and the memory agent's worker never import from the user's repository: hooks and MCP start
   through `bin/memcode` (run by path), the worker starts from the plugin directory. Before, `python3 -m` put the
@@ -55,7 +55,7 @@ _Last updated: 2026-10-29._
 - README: a 'What you'll see' section (the first-session line, a start block, where memories come back).
 - Tests: 256 Python (also on 3.9), 14 mod.
 
-## Latest release (memcode 0.16.1)
+## Previous release (memcode 0.16.1)
 
 - `memcode edit ID TEXT [--topic T]` corrects a memory in place: keeps from_user, restarts a decision's expiry,
   logs the old text (`memcode history`, op `edit`), refreshes its vector and links, writes an `updated` event.
