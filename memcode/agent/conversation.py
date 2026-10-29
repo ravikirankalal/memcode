@@ -58,7 +58,7 @@ def call_args(con, root: str, session: str, piece: str) -> tuple[str, dict]:
     if not row["ready"]:
         ctx = model.briefing(con, root, session) + ("" if piece else "\n\n" + OPENING_NOTE)
         return ctx, {"id": row["agent_session"], "resume": False, "cwd": cwd}
-    return delta(con, session, row["last_ts"]), {"id": row["agent_session"], "resume": True, "cwd": cwd}
+    return delta(con, session, row["last_ts"], root), {"id": row["agent_session"], "resume": True, "cwd": cwd}
 
 
 def record(con, session: str, res: dict, opening: bool = False) -> None:
@@ -80,9 +80,9 @@ def opening_cost(con, session: str) -> float:
     return float(row[0]) if row else 0.0
 
 
-def delta(con, session: str, since: float) -> str:
+def delta(con, session: str, since: float, root=None) -> str:
     """What changed since the agent's last reply: what memcode kept of its proposals, memories added or changed by other
-    paths (pattern triggers, the user), memories newly shown to the coding agent."""
+    paths (pattern triggers, the user), memories newly shown to the coding agent, and which of those it used."""
     from ..pinned import day, label
     lines = ["Memory changes since your last reply:"]
     for r in con.execute("SELECT op, memory_id, after FROM memory_log WHERE session=? AND ts>? ORDER BY id",
@@ -100,6 +100,20 @@ def delta(con, session: str, since: float) -> str:
                                        (session, since))]
     if shown:
         lines.append("- shown to the coding agent since: " + ", ".join(f"#{i}" for i in shown))
+    from .. import feedback
+    lines += feedback.delta_lines(con, session, since)             # what the coding agent used, and what it did not
+    db.ensure(con)
+    for r in con.execute("SELECT op, target, text, reason FROM proposals WHERE session=? AND ts>? ORDER BY id",
+                         (session, since)):
+        what = f"{r['op']} #{r['target']}" if r["target"] else r["op"]
+        lines.append(f"- not kept, your {what} \"{r['text'][:120]}\": {r['reason']}")
+    from .curate import file_text
+    for r in con.execute("SELECT id, trigger, text, anchor_path, topic, updated_at, unusual FROM memories WHERE stale=1 "
+                         "AND mkey IS NULL AND updated_at>? ORDER BY id", (since,)):
+        now = file_text(root, r["anchor_path"], 300)
+        lines.append(f"- went stale (its file changed): #{r['id']} {label(r)} [{r['anchor_path']}]: "
+                     f"{' '.join(r['text'].split())[:200]}" + (f" | the file now begins: {now}" if now
+                                                                else " | the file is gone"))
     if len(lines) == 1:
         lines.append("- none")
     return "\n".join(lines)

@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS memory_links (    -- the memory graph: related memori
   PRIMARY KEY (src, dst, kind)
 );
 CREATE INDEX IF NOT EXISTS links_dst ON memory_links(dst);
+CREATE TABLE IF NOT EXISTS memory_feedback (  -- did the coding agent use a memory shown next to the work? (feedback.py)
+  session TEXT NOT NULL, memory_id INTEGER NOT NULL,
+  verdict TEXT NOT NULL,                   -- used | unused
+  source TEXT NOT NULL DEFAULT '',         -- how it was shown: prompt | action | touch | flagged
+  ts REAL NOT NULL,
+  PRIMARY KEY (session, memory_id)
+);
 CREATE TABLE IF NOT EXISTS pending_recalls (  -- memories the memory agent flagged for what a session is doing now
   session TEXT NOT NULL, memory_id INTEGER NOT NULL,
   why TEXT NOT NULL DEFAULT '',            -- the agent's reason, shown with the memory
@@ -301,7 +308,7 @@ def delete_ids(con, ids) -> int:
     ids = [(i,) for i in ids]
     if not ids:
         return 0
-    for t in ("retrievals", "injections", "outcomes", "memory_vectors", "pending_recalls"):
+    for t in ("retrievals", "injections", "outcomes", "memory_vectors", "pending_recalls", "memory_feedback"):
         con.executemany(f"DELETE FROM {t} WHERE memory_id=?", ids)
     con.executemany("DELETE FROM memory_links WHERE src=? OR dst=?", [(i[0], i[0]) for i in ids])
     return sum(con.execute("DELETE FROM memories WHERE id=?", i).rowcount for i in ids)

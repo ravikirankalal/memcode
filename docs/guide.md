@@ -107,6 +107,21 @@ checks pass:
 - it is not a request for now, not the agent's own progress report, not about memcode's own tools;
 - it does not repeat a memory, or something the coding agent was already shown this session.
 
+**Feedback.** Each message to the memory agent also says how its work landed:
+
+- which proposals memcode did not keep, and why (rated below the bar, the evidence not an exact quote, not the
+  user's own words for a from_user memory, a repeat, past the per-piece cap);
+- which memories shown next to the work the coding agent used (named them in a `memcode:` line) and which it did
+  not, with running counts. A memory shown 3 times next to the work and never used is no longer recalled until it
+  changes; the agent is asked to sharpen it (if it is recalled for the wrong requests) or retire it (if it is noise).
+  Used memories rank higher at session start.
+
+**Stale memories.** A memory goes stale when its file changes or goes away. The memory agent sees stale memories with
+the opening of the file as it is now (in its briefing, and in its next message when one goes stale), and updates one
+that still holds (it comes back, anchored to the file as it is now) or retires one that no longer does; for these,
+its evidence may quote the file. A memory stale for 14 days that nobody updated is evicted (`MEMCODE_STALE_DAYS`);
+`memcode history` shows it as `evict`.
+
 Every change is logged: `memcode history` lists what it added, updated or retired, with the old text. Each scan is
 logged as `N candidates, kept K`: the candidates the model proposed, and how many memcode stored or applied (memories
 added, updated or retired, environment ones included); `/memcode-status` lists it, and the status bar shows when the
@@ -116,6 +131,11 @@ agent last read a turn.
 approach, a hypothesis a command verified or disproved. Each carries a short subject key, so a later decision on the
 same subject replaces it, and your words can update or retire it ("go ahead with the develop MR"). They expire 30 days
 after they were last stated (`MEMCODE_DECISION_DAYS`).
+
+**Configuration.** Haiku (`MEMCODE_CAPTURE_MODEL`) at low effort (`MEMCODE_AGENT_EFFORT`: low, medium or high), a
+running conversation that starts over after 30 calls or about 40,000 tokens, up to 24,000 characters of condensed log
+per call, a briefing of up to 150 memories (with today's date, how each was taken when shown, and up to 12 stale
+ones), up to 12 candidates per piece of which the 6 most important are kept.
 
 **Cost and failures.** About $0.004 per piece of log (24,000 condensed characters) on Haiku. There is no per-session limit:
 every turn is read (about $0.03 per 1,000 log lines; each model call is capped at $0.25). To set one, use

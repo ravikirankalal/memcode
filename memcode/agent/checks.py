@@ -64,6 +64,25 @@ def verified(item: dict, condensed: str, root=None) -> str | None:
         return None if now_request(text) or any(now_request(l) for l in users) else "rule"
     return "note"
 
+def why_not(item: dict, condensed: str, root=None) -> str:
+    """Why verified() refused an item, in words for the memory agent."""
+    ev = _norm(item.get("evidence", ""))
+    text = " ".join(str(item.get("text", "")).split())
+    if item.get("conflicts") is True:
+        return "it would contradict or weaken a from_user memory"
+    if len(ev) < 8 or len(text) < 8 or len(text) > 300:
+        return "the text must be 8-300 characters and the evidence an exact quote of 8+ characters"
+    if _SELF.search(text) and not (_self_repo(root) and not _SELF_TOOLS.search(text)):
+        return "it is about the coding agent's own memory tools"
+    hits = [l for l in (_norm(x) for x in condensed.splitlines()) if ev in l]
+    if not hits:
+        return "the evidence is not an exact quote of the transcript"
+    if item.get("kind") == "decision":
+        return "a decision needs the user's words, or a [ran] result that settles a question (not the agent's progress)"
+    if item.get("kind") == "rule":
+        return ("from_user needs the user's own words as evidence (a [user] line), and never a request for right now")
+    return "it did not pass the checks"
+
 def is_repeat(con, text: str) -> bool:
     t = _terms(text)
     if not t:

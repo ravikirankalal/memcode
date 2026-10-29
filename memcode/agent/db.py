@@ -1,5 +1,6 @@
 """The memory agent's own tables: transcript_scans (how far each session's log was read), agent_sessions (its running
-conversation per coding session) and memory_log (every change it made, for `memcode history`)."""
+conversation per coding session), memory_log (every change it made, for `memcode history`) and proposals (what it
+proposed that memcode did not keep, and why: told back to it in its next message)."""
 from __future__ import annotations
 
 import json
@@ -34,6 +35,15 @@ CREATE TABLE IF NOT EXISTS memory_log (     -- every change the memory agent mad
   before TEXT,                            -- the memory row as JSON before the change (update, retire)
   after TEXT,                             -- the new text (add, update)
   evidence TEXT
+);
+CREATE TABLE IF NOT EXISTS proposals (      -- proposals memcode did not keep, and why (conversation.delta)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts REAL NOT NULL,
+  session TEXT NOT NULL,
+  op TEXT NOT NULL,                       -- add | update | retire | recall
+  target INTEGER,
+  text TEXT NOT NULL,
+  reason TEXT NOT NULL
 );
 """
 
