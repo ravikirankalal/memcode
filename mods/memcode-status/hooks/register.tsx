@@ -14,6 +14,7 @@ const FRESH_MS = 10 * 60 * 1000 // the latest event is shown this long, then onl
 const FRESH_BOLD_MS = 15 * 1000 // an event this new is drawn bold
 const SAVED_HOLD_MS = 90 * 1000 // a new memory stays the headline this long even if other events follow
 const BUSY_STALE_MS = 5 * 60 * 1000 // a busy mark older than this was left by a worker that died
+const START_GRACE_MS = 60 * 1000 // memcode's SessionStart hook may write its injection before the mod hears of the start
 
 // each event kind: a badge (icon + word on a coloured background) and the colour of its text. Theme keys, so light and
 // dark terminals both work; on a dark terminal: success green, warning yellow, suggestion light blue, planMode teal,
@@ -203,9 +204,9 @@ async function refresh($: EngineInterface): Promise<void> {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    const t = await $.clock.now() // before the start runs: memcode's start-block injection belongs to this session
     const result = await next(e)
-    const t = await $.clock.now()
-    await update($, since, () => t)
+    await update($, since, () => t - START_GRACE_MS)
     // a worktree session: hooks may keep the store in the main working tree (#32), so look in both roots
     const roots = [await $.session.root(), (await $.session.repo().catch(() => null))?.root]
     paths = [...new Set(roots.filter((r): r is string => !!r))].map(r => `${r}/.memcode/activity.json`)
@@ -292,14 +293,13 @@ export const register: Register = on => {
     const s0 = (await read($, since)) || 0
     const tl = tally(f, s0)
     const inj = injected(f, s0).total
-    const tallyText = [inj ? `📥${inj} injected` : '', tl ? `+${tl}` : ''].filter(Boolean).join('  ')
     const headText = problem ? problem.text : ev ? ev.text : ''
     const headLook = problem ? problem.look : lk
     const headCols = headText ? cols(` ${headLook!.icon} ${headLook!.tag} `) + 1 + cols(headText) + (ev ? 10 : 0) : 0
     const fit = layout(e.props.bodyColumns || 120, {
-      counts: `${c.memories} memories · ${c.from_you} from you`,
-      countsShort: `🧠${c.memories} 📜${c.from_you}`,
-      head: headCols, agent: agentText, tally: tallyText,
+      counts: `${c.memories} memories · ${c.from_you} from you · 📥${inj} injected`,
+      countsShort: `🧠${c.memories} 📜${c.from_you} 📥${inj}`,
+      head: headCols, agent: agentText, tally: tl ? `+${tl}` : '',
     })
     const badgeCols = headLook ? cols(` ${headLook.icon} ${headLook.tag} `) + 1 : 0
     const text = clip(headText, Math.max(8, fit.head - badgeCols - (ev ? 10 : 0)))
@@ -312,12 +312,15 @@ export const register: Register = on => {
             <Text color="remember" bold>{c.memories}</Text>
             <Text dimColor> memories · </Text>
             <Text color="merged" bold>{c.from_you}</Text>
-            <Text dimColor> from you</Text>
+            <Text dimColor> from you · </Text>
+            <Text color="suggestion" bold>📥{inj}</Text>
+            <Text dimColor> injected</Text>
           </Text>
         ) : (
           <Text>
             <Text color="remember">🧠{c.memories} </Text>
-            <Text color="merged">📜{c.from_you}</Text>
+            <Text color="merged">📜{c.from_you} </Text>
+            <Text color="suggestion">📥{inj}</Text>
           </Text>
         )}
         {headLook && (
@@ -329,7 +332,7 @@ export const register: Register = on => {
           </Text>
         )}
         {fit.agent && <Text color={st.reading ? 'ide' : undefined} dimColor={!st.reading}>  {agentText}</Text>}
-        {fit.tally && <Text color="success" dimColor>  {tallyText}</Text>}
+        {fit.tally && <Text color="success" dimColor>  +{tl}</Text>}
       </Box>
     )
   })

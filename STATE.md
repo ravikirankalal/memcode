@@ -36,6 +36,9 @@ _Last updated: 2026-10-29._
   memories went into the coding agent's context and name the first one (`2 memories for this prompt: (pitfall,
   2026-10-20) ...`; activity.first). The mod sums them for this session: `📥23 injected` on the bar, and
   `23 injected (20 at start, 2 recalled, 1 on first touch)` in `/memcode-status`; the folder badge is `📂 FOLDER`.
+  The counter is part of the counts (`37 memories · 12 from you · 📥23 injected`, short `🧠37 📜12 📥23`), so it
+  never gives way on a narrow terminal. Fixed: the mod took the session's start after the start had run, so the
+  start block's injection (written by the SessionStart hook) was not counted; it now takes it before, minus a minute.
 - Tests: 240 Python, 14 mod.
 
 ## Latest release (memcode 0.15.1)

@@ -53,6 +53,8 @@ test('the band shows counts and the latest memory event on every surface', async
     expect(await ui.find({ type: 'Text', text: / memories · / })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^12$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: / from you/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^📥20$/ })).toBeDefined() // the start block's 20, just before the start
+    expect(await ui.find({ type: 'Text', text: / injected/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /🧠 SAVED/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /from you: Always use tabs/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /0s ago|5s ago/ })).toBeDefined()
@@ -132,7 +134,7 @@ test('a spent scan budget shows as a warning, a failure outranks it', async ($, 
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: /💸 BUDGET/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /120 transcript lines not scanned/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /budget is spent/ })).toBeDefined() // the tail may be clipped
   await ui.unmount()
   const both: Feed = { ...FEED, problems: { budget, capture: 'memory agent: not logged in' } }
   expect(problemOf(both)?.look.tag).toBe('PROBLEM')
@@ -191,10 +193,10 @@ test('injections this session: how many memories went into context, and where', 
 })
 
 test('a narrow terminal keeps the headline: the tally, the agent, then the count labels give way', async () => {
-  const parts = { counts: '37 memories · 12 from you', countsShort: '🧠37 📜12', head: 60, agent: '🔍 2m',
+  const parts = { counts: '37 memories · 12 from you · 📥20 injected', countsShort: '🧠37 📜12 📥20', head: 60, agent: '🔍 2m',
     tally: '+2 saved' }
   expect(layout(160, parts)).toMatchObject({ long: true, agent: true, tally: true })
-  expect(layout(90, parts)).toMatchObject({ long: true, agent: true, tally: false })
+  expect(layout(108, parts)).toMatchObject({ long: true, agent: true, tally: false })
   expect(layout(70, parts)).toMatchObject({ long: false, agent: false, tally: false })
   expect(cols('🧠37')).toBe(4)
   expect(cols('✏️ x')).toBe(4)
