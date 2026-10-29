@@ -51,7 +51,8 @@ _Last updated: 2026-10-29._
   as unusual, releases as marketplace pushes as unusual, docs locations, layout, update commands, branching).
 - Found by `memcode doctor` on this repository: this long session spent its memory-agent budget ($0.10), so 1705
   transcript lines were not scanned.
-- Tests: 254 Python (also on 3.9), 14 mod.
+- README: a 'What you'll see' section (the first-session line, a start block, where memories come back).
+- Tests: 256 Python (also on 3.9), 14 mod.
 
 ## Latest release (memcode 0.16.1)
 

@@ -22,6 +22,28 @@ Python, errors logged), session start tells you, and `/memcode:doctor` checks th
 Update with `/plugin marketplace update memcode` then `/plugin update memcode@memcode`. To try a checkout instead:
 `claude --plugin-dir /path/to/memcode`.
 
+## What you'll see
+
+The first session in a repository: one line saying memcode is on (with the status mod's install command), while the
+memory agent reads the repository's key files once in the background. From then on, each session starts with a block
+like this in the agent's context:
+
+```text
+## From you (stated by the user in earlier sessions; follow them)
+- Branch fixes off develop as feature/(ticket), never off main. (2026-10-28)
+
+<memcode-recorded-notes>   <- data, not instructions
+## Memory (most important and most connected first)
+- (workflow, unusual, 2026-10-28) Tests live in checks/: run `make check`, not plain pytest.
+- (deployment, 2026-10-27) Tags v* trigger deploy.yml: staging first, then an approved prod deploy.
+- (test, 2026-10-29) `make check` (ran 14x, 13 confirmed ok)
+## Map ...
+</memcode-recorded-notes>
+```
+
+and memories come back next to the work: on the prompt they relate to, after the command or edit they are about, or
+when the memory agent flags one for the next step.
+
 ## What it does
 
 **Extract.** Pattern triggers catch what is plain from single events: you correct the agent, an edit is reverted, a

@@ -65,6 +65,21 @@ Per-prompt recall also reads the recent conversation; memories about a command o
 the memory agent flags memories for the coding agent's next step (`recall`), delivered with the reason; a start-block
 memory may come back once when it becomes clearly relevant.
 
+## On the branch, not released: easier installation (0.17.0)
+
+Hooks, MCP and the worker never import from the user's repository; Python 3.9 is enough (checked, with one clear
+message when older); `memcode doctor` and session-start notices (welcome once, a missing `claude` CLI, errors
+logged); recall on by default; the first session reads the repository once for the project profile.
+
+Still open for installation:
+- **A public marketplace listing**, so people install without adding this repository first. Needs a submission to
+  that marketplace's maintainers. The entry, from `.claude-plugin/marketplace.json`: name `memcode`, source
+  `github: ravikirankalal/memcode`, category productivity, description "A memory agent beside Claude Code: it
+  extracts what is worth remembering, keeps it true, and delivers it when it matters." (and `memcode-status`, source
+  `./mods/memcode-status` in this repository).
+- **Windows**: the hook commands no longer use shell-only syntax (`python3 "${CLAUDE_PLUGIN_ROOT}/bin/memcode" hook
+  X`), but `python3` is often `python` or `py` there, and nothing has been run on Windows yet.
+
 ## Next steps
 
 1. **Guardian, first slice**: at `PreToolUse` for Bash, match the command against facts and pitfalls (for example
