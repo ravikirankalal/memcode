@@ -1,6 +1,6 @@
 {
   "name": "memcode",
-  "version": "0.17.2",
+  "version": "0.17.3",
   "description": "A memory agent beside Claude Code: it extracts what is worth remembering, keeps it true, and delivers it when it matters.",
   "mcpServers": {
     "memcode": {

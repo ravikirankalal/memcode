@@ -217,6 +217,18 @@ The start block, per-prompt recall, recall after a tool call, first touch of a f
 all show this way (the map and the untrusted-data framing are left out). `memcode config show-injections off` hides
 it; the agent still gets the memories.
 
+The mobile and web apps draw no hook message, so there the agent says it instead: after each injected block memcode
+asks it (in its own words, outside the untrusted wrapper) to name a memory its answer or next step relied on, in one
+line starting with `memcode:`, and never one it did not use:
+
+```text
+> How do I cut a release here?
+memcode: release steps come from a recorded note that says they are in docs/RELEASING.md.
+Run `scripts/release.sh VERSION` as described in `docs/RELEASING.md`.
+```
+
+`memcode config mention-memories off` stops it.
+
 **On demand.** The agent can call the MCP tools `memory_search` (embedding search plus graph neighbours),
 `memory_add`, `memory_pinned` and `memory_facts`, or run `memcode` (the plugin's `bin/` is on its PATH).
 
@@ -235,7 +247,8 @@ recalled, on first touch, on held writes.
 | decision-capture | on | `MEMCODE_DECISION_CAPTURE` | the memory agent keeps decisions |
 | retrieval | on | `MEMCODE_RETRIEVAL` | relevant memories on every prompt and after each command or edit (on by default since 0.17) |
 | hierarchy | on | `MEMCODE_HIER` | folder scopes, first-read delivery and held first writes |
-| show-injections | on | `MEMCODE_SHOW_INJECTIONS` | show in the conversation what memcode gave the agent (each injection, one line per memory) |
+| show-injections | on | `MEMCODE_SHOW_INJECTIONS` | show in the conversation what memcode gave the agent (each injection, one line per memory; terminal and desktop) |
+| mention-memories | on | `MEMCODE_MENTION` | the agent names a memcode memory its answer relied on, in one `memcode:` line (visible everywhere, the mobile and web apps included) |
 
 ## Privacy
 

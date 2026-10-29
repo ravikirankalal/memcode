@@ -65,6 +65,15 @@ class Hook(unittest.TestCase):
         prompt = self.run_hook(d, "UserPromptSubmit", {"prompt": "how do I cut a release with scripts/release.sh?"})
         self.assertIn("memcode → agent context for this prompt: 1 memory", prompt["systemMessage"])
         self.assertIn("Release steps are in docs/RELEASING.md", prompt["hookSpecificOutput"]["additionalContext"])
+        ctx = prompt["hookSpecificOutput"]["additionalContext"]
+        self.assertTrue(ctx.endswith(display.MENTION))                      # after the block, outside the wrapper
+        self.assertGreater(ctx.index(display.MENTION), ctx.index("</memcode-recorded-notes>"))
+        self.assertNotIn("memcode: when your answer", prompt["systemMessage"])    # the user's copy leaves it out
+        con = store.connect(d)
+        con.execute("DELETE FROM injections"); con.commit(); con.close()
+        quiet = self.run_hook(d, "UserPromptSubmit", {"prompt": "how do I cut a release with scripts/release.sh?"},
+                              MEMCODE_MENTION="0")
+        self.assertNotIn(display.MENTION, quiet["hookSpecificOutput"]["additionalContext"])
         off = self.run_hook(d, "SessionStart", {}, MEMCODE_SHOW_INJECTIONS="0")
         self.assertNotIn("systemMessage", off)
         self.assertIn("additionalContext", off["hookSpecificOutput"])              # the agent still gets it

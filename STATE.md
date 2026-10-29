@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.17.1 (2026-10-29, PR #57) | 0.17.2: the welcome suggests the status mod only when missing |
+| memcode | 0.17.2 (2026-10-29, PR #58) | 0.17.3: the agent names memories it used |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,19 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.17.2)
+## Unreleased (memcode 0.17.3)
+
+- The mobile app shows no hook message (the systemMessage copy arrives inside the hook event, which it does not
+  draw), so injections were invisible there. Now each injected block ends with memcode's own line to the agent,
+  outside the untrusted wrapper (display.MENTION): when its answer or next step relies on one of the memories, say so
+  in one line starting with `memcode:`; never mention one it did not use. Added in one place (hook_cli), so every
+  injection carries it; the user's copy leaves it out. `memcode config mention-memories off` (MEMCODE_MENTION=0).
+- Live check (Haiku, `claude -p`, this checkout as --plugin-dir, a store with a release-steps memory): "How do I cut
+  a release here?" answered with `memcode: release steps come from a recorded note that says they are in
+  docs/RELEASING.md.` first; "What is 17 times 23?" answered `391`, no mention.
+- Tests: 259 Python, 14 mod.
+
+## Latest release (memcode 0.17.2)
 
 - The one-time welcome suggests `/plugin install memcode-status@memcode` only when the mod is missing: memcode reads
   enabledPlugins in the user's and the project's Claude Code settings and Claude Code's installed_plugins.json
@@ -41,7 +53,7 @@ _Last updated: 2026-10-29._
   store already had most of it). Restarting this cloud session from the app reconnects without a SessionStart.
 - Tests: 259 Python, 14 mod.
 
-## Latest release (memcode 0.17.1)
+## Previous release (memcode 0.17.1)
 
 - Every injection is shown to the user in the conversation as well (display.py, the hook's systemMessage): one line
   saying when and how much (`memcode → agent context for this prompt: 1 memory`), then one clipped line per memory;
