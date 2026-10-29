@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.16.0 (2026-10-29, PR #54) | 0.16.1: memcode edit |
+| memcode | 0.16.1 (2026-10-29, PR #55) | none |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,7 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.16.1)
+## Latest release (memcode 0.16.1)
 
 - `memcode edit ID TEXT [--topic T]` corrects a memory in place: keeps from_user, restarts a decision's expiry,
   logs the old text (`memcode history`, op `edit`), refreshes its vector and links, writes an `updated` event.
@@ -39,7 +39,7 @@ _Last updated: 2026-10-29._
   reads any file as a plugin manifest).
 - Tests: 247 Python, 14 mod.
 
-## Latest release (memcode 0.16.0)
+## Previous release (memcode 0.16.0)
 
 - Recall beyond the prompt (retrieval.py):
   - Per-prompt recall also scores against the recent conversation (the session's last 3 prompts and 12 tool calls:
