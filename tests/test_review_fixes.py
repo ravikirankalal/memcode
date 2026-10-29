@@ -273,7 +273,7 @@ class TestHookCli(Repo):
             for e in entries:
                 for hk in e["hooks"]:
                     self.assertIsInstance(hk["timeout"], int)
-                    self.assertIn('PYTHONPATH="${CLAUDE_PLUGIN_ROOT}"', hk["command"])
+                    self.assertIn('"${CLAUDE_PLUGIN_ROOT}/bin/memcode" hook', hk["command"])   # never `-m` from the repo
 
     def test_root_from_subdir_uses_git_toplevel(self):
         git(self.root, "init", "-q")

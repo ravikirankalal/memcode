@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.16.0 (2026-10-29, PR #54) | 0.16.1: memcode edit |
+| memcode | 0.16.1 (2026-10-29, PR #55) | 0.17.0: easier installation |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -17,7 +17,7 @@ _Last updated: 2026-10-29._
 | Duty | Feature | Since | Notes |
 |---|---|---|---|
 | Extract | Pattern triggers: correction, revert, fail-to-fix, retry, dependency change | 0.1 | instant; requests for now are never rules (#33) |
-| Extract | Memory agent: a running conversation per coding session (opened at SessionStart, resumed each turn); candidates of every kind rated 1–5, best kept | 0.9 (ranking 0.11, conversation 0.13) | Haiku through the user's `claude` login; per-session budget $0.10–0.50; restarts after 30 calls or ~40k tokens |
+| Extract | Memory agent: a running conversation per coding session (opened at SessionStart, resumed each turn); candidates of every kind rated 1–5, best kept | 0.9 (ranking 0.11, conversation 0.13) | Haiku through the user's `claude` login; no per-session limit since 0.17 (MEMCODE_CAPTURE_BUDGET_USD sets one); restarts after 30 calls or ~40k tokens |
 | Extract | Decisions about ongoing work, with subject keys, dated, expire after 30 days | 0.11 | never the agent's own progress (0.11.1) |
 | Extract | Facts: confirmed commands, repo manifests (npm, make, pyproject, Cargo, Go, Maven, Gradle), missing tools, fragile folders | 0.5 (Maven/Gradle 0.14) | scripts and one-off commands are not recorded (#36) |
 | Extract | Project profile inferred by the memory agent: stack, integration, component, structure, domain, convention | 0.14 | from commands, [read] and [edited] lines; on the branch: also infra, deployment, branching, location, reference, and an unusual flag (memcode/kinds.py) |
@@ -25,12 +25,37 @@ _Last updated: 2026-10-29._
 | Store | Staleness per file or Python function; how-tos stay shown across edits | 0.10.4 | |
 | Store | Scopes (repo, folder, file, symbol); every agent change in `memcode history` | 0.8 / 0.9 | |
 | Trigger | Start block: rules as instructions; map, decisions, facts, notes as data | 0.1 (decisions 0.11) | ~1500-token cap; on the branch: From you, then one ranked Memory list, then the map |
-| Trigger | Per-prompt recall with promotions for costly memories | 0.3 | off by default (`config retrieval on`); since 0.16 also the recent conversation, after each command or edit, and what the memory agent flags |
+| Trigger | Per-prompt recall with promotions for costly memories | 0.3 | on by default on the branch (0.17); since 0.16 also the recent conversation, after each command or edit, and what the memory agent flags |
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.16.1)
+## Unreleased (memcode 0.17.0: easier installation)
+
+- Hooks, the MCP server and the memory agent's worker never import from the user's repository: hooks and MCP start
+  through `bin/memcode` (run by path), the worker starts from the plugin directory. Before, `python3 -m` put the
+  repository first on the import path: a repo with its own json.py, sqlite3.py or memcode/ broke memcode or ran its
+  own code (and this repository's hooks ran its working tree).
+- Python 3.9 is enough: the whole suite passes on 3.9.25 (uv); `bin/memcode` checks the version and an older
+  python3 gets one message at session start instead of a traceback in error.log.
+- `memcode doctor` (`/memcode:doctor`): python, sqlite JSON, the store, the memory agent and its `claude` CLI and
+  health, recall, whether the hooks ran here, errors logged. Session start shows the user (systemMessage) a
+  one-time welcome with the status mod's install command, a memory agent that is on but has no `claude` CLI, missing
+  SQLite JSON, and errors logged since the last session (each once).
+- Per-prompt recall (and recall after commands and edits) is on by default.
+- Day one (agent/bootstrap.py): the first session in a repository (memory agent on) has the memory agent read the
+  repository's key files once (README, docs/*.md, manifests, Makefile, Docker and compose files, CI workflows,
+  CODEOWNERS, deploy/infra files; the top-level layout, the branches and the last 15 commit subjects; not CLAUDE.md
+  or AGENTS.md, which Claude Code already loads), one call outside the running conversation, up to 10 memories kept.
+  Live check on a fresh clone of this repository: 11 candidates, kept 8 (stdlib-only Python 3.9+, the shared store
+  as unusual, releases as marketplace pushes as unusual, docs locations, layout, update commands, branching).
+- Found by `memcode doctor` on this repository: this long session spent its memory-agent budget ($0.10), so 1705
+  transcript lines were not scanned. So the memory agent's budget is now unlimited by default (every turn is read);
+  `MEMCODE_CAPTURE_BUDGET_USD` sets a per-session limit; each model call stays capped at $0.25.
+- README: a 'What you'll see' section (the first-session line, a start block, where memories come back).
+- Tests: 256 Python (also on 3.9), 14 mod.
+
+## Latest release (memcode 0.16.1)
 
 - `memcode edit ID TEXT [--topic T]` corrects a memory in place: keeps from_user, restarts a decision's expiry,
   logs the old text (`memcode history`, op `edit`), refreshes its vector and links, writes an `updated` event.
@@ -39,7 +64,7 @@ _Last updated: 2026-10-29._
   reads any file as a plugin manifest).
 - Tests: 247 Python, 14 mod.
 
-## Latest release (memcode 0.16.0)
+## Previous release (memcode 0.16.0)
 
 - Recall beyond the prompt (retrieval.py):
   - Per-prompt recall also scores against the recent conversation (the session's last 3 prompts and 12 tool calls:
@@ -195,10 +220,13 @@ _Last updated: 2026-10-29._
 ## How to verify and release
 
 ```text
-python3 -m unittest discover -s tests          # 227 tests, offline
+python3 -m unittest discover -s tests          # 250 tests, offline
 claude plugin test mods/memcode-status         # 13 mod tests
 claude plugin validate .claude-plugin/plugin.json --strict
 ```
+
+The minimum Python is 3.9 (bin/memcode MIN_PYTHON): when touching the code, also run the suite with a 3.9 interpreter
+(`uv python install 3.9`, then `$(uv python find 3.9) -m unittest discover -s tests`).
 
 Release: bump the version in `.claude-plugin/plugin.json`, the memcode entry of `.claude-plugin/marketplace.json` and
 `memcode/mcp_server.py` (serverInfo); for the mod, `mods/memcode-status/.claude-plugin/plugin.json` and its

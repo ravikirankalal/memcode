@@ -71,6 +71,10 @@ def _start_memory_agent(con, root: str, session: str) -> None:
         if agent.enabled(root):
             agent.start_session(con, session)
             agent.spawn_worker(root)               # sends the opening briefing in the background
+            from . import config
+            if not config.read(root).get("bootstrapped"):   # day one: read the repository once for the profile
+                config.write(root, bootstrapped=True)
+                agent.spawn_worker(root, "--bootstrap")
     except Exception as e:  # noqa: BLE001  never break the agent
         _log_error(root, e)
 
@@ -120,7 +124,7 @@ def main(argv: list[str]) -> int:
                                                              "permissionDecisionReason": reason}}))
                 return 0
             action = EVENTS.get(name, "none")
-            out = ""
+            out, notice = "", []
             if action == "prompt":
                 out = engine.prompt(con, root, session, _text(d.get("prompt")))
             elif action in ("tool", "tool_failure"):
@@ -129,8 +133,15 @@ def main(argv: list[str]) -> int:
                 out = engine.session_start(con, root, session, prepare_only=(action == "prepare"))
                 if action == "start":                  # the coding agent (re)starts: so does its memory agent
                     _start_memory_agent(con, root, session)
+                    from . import doctor
+                    notice = doctor.at_start(con, root)    # for the user: a welcome, or what is broken
+            res = {}
             if out:
-                print(json.dumps({"hookSpecificOutput": {"hookEventName": name, "additionalContext": out}}))
+                res["hookSpecificOutput"] = {"hookEventName": name, "additionalContext": out}
+            if notice:
+                res["systemMessage"] = "\n".join(notice)
+            if res:
+                print(json.dumps(res))
         finally:
             con.close()
     except Exception as e:  # never break the agent

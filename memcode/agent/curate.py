@@ -143,7 +143,8 @@ def queue_recall(con, session: str, item: dict, condensed: str) -> int | None:
                 (session, target, why, time.time()))
     return target
 
-def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "") -> list[int]:
+def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "",
+                max_items: int = MAX_ITEMS) -> list[int]:
     """Apply the memory agent's operations: add (default), update, retire, and recall (queued for the coding agent's
     next step, not a change: not in the ids). -> ids added or changed."""
     from .. import activity
@@ -173,7 +174,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         knowledge = item.get("kind") == "note" and item.get("category") in KNOWLEDGE
         unusual = item.get("unusual") is True
         floor = MIN_RULE_IMPORTANCE if item.get("kind") in ("rule", "decision") or knowledge or unusual else MIN_IMPORTANCE
-        if rating(item) < floor or added >= MAX_ITEMS:
+        if rating(item) < floor or added >= max_items:
             continue
         kind = checks.verified(item, condensed, root)
         text = " ".join(str(item.get("text", "")).split())[:300]

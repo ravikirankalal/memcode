@@ -45,6 +45,11 @@ A request for right now ("Park G16. Start a review on main ... we can't touch de
 Patterns only see single events. The memory agent is a model that works beside the coding session as a running
 conversation, through your own `claude` login (`MEMCODE_CAPTURE_MODEL`, default Haiku):
 
+- **The first session in a repository**: it reads the repository's key files once (README, docs, manifests, CI
+  workflows, Docker, deploy and infra files, CODEOWNERS, the branches and recent commit subjects; not `CLAUDE.md`,
+  which Claude Code already loads) and builds the project profile before anyone has worked there. One call, about
+  $0.003.
+
 - **When the coding agent starts** (a new session, a resume, `/clear` or a compaction), memcode opens a fresh
   conversation and sends the opening briefing: its role and the memory as it stands.
 - **After each turn**, the Stop hook queues the session log and a detached worker continues that conversation with only
@@ -112,9 +117,10 @@ approach, a hypothesis a command verified or disproved. Each carries a short sub
 same subject replaces it, and your words can update or retire it ("go ahead with the develop MR"). They expire 30 days
 after they were last stated (`MEMCODE_DECISION_DAYS`).
 
-**Cost and failures.** About $0.004 per piece of log (24,000 condensed characters) on Haiku. Each session may spend $0.10,
-rising $0.03 per 1,000 log lines up to $0.50 (`MEMCODE_CAPTURE_BUDGET_USD` sets it outright); past it, the rest of that
-session is skipped and the status bar shows a yellow `💸 BUDGET` badge. If the model call fails (the CLI does not know
+**Cost and failures.** About $0.004 per piece of log (24,000 condensed characters) on Haiku. There is no per-session limit:
+every turn is read (about $0.03 per 1,000 log lines; each model call is capped at $0.25). To set one, use
+`MEMCODE_CAPTURE_BUDGET_USD` (dollars per session); past it, the rest of that session is skipped and the status bar
+shows a yellow `💸 BUDGET` badge. If the model call fails (the CLI does not know
 the model, or its login expired), the status bar shows a red `⚠ PROBLEM` badge with the fix and `/memcode:status` says
 the same; nothing is lost meanwhile, the next turn reads everything not read yet, oldest first.
 
@@ -177,7 +183,7 @@ command's role) and the date it was last stated or changed (for a measured comma
 recency. Expired decisions are left out. The block is capped (about 1500 tokens). Repo-wide rules are listed here;
 folder rules arrive when the agent works there.
 
-**Each prompt** (`memcode config retrieval on`): up to 5 memories closest to that prompt and to the recent
+**Each prompt** (on by default; `memcode config retrieval off` to stop it): up to 5 memories closest to that prompt and to the recent
 conversation (embedding similarity with the prompt, plus half as much with your last 3 prompts and the last 12
 commands, files and edits; a file or function the prompt names; files edited this session), up to 2 of their
 strongest neighbours in the graph, plus up to 2 relevant ones that proved costly (a rule you had to restate, a failure
@@ -185,7 +191,7 @@ that recurred). So a decision or a fact about what the work is on comes back eve
 A memory is shown once per session; one that was only in the start block comes back once more when it becomes
 clearly relevant. `memcode why ID` explains a memory's cost score.
 
-**After each command or edit** (retrieval on): up to 2 memories closely related to what was just run or changed,
+**After each command or edit** (with per-prompt recall): up to 2 memories closely related to what was just run or changed,
 next to its result (after a test command: the pitfall or the fact about how tests run here).
 
 **Flagged by the memory agent.** After each turn the memory agent checks the memory against what the session is
@@ -214,7 +220,7 @@ recalled, on first touch, on held writes.
 |---|---|---|---|
 | memory-agent | on | `MEMCODE_TRANSCRIPT_CAPTURE` | the model reads each turn (needs the `claude` CLI) |
 | decision-capture | on | `MEMCODE_DECISION_CAPTURE` | the memory agent keeps decisions |
-| retrieval | off | `MEMCODE_RETRIEVAL` | relevant memories on every prompt |
+| retrieval | on | `MEMCODE_RETRIEVAL` | relevant memories on every prompt and after each command or edit (on by default since 0.17) |
 | hierarchy | on | `MEMCODE_HIER` | folder scopes, first-read delivery and held first writes |
 
 ## Privacy
@@ -229,6 +235,7 @@ recalled, on first touch, on held writes.
 
 | Symptom | Check |
 |---|---|
+| Anything | `/memcode:doctor` (or `memcode doctor`): python, sqlite, the store, the memory agent and its `claude` CLI, recall, whether the hooks ran here, errors logged. Session start also tells you when the memory agent cannot run or errors were logged. |
 | Nothing is injected | `memcode stats` (any memories?); `/memcode:status` for memory-agent problems. |
 | A correction was not captured | The memory agent usually catches it after the turn; check `memcode history`. |
 | Hook errors | Logged to `.memcode/error.log`; they never block the agent. |

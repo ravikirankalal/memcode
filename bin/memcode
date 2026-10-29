@@ -1,17 +1,39 @@
 #!/usr/bin/env python3
-"""memcode launcher for agents other than Claude Code (no install step, no PYTHONPATH needed).
+"""memcode launcher: the hooks, the MCP server and the CLI all start here (no install step, no PYTHONPATH).
 
-  memcode hook <Event> <agent>   hook entrypoint (agent: claude | codex | gemini)
-  memcode mcp                    stdio MCP server
-  memcode <command> ...          the inspection CLI (list, show, team, sync-rules, setup, ...)
+  memcode hook <Event>     hook entrypoint (Claude Code hooks/hooks.json)
+  memcode mcp              stdio MCP server
+  memcode <command> ...    the CLI (list, show, edit, doctor, config, ...)
+
+Run by path, so the plugin's own directory is on the import path and the current directory (the user's repository)
+is not: a repository with its own json.py, sqlite3.py or memcode/ cannot shadow memcode's imports.
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+MIN_PYTHON = (3, 9)    # the python3 of Xcode's command-line tools on macOS; the test suite runs on 3.9
+
+
+def _too_old(args):
+    """An old python3 gets one clear message instead of a traceback in a log nobody reads."""
+    have = ".".join(str(n) for n in sys.version_info[:3])
+    msg = ("memcode needs Python %d.%d or newer, but `python3` here is %s; install a newer Python 3 and make it the "
+           "`python3` on your PATH, then restart Claude Code." % (MIN_PYTHON + (have,)))
+    if args[:2] == ["hook", "SessionStart"]:
+        import json
+        print(json.dumps({"systemMessage": msg}))      # shown to the user once per session
+        return 0
+    if args[:1] in (["hook"], ["mcp"]):
+        return 0                                       # never break the agent
+    sys.stderr.write(msg + "\n")
+    return 2
+
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    if sys.version_info[:2] < MIN_PYTHON:
+        sys.exit(_too_old(args))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
     if args[:1] == ["hook"]:
         from memcode.hook_cli import main
         sys.exit(main(["memcode"] + args[1:]))

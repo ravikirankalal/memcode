@@ -14,20 +14,21 @@ from . import conversation, curate, db, model, transcript
 
 MIN_NEW_CHARS = 400          # a scan needs at least this much new condensed text
 MAX_ATTEMPTS = 2
-MIN_SESSION_USD, MAX_SESSION_USD = 0.10, 0.50  # per-session budget: grows with the transcript between these, then stops
-USD_PER_1K_LINES = 0.03      # about what scanning 1,000 transcript lines costs on Haiku
+USD_PER_1K_LINES = 0.03      # about what scanning 1,000 transcript lines costs on Haiku (for the docs; no limit)
 
 
 def session_budget(n_lines: int) -> float:
-    """What one session may spend: MEMCODE_CAPTURE_BUDGET_USD if set, else $0.10 rising with the transcript's length
-    (a long session has more to read) up to $0.50."""
+    """What one session may spend: unlimited by default (every turn is read); MEMCODE_CAPTURE_BUDGET_USD sets a limit,
+    past which the rest of that session is skipped and reported. (Each model call is still capped at $0.25.)"""
     env = os.environ.get("MEMCODE_CAPTURE_BUDGET_USD")
     if env:
         try:
-            return float(env)
+            v = float(env)
+            if v > 0:
+                return v
         except ValueError:
             pass
-    return min(MAX_SESSION_USD, max(MIN_SESSION_USD, USD_PER_1K_LINES * n_lines / 1000))
+    return float("inf")
 
 def enabled(root) -> bool:
     """On by default since 0.9.0 (tc2 gate, bench/live/RESULTS.md Run 17). Off with MEMCODE_TRANSCRIPT_CAPTURE=0 or
@@ -46,12 +47,15 @@ def enqueue(con, session: str, path: str) -> None:
                 (session, path, time.time()))          # another transcript file: its lines start at 0
     con.commit()
 
-def spawn_worker(root: str) -> None:
-    """Start a detached worker; it exits when nothing is pending. Never raises."""
+def spawn_worker(root: str, *extra: str) -> None:
+    """Start a detached worker; it exits when nothing is pending (extra: ['--bootstrap'] reads the repository once
+    instead, agent/bootstrap.py). Never raises."""
     try:
         pkg_parent = str(Path(__file__).resolve().parent.parent.parent)
         env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in (pkg_parent, os.environ.get("PYTHONPATH")) if p))
-        subprocess.Popen([sys.executable, "-m", "memcode.agent", str(root)], env=env,
+        # started from the plugin's own directory: `-m` puts the working directory first on the import path, and the
+        # user's repository must never shadow memcode's imports
+        subprocess.Popen([sys.executable, "-m", "memcode.agent", str(root), *extra], env=env, cwd=pkg_parent,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True, close_fds=True)
     except OSError:

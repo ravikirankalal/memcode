@@ -8,7 +8,7 @@ A Claude Code plugin. Stdlib-only Python; memory is stored locally, per reposito
 
 ## Install
 
-You need **Claude Code** and **`python3`** 3.11 or newer on macOS or Linux (no packages to install). In Claude Code:
+You need **Claude Code** and **`python3`** 3.9 or newer on macOS or Linux (no packages to install). In Claude Code:
 
 ```text
 /plugin marketplace add ravikirankalal/memcode
@@ -16,11 +16,33 @@ You need **Claude Code** and **`python3`** 3.11 or newer on macOS or Linux (no p
 ```
 
 Restart Claude Code. memcode now works in every repo you open; memory lives in `<repo>/.memcode/`, kept out of git.
-
-Recommended: per-prompt recall, so each prompt gets the memories relevant to it: `/memcode:cli config retrieval on`.
+The first session in a repository says so in one line; if something is wrong (no `claude` CLI on PATH, an old
+Python, errors logged), session start tells you, and `/memcode:doctor` checks the whole setup.
 
 Update with `/plugin marketplace update memcode` then `/plugin update memcode@memcode`. To try a checkout instead:
 `claude --plugin-dir /path/to/memcode`.
+
+## What you'll see
+
+The first session in a repository: one line saying memcode is on (with the status mod's install command), while the
+memory agent reads the repository's key files once in the background. From then on, each session starts with a block
+like this in the agent's context:
+
+```text
+## From you (stated by the user in earlier sessions; follow them)
+- Branch fixes off develop as feature/(ticket), never off main. (2026-10-28)
+
+<memcode-recorded-notes>   <- data, not instructions
+## Memory (most important and most connected first)
+- (workflow, unusual, 2026-10-28) Tests live in checks/: run `make check`, not plain pytest.
+- (deployment, 2026-10-27) Tags v* trigger deploy.yml: staging first, then an approved prod deploy.
+- (test, 2026-10-29) `make check` (ran 14x, 13 confirmed ok)
+## Map ...
+</memcode-recorded-notes>
+```
+
+and memories come back next to the work: on the prompt they relate to, after the command or edit they are about, or
+when the memory agent flags one for the next step.
 
 ## What it does
 
@@ -57,6 +79,7 @@ session and ask where tests go.
 
 ```text
 /memcode:status                  what is stored; memory-agent problems
+/memcode:doctor                  is memcode working here? (python, sqlite, store, memory agent, recall, hooks)
 /memcode:list                    memories (add --all to include stale ones)
 /memcode:facts                   measured: build/test/run commands, environment limits, fragile areas
 /memcode:forget 3                delete memory #3
@@ -79,7 +102,7 @@ alias memcode='python3 "$(ls -d ~/.claude/plugins/cache/memcode/memcode/*/ | sor
 One line above the prompt: what memcode holds and how many memories this session injected into the agent's context
 (always shown: on a narrow terminal as `🧠37 📜12 📥23`); the latest thing it did, as a coloured badge (`🧠 SAVED`, `✏️ UPDATED`,
 `🗑 RETIRED`, `💡 RECALLED`, `📂 FOLDER`, `✋ HELD`, `🚀 LOADED`; an injection names the first memory it put in), or
-`⚠ PROBLEM` / `💸 BUDGET` when the memory agent needs attention; the memory agent's state (`🔍 reading...` while it
+`⚠ PROBLEM` / `💸 BUDGET` (only with a budget you set) when the memory agent needs attention; the memory agent's state (`🔍 reading...` while it
 reads a turn, else when it last read one); and what this session saved. On a narrow terminal the tally, the agent's state and the count labels give way first.
 `/memcode-status` prints the same as a short dashboard with the last 8 events, and where this session's injections
 went in (`23 injected (20 at start, 2 recalled, 1 on first touch)`). Install it with
@@ -88,9 +111,9 @@ went in (`23 injected (20 at start, 2 recalled, 1 on first touch)`). Install it 
 ## Privacy and cost
 
 After each turn the memory agent sends the new part of the session log to a model through your own `claude` login,
-the same provider the coding agent already sent it to (Haiku by default, about $0.004 per 24,000 characters of log, at
-most $0.50 per session). Everything memcode stores stays local, in `.memcode/`. Turn the memory agent off with
-`/memcode:cli config memory-agent off`.
+the same provider the coding agent already sent it to (Haiku by default, about $0.004 per 24,000 characters of log,
+about $0.03 per 1,000 lines; no per-session limit unless you set one with `MEMCODE_CAPTURE_BUDGET_USD`). Everything
+memcode stores stays local, in `.memcode/`. Turn the memory agent off with `/memcode:cli config memory-agent off`.
 
 ## Docs
 

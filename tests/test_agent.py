@@ -379,6 +379,7 @@ class Store(unittest.TestCase):
         self.assertEqual((row[0], round(row[1], 2)), ("idle", 0.02))
         self.assertEqual(worker.pending(self.con), 0)
 
+    @mock.patch.dict(os.environ, {"MEMCODE_CAPTURE_BUDGET_USD": "0.10"})   # a limit only when one is set
     def test_session_budget_stops_scanning(self):
         path = write_transcript(SESSION)
         calls = []
@@ -435,13 +436,25 @@ class Store(unittest.TestCase):
         worker.run_worker(self.d, fake)
         self.assertEqual(len(sent), 4)
 
-    def test_budget_grows_with_the_transcript(self):
-        with mock.patch.dict(os.environ, {"MEMCODE_CAPTURE_BUDGET_USD": ""}):
-            self.assertEqual(worker.session_budget(500), 0.10)
-            self.assertAlmostEqual(worker.session_budget(10_000), 0.30)
-            self.assertEqual(worker.session_budget(100_000), 0.50)
+    def test_budget_is_unlimited_unless_set(self):
+        for unset in ("", "0", "none"):
+            with mock.patch.dict(os.environ, {"MEMCODE_CAPTURE_BUDGET_USD": unset}):
+                self.assertEqual(worker.session_budget(100_000), float("inf"))
         with mock.patch.dict(os.environ, {"MEMCODE_CAPTURE_BUDGET_USD": "2"}):
             self.assertEqual(worker.session_budget(100_000), 2.0)
+        path = write_transcript(SESSION)
+        calls = []
+        fake = lambda text, ctx=None: calls.append(1) or {"items": [], "model": "f", "cost_usd": 0.06}  # noqa: E731
+        with mock.patch.dict(os.environ, {"MEMCODE_CAPTURE_BUDGET_USD": ""}):
+            worker.enqueue(self.con, "s1", path)
+            worker.run_worker(self.d, fake)
+            for i in range(3):                                          # every turn is read, however much it costs
+                with open(path, "a") as fh:
+                    fh.write(json.dumps(user(f"Turn {i}: please keep going with the next part of the work.")) + "\n")
+                worker.enqueue(self.con, "s1", path)
+                worker.run_worker(self.d, fake)
+        self.assertEqual(len(calls), 4)
+        self.assertIsNone(worker.health(self.con))
 
     def test_only_notes_on_code_behaviour_pin_the_file_content(self):
         self.assertTrue(checks.pins_content("resolve_root maps a linked git worktree to the main working tree.",
@@ -569,6 +582,7 @@ class Store(unittest.TestCase):
         self.assertIn("Turn 7:", "\n".join(sent))
         self.assertNotIn("Turn 0:", "\n".join(sent))
 
+    @mock.patch.dict(os.environ, {"MEMCODE_CAPTURE_BUDGET_USD": "0.10"})   # a limit only when one is set
     def test_budget_running_out_mid_backlog_is_reported(self):
         turns = []
         for i in range(8):
@@ -792,13 +806,14 @@ class Conversation(unittest.TestCase):
         from memcode import hook_cli
         from memcode.agent import conversation
         import io
-        ids = []
+        ids, spawned = [], []
         for _ in range(2):
             payload = json.dumps({"session_id": "s1", "cwd": self.d, "source": "startup"})
             with mock.patch("sys.stdin", io.StringIO(payload)), mock.patch("sys.stdout", io.StringIO()), \
                     mock.patch("memcode.agent.enabled", lambda root: True), \
-                    mock.patch("memcode.agent.spawn_worker", lambda root: None):
+                    mock.patch("memcode.agent.spawn_worker", lambda root, *extra: spawned.append(extra)):
                 hook_cli.main(["hook_cli", "SessionStart"])
             ids.append(conversation.current(self.con, "s1")["agent_session"])
         self.assertNotEqual(ids[0], ids[1])
+        self.assertEqual(spawned, [(), ("--bootstrap",), ()])                # the repository is read once
         self.assertEqual(conversation.pending_openings(self.con), ["s1"])
