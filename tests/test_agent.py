@@ -792,13 +792,14 @@ class Conversation(unittest.TestCase):
         from memcode import hook_cli
         from memcode.agent import conversation
         import io
-        ids = []
+        ids, spawned = [], []
         for _ in range(2):
             payload = json.dumps({"session_id": "s1", "cwd": self.d, "source": "startup"})
             with mock.patch("sys.stdin", io.StringIO(payload)), mock.patch("sys.stdout", io.StringIO()), \
                     mock.patch("memcode.agent.enabled", lambda root: True), \
-                    mock.patch("memcode.agent.spawn_worker", lambda root: None):
+                    mock.patch("memcode.agent.spawn_worker", lambda root, *extra: spawned.append(extra)):
                 hook_cli.main(["hook_cli", "SessionStart"])
             ids.append(conversation.current(self.con, "s1")["agent_session"])
         self.assertNotEqual(ids[0], ids[1])
+        self.assertEqual(spawned, [(), ("--bootstrap",), ()])                # the repository is read once
         self.assertEqual(conversation.pending_openings(self.con), ["s1"])

@@ -43,6 +43,12 @@ _Last updated: 2026-10-29._
   one-time welcome with the status mod's install command, a memory agent that is on but has no `claude` CLI, missing
   SQLite JSON, and errors logged since the last session (each once).
 - Per-prompt recall (and recall after commands and edits) is on by default.
+- Day one (agent/bootstrap.py): the first session in a repository (memory agent on) has the memory agent read the
+  repository's key files once (README, docs/*.md, manifests, Makefile, Docker and compose files, CI workflows,
+  CODEOWNERS, deploy/infra files; the top-level layout, the branches and the last 15 commit subjects; not CLAUDE.md
+  or AGENTS.md, which Claude Code already loads), one call outside the running conversation, up to 10 memories kept.
+  Live check on a fresh clone of this repository: 11 candidates, kept 8 (stdlib-only Python 3.9+, the shared store
+  as unusual, releases as marketplace pushes as unusual, docs locations, layout, update commands, branching).
 - Found by `memcode doctor` on this repository: this long session spent its memory-agent budget ($0.10), so 1705
   transcript lines were not scanned.
 - Tests: 254 Python (also on 3.9), 14 mod.

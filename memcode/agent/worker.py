@@ -46,14 +46,15 @@ def enqueue(con, session: str, path: str) -> None:
                 (session, path, time.time()))          # another transcript file: its lines start at 0
     con.commit()
 
-def spawn_worker(root: str) -> None:
-    """Start a detached worker; it exits when nothing is pending. Never raises."""
+def spawn_worker(root: str, *extra: str) -> None:
+    """Start a detached worker; it exits when nothing is pending (extra: ['--bootstrap'] reads the repository once
+    instead, agent/bootstrap.py). Never raises."""
     try:
         pkg_parent = str(Path(__file__).resolve().parent.parent.parent)
         env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in (pkg_parent, os.environ.get("PYTHONPATH")) if p))
         # started from the plugin's own directory: `-m` puts the working directory first on the import path, and the
         # user's repository must never shadow memcode's imports
-        subprocess.Popen([sys.executable, "-m", "memcode.agent", str(root)], env=env, cwd=pkg_parent,
+        subprocess.Popen([sys.executable, "-m", "memcode.agent", str(root), *extra], env=env, cwd=pkg_parent,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True, close_fds=True)
     except OSError:

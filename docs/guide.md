@@ -45,6 +45,11 @@ A request for right now ("Park G16. Start a review on main ... we can't touch de
 Patterns only see single events. The memory agent is a model that works beside the coding session as a running
 conversation, through your own `claude` login (`MEMCODE_CAPTURE_MODEL`, default Haiku):
 
+- **The first session in a repository**: it reads the repository's key files once (README, docs, manifests, CI
+  workflows, Docker, deploy and infra files, CODEOWNERS, the branches and recent commit subjects; not `CLAUDE.md`,
+  which Claude Code already loads) and builds the project profile before anyone has worked there. One call, about
+  $0.003.
+
 - **When the coding agent starts** (a new session, a resume, `/clear` or a compaction), memcode opens a fresh
   conversation and sends the opening briefing: its role and the memory as it stands.
 - **After each turn**, the Stop hook queues the session log and a detached worker continues that conversation with only

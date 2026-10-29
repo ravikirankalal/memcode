@@ -71,6 +71,10 @@ def _start_memory_agent(con, root: str, session: str) -> None:
         if agent.enabled(root):
             agent.start_session(con, session)
             agent.spawn_worker(root)               # sends the opening briefing in the background
+            from . import config
+            if not config.read(root).get("bootstrapped"):   # day one: read the repository once for the profile
+                config.write(root, bootstrapped=True)
+                agent.spawn_worker(root, "--bootstrap")
     except Exception as e:  # noqa: BLE001  never break the agent
         _log_error(root, e)
 
