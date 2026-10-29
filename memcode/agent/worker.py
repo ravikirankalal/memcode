@@ -90,6 +90,8 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=mo
     condensed = transcript.condense(new)
     if len(condensed) < MIN_NEW_CHARS and "[user] " not in condensed:
         return offset, [], 0.0                          # too little yet: kept for the next scan, never skipped
+    from .. import feedback
+    feedback.judge(con, session, condensed)             # did the coding agent use what memcode showed it?
     budget = session_budget(len(lines))
     spent = con.execute("SELECT cost_usd FROM transcript_scans WHERE session=?", (session,)).fetchone()
     total = (spent[0] if spent else 0.0) + conversation.opening_cost(con, session)

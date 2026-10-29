@@ -98,12 +98,13 @@ def _from_you_line(row) -> str:
 def ranked(con) -> list[tuple[float, int, str]]:
     """Every memory for ## Memory (not the user's own words; facts only those worth showing), best first:
     [(score, id, line)]. Score: importance (1-5) + 1 when it differs from the usual way (unusual) + 0.5 per graph
-    connection weight (up to 2) + 0.3 per recall (up to 1.5) + 0.5 when changed in the last RECENT_DAYS days."""
+    connection weight (up to 2) + 0.3 per recall or use by the coding agent (up to 1.5) + 0.5 when changed in the last RECENT_DAYS days."""
     from . import facts, graph
     now = time.time()
     degree = graph.degree(con)
     items = []
-    for r in con.execute("""SELECT m.*, (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id) AS freq
+    for r in con.execute("""SELECT m.*, (SELECT COUNT(*) FROM retrievals r WHERE r.memory_id=m.id)
+                              + (SELECT COUNT(*) FROM memory_feedback f WHERE f.memory_id=m.id AND f.verdict='used') AS freq
                             FROM memories m WHERE m.stale=0 AND m.from_user=0 AND m.mkey IS NULL
                             AND (m.expires_at IS NULL OR m.expires_at>?)""", (now,)):
         items.append((r["importance"] + (1 if r["unusual"] else 0), r["freq"], r["updated_at"], r["id"], memory_line(r)))

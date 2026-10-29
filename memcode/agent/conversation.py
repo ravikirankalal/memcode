@@ -82,7 +82,7 @@ def opening_cost(con, session: str) -> float:
 
 def delta(con, session: str, since: float) -> str:
     """What changed since the agent's last reply: what memcode kept of its proposals, memories added or changed by other
-    paths (pattern triggers, the user), memories newly shown to the coding agent."""
+    paths (pattern triggers, the user), memories newly shown to the coding agent, and which of those it used."""
     from ..pinned import day, label
     lines = ["Memory changes since your last reply:"]
     for r in con.execute("SELECT op, memory_id, after FROM memory_log WHERE session=? AND ts>? ORDER BY id",
@@ -100,6 +100,8 @@ def delta(con, session: str, since: float) -> str:
                                        (session, since))]
     if shown:
         lines.append("- shown to the coding agent since: " + ", ".join(f"#{i}" for i in shown))
+    from .. import feedback
+    lines += feedback.delta_lines(con, session, since)             # what the coding agent used, and what it did not
     if len(lines) == 1:
         lines.append("- none")
     return "\n".join(lines)

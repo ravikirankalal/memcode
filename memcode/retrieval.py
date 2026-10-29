@@ -157,9 +157,11 @@ def _candidates(con) -> list[dict]:
         fact_ids = {fr["id"] for fr, _, _ in facts.shown(con, pinned.MAX_FACTS)}
     except Exception:                     # noqa: BLE001
         fact_ids = set()
+    from . import feedback
+    quiet = feedback.muted(con)                       # shown again and again, never used: not recalled until changed
     return [dict(r) for r in con.execute("SELECT * FROM memories m WHERE m.stale=0 AND "
                                          "(m.expires_at IS NULL OR m.expires_at>?)", (time.time(),))
-            if r["mkey"] is None or r["id"] in fact_ids]
+            if (r["mkey"] is None or r["id"] in fact_ids) and r["id"] not in quiet]
 
 
 def score(con, root: str, session: str, prompt: str, context: str = "", min_cos: float = 0.0) -> list[tuple[float, dict]]:
