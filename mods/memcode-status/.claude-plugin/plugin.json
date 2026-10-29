@@ -1,6 +1,6 @@
 {
   "name": "memcode-status",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "memcode above the prompt: counts, the latest memory event, the memory agent's state and this session's tally",
   "types": "./types/index.d.ts",
   "author": {

@@ -70,14 +70,16 @@ alias memcode='python3 "$(ls -d ~/.claude/plugins/cache/memcode/memcode/*/ | sor
 ### Status above the prompt (optional mod)
 
 ```text
-◆ memcode 37 memories · 12 from you  ┃  🧠 SAVED  from you: Always use tabs in this repo. · 5s ago  🔍 reading..  +2 saved
+◆ memcode 37 memories · 12 from you · 📥23 injected  ┃  💡 RECALLED  2 memories for this prompt: (pitfall, 2026-10-20) … · 5s ago  🔍 2m  +2 saved
 ```
 
-One line above the prompt: what memcode holds; the latest thing it did, as a coloured badge (`🧠 SAVED`, `✏️ UPDATED`,
-`🗑 RETIRED`, `💡 RECALLED`, `📂 FOLDER RULES`, `✋ HELD`, `🚀 LOADED`), or `⚠ PROBLEM` / `💸 BUDGET` when the memory
-agent needs attention; the memory agent's state (`🔍 reading...` while it reads a turn, else when it last read one);
-and what this session added. On a narrow terminal the tally, the agent's state and the count labels give way first.
-`/memcode-status` prints the same as a short dashboard with the last 8 events. Install it with
+One line above the prompt: what memcode holds and how many memories this session injected into the agent's context
+(always shown: on a narrow terminal as `🧠37 📜12 📥23`); the latest thing it did, as a coloured badge (`🧠 SAVED`, `✏️ UPDATED`,
+`🗑 RETIRED`, `💡 RECALLED`, `📂 FOLDER`, `✋ HELD`, `🚀 LOADED`; an injection names the first memory it put in), or
+`⚠ PROBLEM` / `💸 BUDGET` when the memory agent needs attention; the memory agent's state (`🔍 reading...` while it
+reads a turn, else when it last read one); and what this session saved. On a narrow terminal the tally, the agent's state and the count labels give way first.
+`/memcode-status` prints the same as a short dashboard with the last 8 events, and where this session's injections
+went in (`23 injected (20 at start, 2 recalled, 1 on first touch)`). Install it with
 `/plugin install memcode-status@memcode`.
 
 ## Privacy and cost

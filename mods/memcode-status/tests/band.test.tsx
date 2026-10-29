@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { agentState, ago, cols, latest, layout, parseFeed, problemOf, tally } from '../hooks/register'
+import { agentState, ago, cols, injected, latest, layout, parseFeed, problemOf, tally } from '../hooks/register'
 import type { Feed } from '../types'
 
 const BAND = { component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, bodyColumns: 160 } } as const
@@ -53,6 +53,8 @@ test('the band shows counts and the latest memory event on every surface', async
     expect(await ui.find({ type: 'Text', text: / memories · / })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^12$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: / from you/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^📥20$/ })).toBeDefined() // the start block's 20, just before the start
+    expect(await ui.find({ type: 'Text', text: / injected/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /🧠 SAVED/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /from you: Always use tabs/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /0s ago|5s ago/ })).toBeDefined()
@@ -132,7 +134,7 @@ test('a spent scan budget shows as a warning, a failure outranks it', async ($, 
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'memcode-status', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: /💸 BUDGET/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /120 transcript lines not scanned/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /budget is spent/ })).toBeDefined() // the tail may be clipped
   await ui.unmount()
   const both: Feed = { ...FEED, problems: { budget, capture: 'memory agent: not logged in' } }
   expect(problemOf(both)?.look.tag).toBe('PROBLEM')
@@ -174,15 +176,27 @@ test("this session's tally counts only events since the session started", async 
     { ts: T - 50, kind: 'saved', text: 'a', n: 1 }, { ts: T - 40, kind: 'saved', text: 'b', n: 1 },
     { ts: T - 30, kind: 'recalled', text: 'c', n: 1 }, { ts: T - 20, kind: 'scanned', text: 'd', n: 1 },
   ] }
-  expect(tally(f, (T - 100) * 1000)).toBe('2 saved · 1 recalled')
+  expect(tally(f, (T - 100) * 1000)).toBe('2 saved')
   expect(tally(f, (T + 1) * 1000)).toBe('')
 })
 
+test('injections this session: how many memories went into context, and where', async () => {
+  const f: Feed = { ...FEED, events: [
+    { ts: T - 900, kind: 'start', text: 'old session', n: 12 },
+    { ts: T - 50, kind: 'start', text: '4 from you, 16 memories at session start', n: 20 },
+    { ts: T - 40, kind: 'recalled', text: '2 memories for this prompt: (pitfall, 2026-10-20) x', n: 2 },
+    { ts: T - 30, kind: 'touch', text: '1 memory for memcode/x.py: (from you, 2026-10-18) y', n: 1 },
+    { ts: T - 20, kind: 'saved', text: 'z', n: 1 },
+  ] }
+  expect(injected(f, (T - 100) * 1000)).toEqual({ total: 23, detail: '20 at start, 2 recalled, 1 on first touch' })
+  expect(injected(f, (T + 1) * 1000).total).toBe(0)
+})
+
 test('a narrow terminal keeps the headline: the tally, the agent, then the count labels give way', async () => {
-  const parts = { counts: '37 memories · 12 from you', countsShort: '🧠37 📜12', head: 60, agent: '🔍 2m',
+  const parts = { counts: '37 memories · 12 from you · 📥20 injected', countsShort: '🧠37 📜12 📥20', head: 60, agent: '🔍 2m',
     tally: '+2 saved' }
   expect(layout(160, parts)).toMatchObject({ long: true, agent: true, tally: true })
-  expect(layout(90, parts)).toMatchObject({ long: true, agent: true, tally: false })
+  expect(layout(108, parts)).toMatchObject({ long: true, agent: true, tally: false })
   expect(layout(70, parts)).toMatchObject({ long: false, agent: false, tally: false })
   expect(cols('🧠37')).toBe(4)
   expect(cols('✏️ x')).toBe(4)

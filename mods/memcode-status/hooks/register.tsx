@@ -14,6 +14,7 @@ const FRESH_MS = 10 * 60 * 1000 // the latest event is shown this long, then onl
 const FRESH_BOLD_MS = 15 * 1000 // an event this new is drawn bold
 const SAVED_HOLD_MS = 90 * 1000 // a new memory stays the headline this long even if other events follow
 const BUSY_STALE_MS = 5 * 60 * 1000 // a busy mark older than this was left by a worker that died
+const START_GRACE_MS = 60 * 1000 // memcode's SessionStart hook may write its injection before the mod hears of the start
 
 // each event kind: a badge (icon + word on a coloured background) and the colour of its text. Theme keys, so light and
 // dark terminals both work; on a dark terminal: success green, warning yellow, suggestion light blue, planMode teal,
@@ -25,7 +26,7 @@ const LOOK: Record<string, Look> = {
   retired: { icon: '🗑', tag: 'RETIRED', color: 'inactive' },
   forgot: { icon: '🗑', tag: 'FORGOT', color: 'inactive' },
   recalled: { icon: '💡', tag: 'RECALLED', color: 'suggestion' },
-  touch: { icon: '📂', tag: 'FOLDER RULES', color: 'planMode' },
+  touch: { icon: '📂', tag: 'FOLDER', color: 'planMode' }, // a folder's memories on its first read
   held: { icon: '✋', tag: 'HELD', color: 'warning' },
   start: { icon: '🚀', tag: 'LOADED', color: 'claude' },
   scanned: { icon: '🔍', tag: 'SCANNED', color: 'ide' }, // the memory agent read the latest turns
@@ -39,8 +40,10 @@ const PROBLEMS: [string, Look][] = [
 ]
 
 // what this session's tally counts, in display order
-const TALLY: [string, string][] = [['saved', 'saved'], ['updated', 'updated'], ['retired', 'retired'],
-  ['recalled', 'recalled'], ['held', 'held']]
+const TALLY: [string, string][] = [['saved', 'saved'], ['updated', 'updated'], ['retired', 'retired']]
+// injections: memories memcode put into the coding agent's context (an event's n is how many), in display order
+const INJECTIONS: [string, string][] = [['start', 'at start'], ['recalled', 'recalled'], ['touch', 'on first touch'],
+  ['held', 'on held writes']]
 
 export function problemOf(f: Feed): { look: Look; text: string } | null {
   const ps = f.problems ?? {}
@@ -105,6 +108,16 @@ export function tally(f: Feed, sinceMs: number): string {
   const n: Record<string, number> = {}
   for (const ev of f.events) if (ev.ts * 1000 >= sinceMs) n[ev.kind] = (n[ev.kind] ?? 0) + 1
   return TALLY.filter(([k]) => n[k]).map(([k, label]) => `${n[k]} ${label}`).join(' · ')
+}
+
+// memories injected into the coding agent's context this session: the total and where they went in
+export function injected(f: Feed, sinceMs: number): { total: number; detail: string } {
+  const n: Record<string, number> = {}
+  for (const ev of f.events) {
+    if (ev.ts * 1000 >= sinceMs && INJECTIONS.some(([k]) => k === ev.kind)) n[ev.kind] = (n[ev.kind] ?? 0) + (Number(ev.n) || 0)
+  }
+  const total = Object.values(n).reduce((a, b) => a + b, 0)
+  return { total, detail: INJECTIONS.filter(([k]) => n[k]).map(([k, label]) => `${n[k]} ${label}`).join(', ') }
 }
 
 // terminal columns a string takes (wide emoji count twice; variation selectors take none)
@@ -191,9 +204,9 @@ async function refresh($: EngineInterface): Promise<void> {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    const t = await $.clock.now() // before the start runs: memcode's start-block injection belongs to this session
     const result = await next(e)
-    const t = await $.clock.now()
-    await update($, since, () => t)
+    await update($, since, () => t - START_GRACE_MS)
     // a worktree session: hooks may keep the store in the main working tree (#32), so look in both roots
     const roots = [await $.session.root(), (await $.session.repo().catch(() => null))?.root]
     paths = [...new Set(roots.filter((r): r is string => !!r))].map(r => `${r}/.memcode/activity.json`)
@@ -234,8 +247,11 @@ export const register: Register = on => {
     lines.push(st.reading ? '  🔍 memory agent: reading the latest turn now'
       : st.lastScan ? `  🔍 memory agent: last read ${ago(t - st.lastScan.ts * 1000)} (${st.lastScan.text})`
         : '  🔍 memory agent: has not read a turn yet')
-    const tl = tally(f, (await read($, since)) || 0)
-    lines.push(`  this session: ${tl || 'nothing saved or recalled yet'}`)
+    const s0 = (await read($, since)) || 0
+    const tl = tally(f, s0)
+    const inj = injected(f, s0)
+    const parts = [inj.total ? `${inj.total} injected (${inj.detail})` : '', tl].filter(Boolean)
+    lines.push(`  this session: ${parts.join(' · ') || 'nothing injected or saved yet'}`)
     const recent = f.events.slice(-8).reverse()
     if (recent.length) {
       lines.push('', 'recent:')
@@ -274,13 +290,15 @@ export const register: Register = on => {
     const st = agentState(f, t)
     const dots = '.'.repeat(1 + (Math.floor(t / POLL_MS) % 3))
     const agentText = st.reading ? `🔍 reading${dots}` : st.lastScan ? `🔍 ${short(t - st.lastScan.ts * 1000)}` : ''
-    const tl = tally(f, (await read($, since)) || 0)
+    const s0 = (await read($, since)) || 0
+    const tl = tally(f, s0)
+    const inj = injected(f, s0).total
     const headText = problem ? problem.text : ev ? ev.text : ''
     const headLook = problem ? problem.look : lk
     const headCols = headText ? cols(` ${headLook!.icon} ${headLook!.tag} `) + 1 + cols(headText) + (ev ? 10 : 0) : 0
     const fit = layout(e.props.bodyColumns || 120, {
-      counts: `${c.memories} memories · ${c.from_you} from you`,
-      countsShort: `🧠${c.memories} 📜${c.from_you}`,
+      counts: `${c.memories} memories · ${c.from_you} from you · 📥${inj} injected`,
+      countsShort: `🧠${c.memories} 📜${c.from_you} 📥${inj}`,
       head: headCols, agent: agentText, tally: tl ? `+${tl}` : '',
     })
     const badgeCols = headLook ? cols(` ${headLook.icon} ${headLook.tag} `) + 1 : 0
@@ -294,12 +312,15 @@ export const register: Register = on => {
             <Text color="remember" bold>{c.memories}</Text>
             <Text dimColor> memories · </Text>
             <Text color="merged" bold>{c.from_you}</Text>
-            <Text dimColor> from you</Text>
+            <Text dimColor> from you · </Text>
+            <Text color="suggestion" bold>📥{inj}</Text>
+            <Text dimColor> injected</Text>
           </Text>
         ) : (
           <Text>
             <Text color="remember">🧠{c.memories} </Text>
-            <Text color="merged">📜{c.from_you}</Text>
+            <Text color="merged">📜{c.from_you} </Text>
+            <Text color="suggestion">📥{inj}</Text>
           </Text>
         )}
         {headLook && (

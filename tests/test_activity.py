@@ -49,6 +49,18 @@ class Activity(unittest.TestCase):
         src = [r[0] for r in self.con.execute("SELECT source FROM injections")]
         self.assertEqual(src, ["stated"])
 
+    def test_injection_events_name_what_went_in(self):
+        import time
+        from memcode import pinned
+        store.add_memory(self.con, "agent", "Tests live in checks/, not tests/.", "", None, {}, topic="structure")
+        with mock.patch.dict(os.environ, {"MEMCODE_RETRIEVAL": "1"}):
+            engine.prompt(self.con, self.d, "s", "where do the tests in checks live?")
+        ev = [e for e in self.feed()["events"] if e["kind"] == "recalled"][-1]
+        self.assertEqual(ev["n"], 1)
+        self.assertEqual(ev["text"], f"1 memory for this prompt: (structure, {pinned.day(time.time())}) Tests live in "
+                                     "checks/, not tests/.")
+        self.assertEqual(activity.first(self.con, []), "")
+
     def test_forget_refreshes_the_counts(self):
         import contextlib
         import io

@@ -6,7 +6,8 @@
    "busy": {"agent": <since epoch s>}}                       what is working right now (the memory agent reading)
 
 kind: saved (a memory was captured or added), start (session-start block), recalled (per-prompt retrieval),
-touch (scoped memories on a first read), held (a first write refused with the folder's rules), forgot (memories
+touch (scoped memories on a first read), held (a first write refused with the folder's rules); for these four
+injections n is how many memories went into the coding agent's context, and the text names the first one; forgot (memories
 deleted with `memcode forget` / `prune-stale`), scanned (the memory agent read the latest turns: candidates, kept),
 updated / retired (the memory agent changed a memory). Read by the memcode
 status mod (mods/memcode-status) and anything else that wants a live view; never read back by memcode itself.
@@ -94,6 +95,20 @@ def _write(con, event: dict | None, prob: tuple[str, str | None] | None = None,
         os.replace(tmp, p)
     except Exception:  # noqa: BLE001  a status feed must never break a hook
         pass
+
+
+def first(con, ids) -> str:
+    """': <the first injected memory>' for an injection event, so the status bar says what went in ('' if none)."""
+    if not ids:
+        return ""
+    try:
+        r = con.execute("SELECT * FROM memories WHERE id=?", (ids[0],)).fetchone()
+        if r is None:
+            return ""
+        from .pinned import day, label
+        return f": ({'from you, ' + day(r['updated_at']) if r['from_user'] else label(r)}) {r['text']}"
+    except Exception:  # noqa: BLE001  a status feed must never break a hook
+        return ""
 
 
 def saved(con, trigger: str, text: str, anchor: str = "", from_user: bool | None = None, topic: str = "") -> None:

@@ -3,14 +3,14 @@
 Keep this file current: update it with every change that lands (what changed, the version, what is pending). The plan
 is in [`PLAN.md`](PLAN.md).
 
-_Last updated: 2026-10-23._
+_Last updated: 2026-10-29._
 
 ## Versions
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.15.0 (2026-10-23, PR #50) | 0.15.1: dated memories |
-| memcode-status (mod) | 0.4.0 (2026-10-23, PR #50) | none |
+| memcode | 0.15.1 (2026-10-23, PR #51) | 0.15.2: injection events name the memory |
+| memcode-status (mod) | 0.4.0 (2026-10-23, PR #50) | 0.5.0: injections this session |
 
 ## What works
 
@@ -30,13 +30,24 @@ _Last updated: 2026-10-23._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.15.1)
+## Unreleased (memcode 0.15.2, memcode-status 0.5.0)
+
+- Injections show on the status bar. memcode's injection events (start, recalled, touch, held) carry how many
+  memories went into the coding agent's context and name the first one (`2 memories for this prompt: (pitfall,
+  2026-10-20) ...`; activity.first). The mod sums them for this session: `📥23 injected` on the bar, and
+  `23 injected (20 at start, 2 recalled, 1 on first touch)` in `/memcode-status`; the folder badge is `📂 FOLDER`.
+  The counter is part of the counts (`37 memories · 12 from you · 📥23 injected`, short `🧠37 📜12 📥23`), so it
+  never gives way on a narrow terminal. Fixed: the mod took the session's start after the start had run, so the
+  start block's injection (written by the SessionStart hook) was not counted; it now takes it before, minus a minute.
+- Tests: 240 Python, 14 mod.
+
+## Latest release (memcode 0.15.1)
 
 - Every memory shown carries the date it was last stated or changed (a measured command: when it last ran): start
   block (`- (design, 2026-10-20) ...`; what you said ends with `(2026-10-18)`), per-prompt recall, first touch, the
   memory agent's briefing and delta, `memcode list`, MCP search (`pinned.day`). Tests: 239 Python, 13 mod.
 
-## Latest release (memcode 0.15.0, memcode-status 0.4.0: flat memory graph, inference kinds)
+## Previous release (memcode 0.15.0, memcode-status 0.4.0: flat memory graph, inference kinds)
 
 - Step 1: memories gain `from_user`, `topic`, `importance`, `mkey`, `expires_at`, `stats`; new tables `memory_links`
   and `memory_vectors`; old rows migrate (corrections -> from_user, categories -> topic, decisions -> expiry).
