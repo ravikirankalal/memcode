@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.17.4 (2026-10-29, PR #60) | 0.18.0: feedback to the memory agent, stale review and eviction |
+| memcode | 0.18.0 (2026-10-29, PR #61) | none |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,7 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.18.0: the memory agent learns from feedback and keeps memory fresh)
+## Latest release (memcode 0.18.0: the memory agent learns from feedback and keeps memory fresh)
 
 - Acceptance feedback (feedback.py, table memory_feedback): a memory shown next to the work (per prompt, after an
   action, first touch, flagged) is judged `used` when a reply names it in a `memcode:` line, else `unused`; judged
@@ -52,7 +52,7 @@ _Last updated: 2026-10-29._
   way in the turn); $0.0015.
 - Tests: 271 Python, 14 mod.
 
-## Latest release (memcode 0.17.4)
+## Previous release (memcode 0.17.4)
 
 - Recall for natural questions (asked live: "How do I run the tests in this repo?" recalled nothing):
   - Each memory's vector also carries words for its topic, or a measured command's role (embed.WORDS: test -> "run
