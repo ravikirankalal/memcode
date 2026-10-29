@@ -16,6 +16,7 @@ from . import db
 DEFAULT_MODEL = "claude-haiku-5-5"
 MAX_CANDIDATES = 12          # candidates the memory agent may propose per piece, each rated 1-5
 MAX_BRIEF_MEMORIES = 60
+MAX_BRIEF_STALE = 12
 
 TOPICS = kinds.TOPICS
 
@@ -89,7 +90,10 @@ SYSTEM = (
     "Each message also tells you which memories memcode showed the coding agent were used (it named them in a "
     "memcode: line) and which were shown but not used, with counts. A memory used is working: leave it. A memory shown "
     "again and again but never used is either recalled for the wrong requests (update its text so it says plainly "
-    "what it is about) or noise (retire it); memcode stops recalling one after 3 unused showings until it changes.\n\n"
+    "what it is about) or noise (retire it); memcode stops recalling one after 3 unused showings until it changes.\n"
+    "Stale memories are about a file that changed or went away. Judge each from what you see (the transcript, or the "
+    "file's current opening shown with it): if it still holds, update it with the corrected full text and it comes "
+    "back; if it no longer holds, retire it. For these, evidence may quote the file's current text.\n\n"
     "Never propose: details that only matter for the current task, one-off requests ('for this change only', "
     "'park X, start Y now'), guesses nobody verified, general programming knowledge that holds in any project, anything the memory already "
     "says, or anything about the agent's own memory tools. A from_user memory is added, changed or retired only because "
@@ -153,6 +157,17 @@ def briefing(con, root: str, session: str) -> str:
         lines.append(f"- #{r['id']} {kind} [{where}]{mark}: {' '.join(r['text'].split())[:300]}")
     if not rows:
         lines.append("- (empty)")
+    from .curate import file_text, stale_days
+    stale = con.execute("SELECT * FROM memories WHERE stale=1 AND mkey IS NULL ORDER BY updated_at DESC LIMIT ?",
+                        (MAX_BRIEF_STALE,)).fetchall()
+    if stale:
+        lines.append(f"Stale (the file each is about changed or went away; update one that still holds and it comes "
+                     f"back, retire one that no longer does; memcode evicts the rest after {stale_days():g} days):")
+        for r in stale:
+            now = file_text(root, r["anchor_path"], 300)
+            lines.append(f"- #{r['id']} {label(r)} [{r['anchor_path']}], stale since {day(r['updated_at'])}: "
+                         f"{' '.join(r['text'].split())[:240]}" + (f" | {r['anchor_path']} now begins: {now}" if now
+                                                                    else f" | {r['anchor_path']} is gone"))
     try:
         from .. import facts
         fl = facts.lines(con, max_lines=12)

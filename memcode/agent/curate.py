@@ -41,6 +41,44 @@ def expire_decisions(con, session: str = "") -> int:
         con.commit()
     return len(rows)
 
+STALE_DAYS = 14             # a stale memory nobody updated is evicted after this long (MEMCODE_STALE_DAYS)
+
+
+def stale_days() -> float:
+    try:
+        return float(os.environ.get("MEMCODE_STALE_DAYS") or STALE_DAYS)
+    except ValueError:
+        return STALE_DAYS
+
+
+def evict_stale(con, session: str = "") -> int:
+    """Delete memories stale for stale_days() (their file changed or went away, and the memory agent neither updated
+    nor retired them); each is kept in memory_log ('evict'). Measured memories (facts) are left to facts.py."""
+    from .. import activity
+    cutoff = time.time() - stale_days() * 86400
+    rows = con.execute("SELECT * FROM memories WHERE stale=1 AND mkey IS NULL AND updated_at < ?", (cutoff,)).fetchall()
+    for r in rows:
+        _log(con, session, "evict", r["id"], before=r, after=f"stale for over {stale_days():g} days")
+    if rows:
+        store.delete_ids(con, [r["id"] for r in rows])
+        con.commit()
+        activity.note(con, "retired", f"evicted {len(rows)} memor{'y' if len(rows) == 1 else 'ies'} stale for over "
+                      f"{stale_days():g} days", len(rows))
+    return len(rows)
+
+
+def file_text(root, path: str, n: int = 0) -> str:
+    """A repository file on one line ('' when missing); n > 0: its first n characters."""
+    if not root or not path:
+        return ""
+    try:
+        with open(os.path.join(str(root), path), errors="replace") as fh:
+            t = " ".join(fh.read(400_000).split())
+    except OSError:
+        return ""
+    return t[:n] if n else t
+
+
 def unpin_howtos(con) -> int:
     """Notes stored before pins_content existed: drop the content pin of how-tos and non-code notes, so a still-true
     note stops going stale on every edit (session start revives the ones staled that way)."""
@@ -64,19 +102,27 @@ def _log(con, session, op, mid, before=None, after=None, evidence=""):
                 (time.time(), session, op, mid, json.dumps(dict(before)) if before is not None else None, after,
                  str(evidence)[:200]))
 
-def change(con, session: str, item: dict, condensed: str) -> int | None:
+def change(con, session: str, item: dict, condensed: str, root=None) -> int | None:
     """update / retire a numbered memory. Same evidence and conflict checks as add; a user rule changes only on the
     user's own words. Retire deletes the row (staleness is recomputed from the tree, so it cannot hold a withdrawal);
-    the old row is kept in memory_log. -> the memory id changed, or None."""
+    the old row is kept in memory_log. A stale memory (its file changed) may also be judged on that file's current
+    text: evidence quoted from it counts; an update revives it, anchored to the file as it is now.
+    -> the memory id changed, or None."""
     from .. import activity
     op = item.get("op")
     try:
         target = int(item.get("target") or 0)
     except (TypeError, ValueError):
         return None
-    row = con.execute("SELECT * FROM memories WHERE id=? AND stale=0", (target,)).fetchone() if target > 0 else None
-    if row is None or checks.verified(dict(item, kind="note"), condensed) is None:
+    row = con.execute("SELECT * FROM memories WHERE id=?", (target,)).fetchone() if target > 0 else None
+    if row is None:
         return None
+    if checks.verified(dict(item, kind="note"), condensed) is None:
+        ev_n = checks._norm(item.get("evidence", ""))
+        in_file = (row["stale"] and len(ev_n) >= 8 and len(" ".join(str(item.get("text", "")).split())) >= 8
+                   and ev_n in checks._norm(file_text(root, row["anchor_path"])))
+        if not in_file:
+            return None
     if op == "update" and checks.echoes_context(con, session, item, condensed):
         return None
     is_rule = bool(row["from_user"])
@@ -100,9 +146,31 @@ def change(con, session: str, item: dict, condensed: str) -> int | None:
         con.execute("UPDATE memories SET text=?, updated_at=?, expires_at=?, unusual=? WHERE id=?",
                     (text, now, now + decision_days() * 86400 if is_decision else row["expires_at"],
                      int(item["unusual"]) if isinstance(item.get("unusual"), bool) else row["unusual"], target))
+        if row["stale"]:
+            _revive(con, root, row)
         activity.note(con, "updated", f"updated #{target}: {text}")
         return target
     return None
+
+def _revive(con, root, row) -> None:
+    """A stale memory the agent updated holds for the file as it is now: anchor it there and mark it fresh."""
+    h, sh = row["anchor_hash"], row["symbol_hash"]
+    p = os.path.join(str(root), row["anchor_path"]) if root and row["anchor_path"] else ""
+    if p and os.path.isfile(p):
+        if h is not None:
+            with open(p, "rb") as fh:
+                h = store.sha1(fh.read())
+        if row["anchor_symbol"]:
+            try:
+                from .. import symbols
+                with open(p, errors="replace") as fh:
+                    sh = symbols.current_symbol_hash(fh.read(), row["anchor_symbol"])
+            except (ValueError, OSError):
+                pass
+    elif row["anchor_path"]:
+        h = sh = None                    # the file is gone: keep the memory, tied to nothing that can change under it
+    con.execute("UPDATE memories SET stale=0, anchor_hash=?, symbol_hash=? WHERE id=?", (h, sh, row["id"]))
+
 
 def flat(item: dict) -> dict:
     """The agent's flat output (from_user, topic) in the shape the checks read (kind, category). Items in the older
@@ -165,7 +233,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
                 recalls += 1
             continue
         if item.get("op") in ("update", "retire"):
-            mid = change(con, session, item, condensed)
+            mid = change(con, session, item, condensed, root)
             if mid is not None:
                 ids.append(mid)
                 if item.get("op") == "update":

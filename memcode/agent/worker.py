@@ -161,6 +161,7 @@ def run_worker(root: str, extract_fn=model.extract) -> int:
     db.ensure(con)
     curate.unpin_howtos(con)
     curate.expire_decisions(con)
+    curate.evict_stale(con)
     stored = 0
     from .. import activity
     try:

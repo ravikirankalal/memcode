@@ -35,6 +35,8 @@ def session_start(con, root: str, session: str, prepare_only: bool = False) -> s
     _safely(con, lambda: scope.rescope_new(con, root))    # where each new or re-anchored memory applies
     from . import graph
     _safely(con, lambda: graph.update(con))               # vectors and links of new or changed memories
+    from .agent import curate
+    _safely(con, lambda: curate.evict_stale(con))         # stale too long, and nobody updated or retired them
     text = pinned.render_pinned(con, root)
     rules, notes = pinned.count_injected(text)
     store.bump(con, session, "rules_injected", rules)
