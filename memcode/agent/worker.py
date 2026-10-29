@@ -91,7 +91,14 @@ def scan_one(con, root: str, session: str, path: str, offset: int, extract_fn=mo
     if len(condensed) < MIN_NEW_CHARS and "[user] " not in condensed:
         return offset, [], 0.0                          # too little yet: kept for the next scan, never skipped
     from .. import feedback
-    feedback.judge(con, session, condensed)             # did the coding agent use what memcode showed it?
+    row = con.execute("SELECT result FROM transcript_scans WHERE session=?", (session,)).fetchone()
+    judged_at = db.loads(row[0]).get("judged_at") if row else None
+    if judged_at is not None or offset == 0:            # did the coding agent use what memcode showed it?
+        feedback.judge(con, session, condensed, since=judged_at or 0.0)
+    # (a session read before judging existed: its earlier showings were answered in text already read, so this scan
+    # only starts the clock)
+    con.execute("UPDATE transcript_scans SET result=json_set(COALESCE(result, '{}'), '$.judged_at', ?) WHERE session=?",
+                (time.time(), session))
     budget = session_budget(len(lines))
     spent = con.execute("SELECT cost_usd FROM transcript_scans WHERE session=?", (session,)).fetchone()
     total = (spent[0] if spent else 0.0) + conversation.opening_cost(con, session)

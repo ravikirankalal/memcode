@@ -44,6 +44,13 @@ class Feedback(unittest.TestCase):
         self.assertTrue(lines[0].startswith(f"- used: #{self.tests} (recalled for a prompt; 1 used, 0 unused so far)"))
         self.assertTrue(lines[1].startswith(f"- shown but not used: #{self.noise} (recalled for a prompt; 0 used, 1"))
 
+    def test_only_showings_since_the_previous_judging_are_judged(self):
+        now = time.time()
+        self.con.executemany("INSERT INTO injections(session,memory_id,ts,source) VALUES('s',?,?,'prompt')",
+                             [(self.tests, now - 100), (self.noise, now)])   # the first answered in text read long ago
+        self.assertEqual(feedback.judge(self.con, "s", "[agent] about the docs", since=now - 50), ([], [self.noise]))
+        self.assertNotIn(self.tests, feedback.counts(self.con))
+
     def test_the_start_block_is_not_judged(self):
         self.show("s", self.tests, source="pinned")
         self.assertEqual(feedback.judge(self.con, "s", "[agent] done"), ([], []))
@@ -75,8 +82,23 @@ class Feedback(unittest.TestCase):
                                ("assistant", "> memcode: tests run with `make check`, pytest misses the fixtures.")):
                 content = text if role == "user" else [{"type": "text", "text": text}]
                 fh.write(json.dumps({"type": role, "message": {"role": role, "content": content}}) + "\n")
+        worker.enqueue(self.con, "s1", path)
         worker.scan_one(self.con, self.d, "s1", path, 0, lambda text, ctx=None: {"items": [], "model": "f", "cost_usd": 0})
         self.assertEqual(feedback.counts(self.con).get(self.tests), (1, 0))
+
+    def test_a_session_read_before_judging_existed_starts_the_clock_first(self):
+        from memcode.agent import worker
+        import json
+        self.show("s2", self.tests)                                          # shown before the upgrade
+        path = os.path.join(self.d, "t2.jsonl")
+        with open(path, "w") as fh:
+            for i in range(3):
+                fh.write(json.dumps({"type": "user", "message": {"role": "user", "content": f"turn {i} " * 40}}) + "\n")
+            fh.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "text", "text": "an answer that names nothing " * 20}]}}) + "\n")
+        worker.enqueue(self.con, "s2", path)
+        worker.scan_one(self.con, self.d, "s2", path, 1, lambda text, ctx=None: {"items": [], "model": "f", "cost_usd": 0})
+        self.assertEqual(feedback.counts(self.con), {})                     # not judged against the wrong replies
 
 
 if __name__ == "__main__":

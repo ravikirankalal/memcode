@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.17.4 (2026-10-29, PR #60) | 0.18.0: feedback to the memory agent, stale review and eviction |
+| memcode | 0.18.0 (2026-10-29, PR #61) | 0.18.1: verdicts only for showings since the previous judging |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,19 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.18.0: the memory agent learns from feedback and keeps memory fresh)
+## Unreleased (memcode 0.18.1)
+
+- Fix, found testing 0.18.0 in this session: the first scan after the upgrade judged every memory shown during the
+  whole session against only the replies since the previous scan, so memories named in earlier replies were marked
+  unused (#20 the subagents rule, #78 the test command, #107 branching). Now each scan judges only memories shown since
+  the previous judging (`judged_at` in transcript_scans), and a session that was being read before judging existed
+  starts the clock without verdicts. This session's 17 verdicts for earlier showings were removed by hand; the one
+  fair verdict (#111, branching, used) was kept.
+- Seen working: proposal feedback (two candidates rated 3 recorded "rated 3; this kind is kept from 4"). Stale review
+  waits for the next session: the stale list is in the briefing, sent when the conversation opens.
+- Tests: 273 Python, 14 mod.
+
+## Latest release (memcode 0.18.0: the memory agent learns from feedback and keeps memory fresh)
 
 - Acceptance feedback (feedback.py, table memory_feedback): a memory shown next to the work (per prompt, after an
   action, first touch, flagged) is judged `used` when a reply names it in a `memcode:` line, else `unused`; judged
@@ -52,7 +64,7 @@ _Last updated: 2026-10-29._
   way in the turn); $0.0015.
 - Tests: 271 Python, 14 mod.
 
-## Latest release (memcode 0.17.4)
+## Previous release (memcode 0.17.4)
 
 - Recall for natural questions (asked live: "How do I run the tests in this repo?" recalled nothing):
   - Each memory's vector also carries words for its topic, or a measured command's role (embed.WORDS: test -> "run
