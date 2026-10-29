@@ -40,7 +40,9 @@ Together the memories form a graph: links come from shared files, close vectors 
 | Moment | Module | What the coding agent gets |
 |---|---|---|
 | Session start | `engine.session_start` → `pinned.py` | What you said (as instructions), then one ranked list of memories (importance, connections, recalls, recency) and the map (as data) |
-| Each prompt | `engine.prompt` → `retrieval.py` | The few memories closest to this request (embedding cosine plus path boosts), and their strongest neighbours in the graph |
+| Each prompt | `engine.prompt` → `retrieval.py` | The few memories closest to this request and the recent conversation (embedding cosine plus path boosts), and their strongest neighbours in the graph |
+| After a command or an edit | `engine.tool_result` → `retrieval.for_action` | The memories closely related to what was just run or changed |
+| Next prompt or tool call after a turn | `agent/curate.queue_recall` → `retrieval.flagged` | What the memory agent flagged for the next step, with its reason |
 | First read of a folder | `engine.touch` → `scope.py` | That folder's memories and their neighbours |
 | First write into a folder | `engine.before_write` → `scope.py` | The write is held once, with the folder's unseen rules as the reason |
 | Any time | `mcp_server.py` | `memory_search`, `memory_add`, `memory_pinned`, `memory_facts` tools |

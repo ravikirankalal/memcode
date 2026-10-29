@@ -74,23 +74,29 @@ def prompt(con, root: str, session: str, text: str) -> str:
         con.executemany("INSERT INTO injections(session,memory_id,ts,source) VALUES(?,?,?,'stated')",
                         [(session, i, now) for i in stated])
         con.commit()
-    ctx = ""
     from . import retrieval
+    parts = [retrieval.flagged(con, session)]                 # what the memory agent flagged after the last turn
     if retrieval.enabled(root):
-        ctx = retrieval.for_prompt(con, root, session, text)
-    return ctx
+        parts.append(retrieval.for_prompt(con, root, session, text))
+    return "\n\n".join(p for p in parts if p)
 
 
 def tool_result(con, root: str, ev: dict) -> str:
     """Feed one finished tool call (normalized shape above) to the triggers and the facts table. Returns context to
-    inject next to the tool result ('' unless MEMCODE_HIER: the scoped memories of a path touched for the first time).
+    inject next to the tool result: the scoped memories of a path touched for the first time (MEMCODE_HIER), what
+    the memory agent flagged, and (retrieval on) the memories closely related to the command or edit just made.
     Reads only feed that first touch: they never reach the triggers, whose correction logic counts agent actions."""
     if str(ev.get("tool", "")).lower() not in READ_TOOLS:
         from . import facts
         from .triggers import TriggerEngine
         TriggerEngine(con, root).handle_batch([dict(ev, kind="tool_use"), dict(ev, kind="tool_result")])
         _safely(con, lambda: facts.observe(con, root, ev))
-    return touch(con, root, ev)
+    from . import retrieval
+    session = ev.get("session", "unknown")
+    parts = [touch(con, root, ev), retrieval.flagged(con, session)]
+    if str(ev.get("tool", "")).lower() not in READ_TOOLS and retrieval.enabled(root):
+        parts.append(retrieval.for_action(con, root, session, ev))   # memories about the command or edit just made
+    return "\n\n".join(p for p in parts if p)
 
 
 WRITE_TOOLS = ("write", "edit", "multiedit", "notebookedit")

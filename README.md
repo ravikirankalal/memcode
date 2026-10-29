@@ -44,7 +44,9 @@ change it makes is in `memcode history`. Memories apply where they belong: a rul
 
 **Trigger.** At session start the agent gets what you said as instructions, then one list of memories ranked by
 importance and connections, and a compact repo map, as data. On each prompt it gets the few memories closest to that
-prompt and their neighbours. The first time it reads a folder it gets that folder's memories; if its first contact is
+prompt and to the recent conversation, and their neighbours; after a command or an edit, the memories about it; and
+after each turn, what the memory agent flagged for its next step (a decision that parks the item being started, a
+pitfall about the command at hand), with the reason. The first time it reads a folder it gets that folder's memories; if its first contact is
 a write, the write is held once with the folder's rules as the reason. It can also ask for memory any time through MCP
 tools.
 
