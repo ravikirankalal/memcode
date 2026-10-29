@@ -17,7 +17,7 @@ _Last updated: 2026-10-29._
 | Duty | Feature | Since | Notes |
 |---|---|---|---|
 | Extract | Pattern triggers: correction, revert, fail-to-fix, retry, dependency change | 0.1 | instant; requests for now are never rules (#33) |
-| Extract | Memory agent: a running conversation per coding session (opened at SessionStart, resumed each turn); candidates of every kind rated 1–5, best kept | 0.9 (ranking 0.11, conversation 0.13) | Haiku through the user's `claude` login; per-session budget $0.10–0.50; restarts after 30 calls or ~40k tokens |
+| Extract | Memory agent: a running conversation per coding session (opened at SessionStart, resumed each turn); candidates of every kind rated 1–5, best kept | 0.9 (ranking 0.11, conversation 0.13) | Haiku through the user's `claude` login; no per-session limit since 0.17 (MEMCODE_CAPTURE_BUDGET_USD sets one); restarts after 30 calls or ~40k tokens |
 | Extract | Decisions about ongoing work, with subject keys, dated, expire after 30 days | 0.11 | never the agent's own progress (0.11.1) |
 | Extract | Facts: confirmed commands, repo manifests (npm, make, pyproject, Cargo, Go, Maven, Gradle), missing tools, fragile folders | 0.5 (Maven/Gradle 0.14) | scripts and one-off commands are not recorded (#36) |
 | Extract | Project profile inferred by the memory agent: stack, integration, component, structure, domain, convention | 0.14 | from commands, [read] and [edited] lines; on the branch: also infra, deployment, branching, location, reference, and an unusual flag (memcode/kinds.py) |
@@ -50,7 +50,8 @@ _Last updated: 2026-10-29._
   Live check on a fresh clone of this repository: 11 candidates, kept 8 (stdlib-only Python 3.9+, the shared store
   as unusual, releases as marketplace pushes as unusual, docs locations, layout, update commands, branching).
 - Found by `memcode doctor` on this repository: this long session spent its memory-agent budget ($0.10), so 1705
-  transcript lines were not scanned.
+  transcript lines were not scanned. So the memory agent's budget is now unlimited by default (every turn is read);
+  `MEMCODE_CAPTURE_BUDGET_USD` sets a per-session limit; each model call stays capped at $0.25.
 - README: a 'What you'll see' section (the first-session line, a start block, where memories come back).
 - Tests: 256 Python (also on 3.9), 14 mod.
 

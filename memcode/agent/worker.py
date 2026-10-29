@@ -14,20 +14,21 @@ from . import conversation, curate, db, model, transcript
 
 MIN_NEW_CHARS = 400          # a scan needs at least this much new condensed text
 MAX_ATTEMPTS = 2
-MIN_SESSION_USD, MAX_SESSION_USD = 0.10, 0.50  # per-session budget: grows with the transcript between these, then stops
-USD_PER_1K_LINES = 0.03      # about what scanning 1,000 transcript lines costs on Haiku
+USD_PER_1K_LINES = 0.03      # about what scanning 1,000 transcript lines costs on Haiku (for the docs; no limit)
 
 
 def session_budget(n_lines: int) -> float:
-    """What one session may spend: MEMCODE_CAPTURE_BUDGET_USD if set, else $0.10 rising with the transcript's length
-    (a long session has more to read) up to $0.50."""
+    """What one session may spend: unlimited by default (every turn is read); MEMCODE_CAPTURE_BUDGET_USD sets a limit,
+    past which the rest of that session is skipped and reported. (Each model call is still capped at $0.25.)"""
     env = os.environ.get("MEMCODE_CAPTURE_BUDGET_USD")
     if env:
         try:
-            return float(env)
+            v = float(env)
+            if v > 0:
+                return v
         except ValueError:
             pass
-    return min(MAX_SESSION_USD, max(MIN_SESSION_USD, USD_PER_1K_LINES * n_lines / 1000))
+    return float("inf")
 
 def enabled(root) -> bool:
     """On by default since 0.9.0 (tc2 gate, bench/live/RESULTS.md Run 17). Off with MEMCODE_TRANSCRIPT_CAPTURE=0 or

@@ -102,7 +102,7 @@ alias memcode='python3 "$(ls -d ~/.claude/plugins/cache/memcode/memcode/*/ | sor
 One line above the prompt: what memcode holds and how many memories this session injected into the agent's context
 (always shown: on a narrow terminal as `🧠37 📜12 📥23`); the latest thing it did, as a coloured badge (`🧠 SAVED`, `✏️ UPDATED`,
 `🗑 RETIRED`, `💡 RECALLED`, `📂 FOLDER`, `✋ HELD`, `🚀 LOADED`; an injection names the first memory it put in), or
-`⚠ PROBLEM` / `💸 BUDGET` when the memory agent needs attention; the memory agent's state (`🔍 reading...` while it
+`⚠ PROBLEM` / `💸 BUDGET` (only with a budget you set) when the memory agent needs attention; the memory agent's state (`🔍 reading...` while it
 reads a turn, else when it last read one); and what this session saved. On a narrow terminal the tally, the agent's state and the count labels give way first.
 `/memcode-status` prints the same as a short dashboard with the last 8 events, and where this session's injections
 went in (`23 injected (20 at start, 2 recalled, 1 on first touch)`). Install it with
@@ -111,9 +111,9 @@ went in (`23 injected (20 at start, 2 recalled, 1 on first touch)`). Install it 
 ## Privacy and cost
 
 After each turn the memory agent sends the new part of the session log to a model through your own `claude` login,
-the same provider the coding agent already sent it to (Haiku by default, about $0.004 per 24,000 characters of log, at
-most $0.50 per session). Everything memcode stores stays local, in `.memcode/`. Turn the memory agent off with
-`/memcode:cli config memory-agent off`.
+the same provider the coding agent already sent it to (Haiku by default, about $0.004 per 24,000 characters of log,
+about $0.03 per 1,000 lines; no per-session limit unless you set one with `MEMCODE_CAPTURE_BUDGET_USD`). Everything
+memcode stores stays local, in `.memcode/`. Turn the memory agent off with `/memcode:cli config memory-agent off`.
 
 ## Docs
 

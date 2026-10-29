@@ -117,9 +117,10 @@ approach, a hypothesis a command verified or disproved. Each carries a short sub
 same subject replaces it, and your words can update or retire it ("go ahead with the develop MR"). They expire 30 days
 after they were last stated (`MEMCODE_DECISION_DAYS`).
 
-**Cost and failures.** About $0.004 per piece of log (24,000 condensed characters) on Haiku. Each session may spend $0.10,
-rising $0.03 per 1,000 log lines up to $0.50 (`MEMCODE_CAPTURE_BUDGET_USD` sets it outright); past it, the rest of that
-session is skipped and the status bar shows a yellow `💸 BUDGET` badge. If the model call fails (the CLI does not know
+**Cost and failures.** About $0.004 per piece of log (24,000 condensed characters) on Haiku. There is no per-session limit:
+every turn is read (about $0.03 per 1,000 log lines; each model call is capped at $0.25). To set one, use
+`MEMCODE_CAPTURE_BUDGET_USD` (dollars per session); past it, the rest of that session is skipped and the status bar
+shows a yellow `💸 BUDGET` badge. If the model call fails (the CLI does not know
 the model, or its login expired), the status bar shows a red `⚠ PROBLEM` badge with the fix and `/memcode:status` says
 the same; nothing is lost meanwhile, the next turn reads everything not read yet, oldest first.
 
