@@ -19,6 +19,16 @@ MAX_BRIEF_MEMORIES = 60
 
 TOPICS = kinds.TOPICS
 
+
+def _absolute_preloads(opts: str) -> str:
+    """The `claude` launcher exports `--preload <path relative to its cwd>`; the CLI we spawn runs elsewhere, where that
+    path no longer resolves ('preload not found'). Make relative preload paths absolute against our own cwd."""
+    parts = opts.split()
+    for i, a in enumerate(parts[:-1]):
+        if a == "--preload" and not os.path.isabs(parts[i + 1]):
+            parts[i + 1] = os.path.abspath(parts[i + 1])
+    return " ".join(parts)
+
 SYSTEM = (
     "You are memcode's memory agent for one software repository. memcode gives coding agents a memory that carries "
     "across sessions. Every memory is one short statement. A memory the USER stated in their own words (what they "
@@ -154,6 +164,8 @@ def extract(text: str, context: str = "", model: str | None = None, timeout: int
            "--tools", "", *convo, "--max-budget-usd", "0.25", "--output-format", "json",
            "--system-prompt", SYSTEM, "--json-schema", SCHEMA]
     env = dict(os.environ, MEMCODE_DISABLE="1")
+    if env.get("BUN_OPTIONS"):
+        env["BUN_OPTIONS"] = _absolute_preloads(env["BUN_OPTIONS"])
     try:
         with tempfile.TemporaryDirectory() as tmp:
             p = subprocess.run(cmd, cwd=(session or {}).get("cwd") or tmp, env=env, capture_output=True, text=True,
