@@ -147,7 +147,9 @@ at session start.
 - **The graph.** Each memory has a local vector (hashed TF-IDF over its words, identifier parts and paths) and links:
   `same_file`, `similar` (close vectors) and the memory agent's own. `memcode show ID` lists a memory's links.
 - **Your control.** `/memcode:list`, `memcode show ID`, `/memcode:forget ID`, `memcode add TEXT [--path P] [--topic
-  T]` (information, not an instruction), `memcode export`.
+  T]` (information, not an instruction), `memcode edit ID TEXT [--topic T]` (correct a memory in place: it stays from
+  you if it was, a decision's expiry starts over, the old text is kept in `memcode history`; measured commands are
+  rebuilt as they run, so they are not edited), `memcode export`.
 
 ## Trigger: delivering memory at the right moment
 

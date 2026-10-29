@@ -35,6 +35,36 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 0); self.assertIn("retrievals=1", out); self.assertIn("(repo-wide)", out)
         self.assertEqual(run(self.root, "show", "999")[0], 1)
 
+    def test_edit_corrects_in_place_and_logs_the_old_text(self):
+        code, out, _ = run(self.root, "edit", str(self.a), "Always use tabs, except in YAML.", "--topic", "convention")
+        self.assertEqual((code, out.strip()), (0, f"edited #{self.a}"))
+        con = store.connect(self.root)
+        r = con.execute("SELECT * FROM memories WHERE id=?", (self.a,)).fetchone()
+        self.assertEqual((r["text"], r["topic"], r["from_user"]), ("Always use tabs, except in YAML.", "convention", 1))
+        con.close()
+        _, hist, _ = run(self.root, "history", "-n", "1")
+        self.assertIn("edit", hist); self.assertIn("was: Always use tabs.", hist)
+        self.assertEqual(run(self.root, "edit", str(self.a), "Always use tabs, except in YAML.")[1].strip(),
+                         f"#{self.a} unchanged")
+        self.assertEqual(run(self.root, "edit", "999", "x")[0], 1)
+        self.assertEqual(run(self.root, "edit", str(self.a), "   ")[0], 2)
+
+    def test_edit_restates_a_decision_and_leaves_measured_commands_alone(self):
+        import time
+        from memcode import facts
+        con = store.connect(self.root)
+        d = store.add_memory(con, "agent", "G16 is parked.", "", None, {}, topic="decision", expires_at=time.time() + 5)
+        facts.ensure(con)
+        facts._upsert(con, "cmd:make check", "command", "test", "make check", "observed", ok=1, runs=1)
+        cmd = con.execute("SELECT id FROM memories WHERE mkey='cmd:make check'").fetchone()[0]
+        con.commit(); con.close()
+        self.assertEqual(run(self.root, "edit", str(d), "G16 is parked until December.")[0], 0)
+        con = store.connect(self.root)
+        self.assertGreater(con.execute("SELECT expires_at FROM memories WHERE id=?", (d,)).fetchone()[0],
+                           time.time() + 20 * 86400)
+        con.close()
+        self.assertEqual(run(self.root, "edit", str(cmd), "make test")[0], 2)
+
     def test_forget_removes_dependents(self):
         code, out, _ = run(self.root, "forget", str(self.a), "999")
         self.assertEqual(code, 1); self.assertIn("forgot 1 of 2", out)
