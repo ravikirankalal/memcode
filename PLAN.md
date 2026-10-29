@@ -59,11 +59,17 @@ vars matter, never the values), API contracts (public endpoints, versioning, gen
 tables and schema migrations), local setup (what a fresh machine needs), monitoring and alerting (what pages whom),
 performance budgets, test data and fixtures, release cadence.
 
+## On the branch, not released: recall beyond the prompt (0.16.0)
+
+Per-prompt recall also reads the recent conversation; memories about a command or an edit come back right after it;
+the memory agent flags memories for the coding agent's next step (`recall`), delivered with the reason; a start-block
+memory may come back once when it becomes clearly relevant.
+
 ## Next steps
 
 1. **Guardian, first slice**: at `PreToolUse` for Bash, match the command against facts and pitfalls (for example
-   `pytest` in a repo whose tests only run through `make check`) and add a one-line reminder before it runs. Today the
-   only timely trigger is the held first write into a folder.
+   `pytest` in a repo whose tests only run through `make check`) and add a one-line reminder before it runs. Recall
+   after the action (0.16) comes one step late for a command that should not run at all.
 2. **A small recall check that ships with the repo**: the benchmarks were removed in 0.12; a short, offline-replayable
    check of the memory agent (a fixed log, its expected memories, the model call mocked or recorded) so prompt changes
    can be judged without a paid run.

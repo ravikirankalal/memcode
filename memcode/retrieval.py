@@ -10,10 +10,13 @@ Relevance (stdlib, deterministic), summed per memory:
     prompt mentions a path inside it ("billing/refunds.py")                                (+SCOPE_W)
   * anchor file edited by the agent earlier in this session                               (+ACTIVE_W)
   * similarity: cosine of the prompt's and the memory's local embeddings (embed.py), counted from VEC_MIN
-    (0..VEC_W)
+    (0..VEC_W); plus CONTEXT_W times the cosine with the recent conversation (the session's last CONTEXT_PROMPTS
+    prompts and CONTEXT_TOOLS tool calls: commands, files, edits), so a decision or a fact about what the work is on
+    comes back even when this prompt does not name it
 Candidates: every live memory except facts not worth showing (facts.shown) and expired ones. Only memories scoring
 >= MIN_SCORE are shown, at most TOP_K, under TOKEN_CAP, never one already shown in this session (pinned or
-retrieved), never a stale one. Ranking: the relevance top TOP_K, plus up to HOP_K neighbours of those in the memory
+retrieved; a memory that was only in the start block is shown once more when it scores RESHOW_MIN), never a stale
+one. Ranking: the relevance top TOP_K, plus up to HOP_K neighbours of those in the memory
 graph (graph.py), plus up to PROMOTE_K extra slots for relevant memories outside the top with strong cost evidence
 (restated by the user or a recurring failure, decayed weight >= PROMOTE_MIN), best salience first.
 Framing matches the pinned block: user rules as rules, everything else inside the untrusted wrapper.
@@ -39,6 +42,10 @@ MIN_SCORE = 0.8
 HOP_K = 2                 # neighbours of the top memories in the memory graph
 HOP_MIN = 0.3             # link weight a neighbour needs
 VEC_MIN = 0.15            # cosine below this is noise
+CONTEXT_W = 0.5           # the recent conversation counts half as much as the prompt itself
+CONTEXT_PROMPTS, CONTEXT_TOOLS = 3, 12   # how much of the recent conversation: earlier prompts, tool calls
+RESHOW_MIN = 2.4          # a memory already in the start block is shown again next to the work only this relevant
+ACTION_MIN, ACTION_K = 1.5, 2   # recall after a command or an edit: stricter, and at most this many
 PATH_W, SCOPE_W, ACTIVE_W, VEC_W = 3.0, 2.0, 1.0, 3.0
 STOP = set("""a an and are as at be but by can do does for from has have how i if in into is it its just
 let me my no not of on or our please so that the their them then there these this those to up us use
@@ -113,6 +120,35 @@ def _active_files(con, session: str) -> set[str]:
     return out
 
 
+def context_text(con, session: str, skip: str = "") -> str:
+    """The recent conversation of a session, as text to compare memories with: its last CONTEXT_PROMPTS prompts
+    (not `skip`, the one being answered) and CONTEXT_TOOLS tool calls (the command, the file, the start of an edit)."""
+    prompts, tools = [], []
+    for kind, payload in con.execute("SELECT kind, payload FROM events WHERE session=? AND kind IN ('prompt', "
+                                     "'tool_use') ORDER BY id DESC LIMIT 80", (session,)):
+        try:
+            e = json.loads(payload)
+        except ValueError:
+            continue
+        if kind == "prompt" and len(prompts) < CONTEXT_PROMPTS:
+            t = str(e.get("prompt") or "")
+            if t and t != skip:
+                prompts.append(t[:600])
+        elif kind == "tool_use" and len(tools) < CONTEXT_TOOLS:
+            tools.append(action_text(e))
+    return "\n".join(prompts + [t for t in tools if t])
+
+
+def action_text(ev: dict) -> str:
+    """What a tool call is about: its command, or its file and the start of the new text."""
+    inp = ev.get("input") if isinstance(ev.get("input"), dict) else {}
+    if ev.get("command"):
+        return str(ev["command"])[:400]
+    path = ev.get("file_path") or inp.get("file_path") or inp.get("notebook_path") or ""
+    body = inp.get("new_string") or inp.get("content") or ""
+    return f"{path} {str(body)[:300]}".strip()
+
+
 def _candidates(con) -> list[dict]:
     """Live memories that may be recalled: not expired; facts only those worth showing."""
     from . import facts
@@ -125,7 +161,7 @@ def _candidates(con) -> list[dict]:
             if r["mkey"] is None or r["id"] in fact_ids]
 
 
-def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]:
+def score(con, root: str, session: str, prompt: str, context: str = "") -> list[tuple[float, dict]]:
     """[(score, memory row as dict)] for candidate memories, best first (only score >= MIN_SCORE). With MEMCODE_HIER
     the first TOP_K are the per-level allocation (scope.allocate), nearest scope first; the rest follow by score."""
     hier = scope.hier_enabled()
@@ -137,7 +173,9 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     # block already listed it; a start-block mention among many was followed less often than one beside the request
     again = lambda r: (hier and src.get(r["id"]) == {"pinned"} and bool(r["anchor_path"])
                        and _mentions(prompt_l, r["anchor_path"], r["anchor_symbol"]))
-    rows = [r for r in _candidates(con) if r["id"] not in src or again(r)]
+    # never twice in a session, except a memory that was only in the start block (long ago, among many): it may come
+    # back once next to the work when it is clearly relevant (RESHOW_MIN), or when the prompt names its file (again)
+    rows = [r for r in _candidates(con) if r["id"] not in src or src[r["id"]] == {"pinned"}]
     if not rows:
         return []
     from . import embed
@@ -147,6 +185,9 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
     idfs = embed.idf(vectors)
     q = embed.weigh(embed.vector(prompt), idfs)
     cos = {r["id"]: embed.cosine(q, embed.weigh(vectors[r["id"]], idfs)) if r["id"] in vectors else 0.0 for r in rows}
+    qc = embed.weigh(embed.vector(context), idfs) if context else {}
+    ccos = {r["id"]: embed.cosine(qc, embed.weigh(vectors[r["id"]], idfs)) if qc and r["id"] in vectors else 0.0
+            for r in rows}
     active = _active_files(con, session)
     rootp = os.path.realpath(root).replace(os.sep, "/") + "/"
     prompt_paths = path_tokens(prompt)
@@ -164,8 +205,8 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
             sc_named = bool(sp) and sp != a and scope.scope_named(prompt_l, sp, r.get("scope_kind"))
             if spl and not (on_chain or named or sc_named or scope.inside(spl, ws)):
                 continue                                  # off-chain: outside this request's scope
-        c = cos[r["id"]]
-        s = VEC_W * c if c >= VEC_MIN else 0.0
+        c, cc = cos[r["id"]], ccos[r["id"]]
+        s = (VEC_W * c if c >= VEC_MIN else 0.0) + (CONTEXT_W * VEC_W * cc if cc >= VEC_MIN else 0.0)
         active_hit = bool(a) and any(f == a or f.endswith("/" + a) or f == rootp + a for f in active)
         if named or (hier and sc_named):
             s += PATH_W
@@ -175,6 +216,8 @@ def score(con, root: str, session: str, prompt: str) -> list[tuple[float, dict]]
             s += SCOPE_W
         if active_hit:
             s += ACTIVE_W
+        if r["id"] in src and not again(r) and s < RESHOW_MIN:
+            continue                                      # in the start block already, and not relevant enough
         if s >= MIN_SCORE:
             out.append((s, r))
     out.sort(key=lambda x: (-x[0], -x[1]["updated_at"], -x[1]["id"]))
@@ -250,8 +293,9 @@ def render(scored: list[tuple[float, dict]], con=None, session: str = "") -> tup
 
 
 def for_prompt(con, root: str, session: str, prompt: str) -> str:
-    """Context to add for this prompt ('' when nothing is relevant). Records what was shown."""
-    text, ids = render(score(con, root, session, prompt), con, session)
+    """Context to add for this prompt ('' when nothing is relevant), judged against the prompt and the recent
+    conversation. Records what was shown."""
+    text, ids = render(score(con, root, session, prompt, context_text(con, session, skip=prompt)), con, session)
     if ids:
         now = time.time()
         con.executemany("INSERT INTO injections(session,memory_id,ts,source) VALUES(?,?,?,'prompt')",
@@ -262,3 +306,66 @@ def for_prompt(con, root: str, session: str, prompt: str) -> str:
         activity.note(con, "recalled", f"{len(ids)} memor{'y' if len(ids) == 1 else 'ies'} for this prompt"
                       f"{activity.first(con, ids)}", len(ids))
     return text
+
+
+def for_action(con, root: str, session: str, ev: dict) -> str:
+    """Context to add after a command or an edit: the few memories closely related to that action (at most ACTION_K,
+    scoring ACTION_MIN), e.g. the pitfall or the fact about how tests run here after a test command. Records them."""
+    query = action_text(ev)
+    if not query:
+        return ""
+    scored = [x for x in score(con, root, session, query)            # a measured command would only echo the action
+              if x[0] >= ACTION_MIN and x[1]["trigger"] != "command"][:ACTION_K]
+    text, ids = render(scored, None)
+    if not ids:
+        return ""
+    text = text.replace("relevant to this request", "relevant to what you just did")
+    now = time.time()
+    con.executemany("INSERT INTO injections(session,memory_id,ts,source) VALUES(?,?,?,'action')",
+                    [(session, i, now) for i in ids])
+    con.commit()
+    from . import activity
+    what = (f"`{query[:40]}`" if ev.get("command") else query.split(" ", 1)[0])
+    activity.note(con, "recalled", f"{len(ids)} memor{'y' if len(ids) == 1 else 'ies'} for {what}"
+                  f"{activity.first(con, ids)}", len(ids))
+    return text
+
+
+def flagged(con, session: str) -> str:
+    """Memories the memory agent flagged for what the session is doing now (agent.curate.queue_recall), with its
+    reason, delivered once at the next prompt or tool call; a memory already shown this session (beyond the start
+    block) is skipped. Records them."""
+    rows = con.execute("SELECT p.memory_id, p.why, m.* FROM pending_recalls p JOIN memories m ON m.id=p.memory_id "
+                       "WHERE p.session=? AND m.stale=0 ORDER BY p.ts", (session,)).fetchall()
+    if not rows:
+        return ""
+    con.execute("DELETE FROM pending_recalls WHERE session=?", (session,))
+    seen = {m for (m,) in con.execute("SELECT memory_id FROM injections WHERE session=? AND source!='pinned'",
+                                      (session,))}
+    rules, notes, ids = [], [], []
+    for r in rows:
+        if r["id"] in seen:
+            continue
+        why = " ".join(str(r["why"] or "").split())[:240]
+        line = pinned._from_you_line(r) if r["from_user"] else pinned.memory_line(r)
+        line += f" (why now: {pinned._one_line(why, 240)})" if why else ""
+        (rules if r["from_user"] else notes).append(line)
+        ids.append(r["id"])
+    con.commit()
+    if not ids:
+        return ""
+    parts = []
+    if rules:
+        parts.append("## From you, flagged by memcode's memory agent for what you are doing now (follow them)\n"
+                     + "\n".join(rules))
+    if notes:
+        parts.append("\n".join([pinned.NOTES_HEADER, pinned.NOTES_OPEN,
+                                "## Memory flagged by memcode's memory agent for what you are doing now", *notes,
+                                pinned.NOTES_CLOSE]))
+    now = time.time()
+    con.executemany("INSERT INTO injections(session,memory_id,ts,source) VALUES(?,?,?,'flagged')",
+                    [(session, i, now) for i in ids])
+    con.commit()
+    from . import activity
+    activity.note(con, "recalled", f"{len(ids)} flagged by the memory agent{activity.first(con, ids)}", len(ids))
+    return "\n\n".join(parts)

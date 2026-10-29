@@ -130,7 +130,7 @@ class Seeded(unittest.TestCase):
             self.assertIn(self.note, self.ids("Fix rounding in billing/invoice.py"))        # named: shown again
             self.assertNotIn(self.note, self.ids("change billing totals"))                 # not named: stays shown
         with env(MEMCODE_RETRIEVAL="1"):
-            self.assertNotIn(self.note, self.ids("Fix rounding in billing/invoice.py"))    # flag off: unchanged
+            self.assertIn(self.note, self.ids("Fix rounding in billing/invoice.py"))       # flag off: back when this relevant
 
     def test_touch_cap(self):
         for i in range(40):

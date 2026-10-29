@@ -175,10 +175,22 @@ command's role) and the date it was last stated or changed (for a measured comma
 recency. Expired decisions are left out. The block is capped (about 1500 tokens). Repo-wide rules are listed here;
 folder rules arrive when the agent works there.
 
-**Each prompt** (`memcode config retrieval on`): up to 5 memories closest to that prompt (embedding similarity, plus a
-file or function it names and files edited this session), up to 2 of their strongest neighbours in the graph, plus up
-to 2 relevant ones that proved costly (a rule you had to restate, a failure that recurred). A memory is never shown
-twice in a session. `memcode why ID` explains a memory's cost score.
+**Each prompt** (`memcode config retrieval on`): up to 5 memories closest to that prompt and to the recent
+conversation (embedding similarity with the prompt, plus half as much with your last 3 prompts and the last 12
+commands, files and edits; a file or function the prompt names; files edited this session), up to 2 of their
+strongest neighbours in the graph, plus up to 2 relevant ones that proved costly (a rule you had to restate, a failure
+that recurred). So a decision or a fact about what the work is on comes back even when the prompt does not name it.
+A memory is shown once per session; one that was only in the start block comes back once more when it becomes
+clearly relevant. `memcode why ID` explains a memory's cost score.
+
+**After each command or edit** (retrieval on): up to 2 memories closely related to what was just run or changed,
+next to its result (after a test command: the pitfall or the fact about how tests run here).
+
+**Flagged by the memory agent.** After each turn the memory agent checks the memory against what the session is
+doing and flags what matters for the next step (a decision that parks the item being started, a milestone it builds
+on, a pitfall about the command at hand, a rule the next step could break), with a reason. memcode puts it in front
+of the coding agent at its next prompt or tool call: `## Memory flagged by memcode's memory agent for what you are
+doing now`, each with `(why now: ...)`. This works whether or not per-prompt recall is on.
 
 **First contact with a folder.** The first time the agent reads a file, that folder's memories and up to 3 of their
 neighbours are added next to the result. If its first contact is a write, the write is held once with the rules as the reason (context added after a

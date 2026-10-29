@@ -77,7 +77,15 @@ SYSTEM = (
     "Operations: add (target 0); update (a numbered memory is incomplete or partly wrong: give its number and the "
     "corrected full text); retire (a numbered memory is no longer true or the user withdrew it; give its number). "
     "When the user's words that withdraw a memory also state the standing rule that replaces it, retire it AND add "
-    "that rule, with the same quote as evidence.\n\n"
+    "that rule, with the same quote as evidence.\n"
+    "You also assist the coding agent as it works: recall (a numbered memory matters for what the session is doing "
+    "right now, e.g. a decision about the item being worked on, a milestone it builds on, a pitfall or fact about the "
+    "command or file at hand, a rule the next step could break; give its number, and in text why it matters now). "
+    "memcode puts it in front of the coding agent at its next step. Check every numbered decision against what the "
+    "session is about to do: work starting on an item a decision parks, holds, gates or puts out of scope must recall "
+    "that decision, even when the item is named differently. Recall only what changes what the agent should "
+    "do next; never a memory marked (in the agent's context) unless the agent is about to go against it; at most 3 "
+    "per message. For a recall, evidence quotes the transcript line that makes it relevant now.\n\n"
     "Never propose: details that only matter for the current task, one-off requests ('for this change only', "
     "'park X, start Y now'), guesses nobody verified, general programming knowledge that holds in any project, anything the memory already "
     "says, or anything about the agent's own memory tools. A from_user memory is added, changed or retired only because "
@@ -99,7 +107,8 @@ SCHEMA = json.dumps({
         "type": "object", "additionalProperties": False,
         "required": ["op", "target", "from_user", "topic", "subject", "importance", "text", "evidence", "path",
                      "links", "unusual", "conflicts"],
-        "properties": {"op": {"type": "string", "enum": ["add", "update", "retire"]}, "target": {"type": "integer"},
+        "properties": {"op": {"type": "string", "enum": ["add", "update", "retire", "recall"]},
+                       "target": {"type": "integer"},
                        "from_user": {"type": "boolean"},
                        "topic": {"type": "string", "enum": list(TOPICS)},
                        "subject": {"type": "string"},

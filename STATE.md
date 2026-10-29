@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.15.2 (2026-10-29, PR #53) | none |
+| memcode | 0.15.2 (2026-10-29, PR #53) | 0.16.0: recall from the conversation, actions and the memory agent |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -25,10 +25,29 @@ _Last updated: 2026-10-29._
 | Store | Staleness per file or Python function; how-tos stay shown across edits | 0.10.4 | |
 | Store | Scopes (repo, folder, file, symbol); every agent change in `memcode history` | 0.8 / 0.9 | |
 | Trigger | Start block: rules as instructions; map, decisions, facts, notes as data | 0.1 (decisions 0.11) | ~1500-token cap; on the branch: From you, then one ranked Memory list, then the map |
-| Trigger | Per-prompt recall with promotions for costly memories | 0.3 | off by default (`config retrieval on`) |
+| Trigger | Per-prompt recall with promotions for costly memories | 0.3 | off by default (`config retrieval on`); on the branch: also the recent conversation, after each command or edit, and what the memory agent flags |
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.16.0)
+
+- Recall beyond the prompt (retrieval.py):
+  - Per-prompt recall also scores against the recent conversation (the session's last 3 prompts and 12 tool calls:
+    commands, files, edit text) at half weight, so a decision or fact about what the work is on comes back unnamed.
+  - After a command or an edit (PostToolUse, retrieval on): up to 2 memories scoring 1.5+ about that action
+    (`for_action`; measured commands are skipped, they would echo the action).
+  - The memory agent gets a `recall` operation: a numbered memory that matters for the next step, with why; its
+    evidence must quote the transcript; at most 3 per piece. Queued in `pending_recalls` and delivered once at the next
+    prompt or tool call (`flagged`), whether or not per-prompt recall is on, as `(why now: ...)`.
+  - A memory that was only in the start block may be shown once more next to the work when it scores 2.4+.
+- Live check (Haiku, a store with a parked-export decision, a test pitfall and noise; a turn where the user picks
+  up the export and `pytest -q` fails): both the decision ("confirm with the user before writing the CSV writer")
+  and the pitfall flagged, the noise not; delivered at the next prompt; $0.0016. Before the prompt asked to check
+  every decision against what is starting, only the pitfall was flagged.
+- Seen in this repo while building it: the hooks import memcode from the working tree, and an action recall fired on
+  a scripted module edit with the stored pitfall about splitting modules.
+- Tests: 245 Python, 14 mod.
 
 ## Latest release (memcode 0.15.2, memcode-status 0.5.0)
 
@@ -156,8 +175,8 @@ _Last updated: 2026-10-29._
 
 ## Known gaps
 
-- The only timely trigger during work is the held first write; everything else arrives at session start, per prompt or
-  on first read (Guardian is the next phase).
+- Timely triggers during work: the held first write, recall after each command or edit, and the memory agent's flags
+  (one turn late: it reads a turn after it ends). Nothing yet stops a command before it runs (Guardian).
 - No shipped way to measure the memory agent after prompt changes (PLAN, next step 2).
 - Checkouts share the store, so staleness and the map follow whichever checkout last started a session.
 - Pattern triggers see only the last 200 events per session.

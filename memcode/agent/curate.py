@@ -124,8 +124,28 @@ def _link(con, mid: int, links) -> None:
         if n != mid and con.execute("SELECT 1 FROM memories WHERE id=? AND stale=0", (n,)).fetchone():
             graph.link(con, mid, n, "related", 1.0, "agent")
 
+MAX_RECALLS = 3              # memories the agent may flag per piece of log
+
+def queue_recall(con, session: str, item: dict, condensed: str) -> int | None:
+    """The agent flagged a numbered memory for what the session is doing now: queue it, with its reason, for the next
+    prompt or tool call (retrieval.flagged). Its evidence must quote the transcript. -> the memory id, or None."""
+    try:
+        target = int(item.get("target") or 0)
+    except (TypeError, ValueError):
+        return None
+    ev = checks._norm(item.get("evidence", ""))
+    if target <= 0 or len(ev) < 8 or not any(ev in checks._norm(l) for l in condensed.splitlines()):
+        return None
+    if not con.execute("SELECT 1 FROM memories WHERE id=? AND stale=0", (target,)).fetchone():
+        return None
+    why = " ".join(str(item.get("text", "")).split())[:240]
+    con.execute("INSERT OR REPLACE INTO pending_recalls(session, memory_id, why, ts) VALUES(?,?,?,?)",
+                (session, target, why, time.time()))
+    return target
+
 def store_items(con, root: str, session: str, items: list[dict], condensed: str, model: str = "") -> list[int]:
-    """Apply the memory agent's operations: add (default), update, retire. -> ids added or changed."""
+    """Apply the memory agent's operations: add (default), update, retire, and recall (queued for the coding agent's
+    next step, not a change: not in the ids). -> ids added or changed."""
     from .. import activity
     ids = []
     added = 0
@@ -137,7 +157,12 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
             return MIN_IMPORTANCE
     # corrections first (update / retire keep the memory true whatever their rating), then the most important adds
     items = sorted([flat(i) for i in items], key=lambda it: (it.get("op") not in ("update", "retire"), -rating(it)))
+    recalls = 0
     for item in items:
+        if item.get("op") == "recall":
+            if recalls < MAX_RECALLS and queue_recall(con, session, item, condensed) is not None:
+                recalls += 1
+            continue
         if item.get("op") in ("update", "retire"):
             mid = change(con, session, item, condensed)
             if mid is not None:
