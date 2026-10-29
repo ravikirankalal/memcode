@@ -22,14 +22,16 @@ def _terms(text: str) -> set:
     return set(embed.tokens(text))
 
 
-def judge(con, session: str, condensed: str) -> tuple[list[int], list[int]]:
-    """Verdicts for this session's memories shown next to the work and not judged yet, from the coding agent's replies
-    in `condensed` (judged only once a reply is there). -> (used ids, unused ids)."""
+def judge(con, session: str, condensed: str, since: float = 0.0) -> tuple[list[int], list[int]]:
+    """Verdicts for this session's memories shown next to the work since `since` (the previous judging: older showings
+    were answered in replies this text does not hold) and not judged yet, from the coding agent's replies in
+    `condensed` (judged only once a reply is there). -> (used ids, unused ids)."""
     if "[agent] " not in condensed:
         return [], []
-    rows = con.execute("""SELECT memory_id, MIN(source) AS source FROM injections WHERE session=? AND source IN
+    rows = con.execute("""SELECT memory_id, MIN(source) AS source FROM injections WHERE session=? AND ts>? AND source IN
                           (%s) AND memory_id NOT IN (SELECT memory_id FROM memory_feedback WHERE session=?)
-                          GROUP BY memory_id""" % ",".join("?" * len(JUDGED)), (session, *JUDGED, session)).fetchall()
+                          GROUP BY memory_id""" % ",".join("?" * len(JUDGED)),
+                       (session, since, *JUDGED, session)).fetchall()
     if not rows:
         return [], []
     quotes = [_terms(m.group(1)) for line in condensed.splitlines() if line.startswith("[agent] ")
