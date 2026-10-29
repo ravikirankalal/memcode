@@ -259,5 +259,6 @@ def for_prompt(con, root: str, session: str, prompt: str) -> str:
         store.bump(con, session, "prompt_injected", len(ids), commit=False)
         con.commit()
         from . import activity
-        activity.note(con, "recalled", f"{len(ids)} memor{'y' if len(ids) == 1 else 'ies'} for this prompt", len(ids))
+        activity.note(con, "recalled", f"{len(ids)} memor{'y' if len(ids) == 1 else 'ies'} for this prompt"
+                      f"{activity.first(con, ids)}", len(ids))
     return text

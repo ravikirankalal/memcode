@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { agentState, ago, cols, latest, layout, parseFeed, problemOf, tally } from '../hooks/register'
+import { agentState, ago, cols, injected, latest, layout, parseFeed, problemOf, tally } from '../hooks/register'
 import type { Feed } from '../types'
 
 const BAND = { component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, bodyColumns: 160 } } as const
@@ -174,8 +174,20 @@ test("this session's tally counts only events since the session started", async 
     { ts: T - 50, kind: 'saved', text: 'a', n: 1 }, { ts: T - 40, kind: 'saved', text: 'b', n: 1 },
     { ts: T - 30, kind: 'recalled', text: 'c', n: 1 }, { ts: T - 20, kind: 'scanned', text: 'd', n: 1 },
   ] }
-  expect(tally(f, (T - 100) * 1000)).toBe('2 saved · 1 recalled')
+  expect(tally(f, (T - 100) * 1000)).toBe('2 saved')
   expect(tally(f, (T + 1) * 1000)).toBe('')
+})
+
+test('injections this session: how many memories went into context, and where', async () => {
+  const f: Feed = { ...FEED, events: [
+    { ts: T - 900, kind: 'start', text: 'old session', n: 12 },
+    { ts: T - 50, kind: 'start', text: '4 from you, 16 memories at session start', n: 20 },
+    { ts: T - 40, kind: 'recalled', text: '2 memories for this prompt: (pitfall, 2026-10-20) x', n: 2 },
+    { ts: T - 30, kind: 'touch', text: '1 memory for memcode/x.py: (from you, 2026-10-18) y', n: 1 },
+    { ts: T - 20, kind: 'saved', text: 'z', n: 1 },
+  ] }
+  expect(injected(f, (T - 100) * 1000)).toEqual({ total: 23, detail: '20 at start, 2 recalled, 1 on first touch' })
+  expect(injected(f, (T + 1) * 1000).total).toBe(0)
 })
 
 test('a narrow terminal keeps the headline: the tally, the agent, then the count labels give way', async () => {

@@ -187,8 +187,10 @@ write comes too late) and the agent redoes it.
 **On demand.** The agent can call the MCP tools `memory_search` (embedding search plus graph neighbours),
 `memory_add`, `memory_pinned` and `memory_facts`, or run `memcode` (the plugin's `bin/` is on its PATH).
 
-**Status bar** (optional `memcode-status` mod): how many memories, how many from you, and the latest event,
-colour-coded, from `.memcode/activity.json`.
+**Status bar** (optional `memcode-status` mod): how many memories, how many from you, the latest event, colour-coded
+(an injection names the first memory it put in), and how many memories this session injected into the agent's
+context (`📥23 injected`), from `.memcode/activity.json`. `/memcode-status` breaks the injections down: at start,
+recalled, on first touch, on held writes.
 
 ## Settings
 

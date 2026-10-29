@@ -3,14 +3,14 @@
 Keep this file current: update it with every change that lands (what changed, the version, what is pending). The plan
 is in [`PLAN.md`](PLAN.md).
 
-_Last updated: 2026-10-23._
+_Last updated: 2026-10-29._
 
 ## Versions
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.15.1 (2026-10-23, PR #51) | none |
-| memcode-status (mod) | 0.4.0 (2026-10-23, PR #50) | none |
+| memcode | 0.15.1 (2026-10-23, PR #51) | 0.15.2: injection events name the memory |
+| memcode-status (mod) | 0.4.0 (2026-10-23, PR #50) | 0.5.0: injections this session |
 
 ## What works
 
@@ -29,6 +29,14 @@ _Last updated: 2026-10-23._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.15.2, memcode-status 0.5.0)
+
+- Injections show on the status bar. memcode's injection events (start, recalled, touch, held) carry how many
+  memories went into the coding agent's context and name the first one (`2 memories for this prompt: (pitfall,
+  2026-10-20) ...`; activity.first). The mod sums them for this session: `📥23 injected` on the bar, and
+  `23 injected (20 at start, 2 recalled, 1 on first touch)` in `/memcode-status`; the folder badge is `📂 FOLDER`.
+- Tests: 240 Python, 14 mod.
 
 ## Latest release (memcode 0.15.1)
 

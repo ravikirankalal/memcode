@@ -114,7 +114,8 @@ def before_write(con, root: str, session: str, tool: str, tool_input: dict) -> s
         return ""
     from . import activity
     activity.note(con, "held", f"first write to {os.path.relpath(str(path), root) if os.path.isabs(str(path)) else path} "
-                  f"held: {len(ids)} folder memor{'y' if len(ids) == 1 else 'ies'} shown first", len(ids))
+                  f"held: {len(ids)} folder memor{'y' if len(ids) == 1 else 'ies'} shown first{activity.first(con, ids)}",
+                  len(ids))
     return DENY_PREFIX + text
 
 
@@ -134,7 +135,8 @@ def touch(con, root: str, ev: dict) -> str:
     if text:
         from . import activity
         rel = os.path.relpath(str(path), root) if os.path.isabs(str(path)) else str(path)
-        activity.note(con, "touch", f"{len(ids)} memor{'y' if len(ids) == 1 else 'ies'} for {rel}", len(ids))
+        activity.note(con, "touch", f"{len(ids)} memor{'y' if len(ids) == 1 else 'ies'} for {rel}{activity.first(con, ids)}",
+                      len(ids))
     return text
 
 

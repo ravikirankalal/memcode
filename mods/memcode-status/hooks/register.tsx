@@ -25,7 +25,7 @@ const LOOK: Record<string, Look> = {
   retired: { icon: '🗑', tag: 'RETIRED', color: 'inactive' },
   forgot: { icon: '🗑', tag: 'FORGOT', color: 'inactive' },
   recalled: { icon: '💡', tag: 'RECALLED', color: 'suggestion' },
-  touch: { icon: '📂', tag: 'FOLDER RULES', color: 'planMode' },
+  touch: { icon: '📂', tag: 'FOLDER', color: 'planMode' }, // a folder's memories on its first read
   held: { icon: '✋', tag: 'HELD', color: 'warning' },
   start: { icon: '🚀', tag: 'LOADED', color: 'claude' },
   scanned: { icon: '🔍', tag: 'SCANNED', color: 'ide' }, // the memory agent read the latest turns
@@ -39,8 +39,10 @@ const PROBLEMS: [string, Look][] = [
 ]
 
 // what this session's tally counts, in display order
-const TALLY: [string, string][] = [['saved', 'saved'], ['updated', 'updated'], ['retired', 'retired'],
-  ['recalled', 'recalled'], ['held', 'held']]
+const TALLY: [string, string][] = [['saved', 'saved'], ['updated', 'updated'], ['retired', 'retired']]
+// injections: memories memcode put into the coding agent's context (an event's n is how many), in display order
+const INJECTIONS: [string, string][] = [['start', 'at start'], ['recalled', 'recalled'], ['touch', 'on first touch'],
+  ['held', 'on held writes']]
 
 export function problemOf(f: Feed): { look: Look; text: string } | null {
   const ps = f.problems ?? {}
@@ -105,6 +107,16 @@ export function tally(f: Feed, sinceMs: number): string {
   const n: Record<string, number> = {}
   for (const ev of f.events) if (ev.ts * 1000 >= sinceMs) n[ev.kind] = (n[ev.kind] ?? 0) + 1
   return TALLY.filter(([k]) => n[k]).map(([k, label]) => `${n[k]} ${label}`).join(' · ')
+}
+
+// memories injected into the coding agent's context this session: the total and where they went in
+export function injected(f: Feed, sinceMs: number): { total: number; detail: string } {
+  const n: Record<string, number> = {}
+  for (const ev of f.events) {
+    if (ev.ts * 1000 >= sinceMs && INJECTIONS.some(([k]) => k === ev.kind)) n[ev.kind] = (n[ev.kind] ?? 0) + (Number(ev.n) || 0)
+  }
+  const total = Object.values(n).reduce((a, b) => a + b, 0)
+  return { total, detail: INJECTIONS.filter(([k]) => n[k]).map(([k, label]) => `${n[k]} ${label}`).join(', ') }
 }
 
 // terminal columns a string takes (wide emoji count twice; variation selectors take none)
@@ -234,8 +246,11 @@ export const register: Register = on => {
     lines.push(st.reading ? '  🔍 memory agent: reading the latest turn now'
       : st.lastScan ? `  🔍 memory agent: last read ${ago(t - st.lastScan.ts * 1000)} (${st.lastScan.text})`
         : '  🔍 memory agent: has not read a turn yet')
-    const tl = tally(f, (await read($, since)) || 0)
-    lines.push(`  this session: ${tl || 'nothing saved or recalled yet'}`)
+    const s0 = (await read($, since)) || 0
+    const tl = tally(f, s0)
+    const inj = injected(f, s0)
+    const parts = [inj.total ? `${inj.total} injected (${inj.detail})` : '', tl].filter(Boolean)
+    lines.push(`  this session: ${parts.join(' · ') || 'nothing injected or saved yet'}`)
     const recent = f.events.slice(-8).reverse()
     if (recent.length) {
       lines.push('', 'recent:')
@@ -274,14 +289,17 @@ export const register: Register = on => {
     const st = agentState(f, t)
     const dots = '.'.repeat(1 + (Math.floor(t / POLL_MS) % 3))
     const agentText = st.reading ? `🔍 reading${dots}` : st.lastScan ? `🔍 ${short(t - st.lastScan.ts * 1000)}` : ''
-    const tl = tally(f, (await read($, since)) || 0)
+    const s0 = (await read($, since)) || 0
+    const tl = tally(f, s0)
+    const inj = injected(f, s0).total
+    const tallyText = [inj ? `📥${inj} injected` : '', tl ? `+${tl}` : ''].filter(Boolean).join('  ')
     const headText = problem ? problem.text : ev ? ev.text : ''
     const headLook = problem ? problem.look : lk
     const headCols = headText ? cols(` ${headLook!.icon} ${headLook!.tag} `) + 1 + cols(headText) + (ev ? 10 : 0) : 0
     const fit = layout(e.props.bodyColumns || 120, {
       counts: `${c.memories} memories · ${c.from_you} from you`,
       countsShort: `🧠${c.memories} 📜${c.from_you}`,
-      head: headCols, agent: agentText, tally: tl ? `+${tl}` : '',
+      head: headCols, agent: agentText, tally: tallyText,
     })
     const badgeCols = headLook ? cols(` ${headLook.icon} ${headLook.tag} `) + 1 : 0
     const text = clip(headText, Math.max(8, fit.head - badgeCols - (ev ? 10 : 0)))
@@ -311,7 +329,7 @@ export const register: Register = on => {
           </Text>
         )}
         {fit.agent && <Text color={st.reading ? 'ide' : undefined} dimColor={!st.reading}>  {agentText}</Text>}
-        {fit.tally && <Text color="success" dimColor>  +{tl}</Text>}
+        {fit.tally && <Text color="success" dimColor>  {tallyText}</Text>}
       </Box>
     )
   })
