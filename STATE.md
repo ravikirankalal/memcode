@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.17.2 (2026-10-29, PR #58) | 0.17.3: the agent names memories it used |
+| memcode | 0.17.3 (2026-10-29, PR #59) | none |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,7 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.17.3)
+## Latest release (memcode 0.17.3)
 
 - The mobile app shows no hook message (the systemMessage copy arrives inside the hook event, which it does not
   draw), so injections were invisible there. Now each injected block ends with memcode's own line to the agent,
@@ -42,7 +42,7 @@ _Last updated: 2026-10-29._
   docs/RELEASING.md.` first; "What is 17 times 23?" answered `391`, no mention.
 - Tests: 259 Python, 14 mod.
 
-## Latest release (memcode 0.17.2)
+## Previous release (memcode 0.17.2)
 
 - The one-time welcome suggests `/plugin install memcode-status@memcode` only when the mod is missing: memcode reads
   enabledPlugins in the user's and the project's Claude Code settings and Claude Code's installed_plugins.json
