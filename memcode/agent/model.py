@@ -187,6 +187,28 @@ def briefing(con, root: str, session: str) -> str:
     lines += ["Measured by memcode (commands, environment; kept by memcode, not by you):"] + (fl or ["- (none)"])
     return "\n".join(lines)
 
+# The memory agent runs in its own environment, not the coding session's: Claude Code passes dozens of CLAUDE_* and
+# CCR_* variables to its hooks (the session's id, remote-session and messaging sockets, ingress tokens, debug files,
+# effort and compaction overrides), and a child `claude` inheriting them joins that session's context (account
+# notes, commit attribution, cloud-session notes: ~770 extra tokens per call, measured) or its plumbing. Kept: what
+# sign-in and the provider need, and everything that is not Claude Code's (PATH, HOME, proxies, ANTHROPIC_*, cloud
+# credentials).
+AGENT_ENV_KEEP = {"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+                  "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "CLAUDE_CODE_SKIP_VERTEX_AUTH", "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
+                  "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_API_KEY_HELPER_TTL_MS", "CLAUDE_CODE_CLIENT_CERT",
+                  "CLAUDE_CODE_CLIENT_KEY", "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE", "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"}
+
+
+def agent_env(base=None) -> dict:
+    """The environment of a memory-agent call: the coding session's, without Claude Code's own session variables."""
+    env = {k: v for k, v in (os.environ if base is None else base).items()
+           if not (k.startswith(("CLAUDE", "CCR_")) and k not in AGENT_ENV_KEEP)}
+    env["MEMCODE_DISABLE"] = "1"                         # memcode's hooks never run inside its own calls
+    if env.get("BUN_OPTIONS"):
+        env["BUN_OPTIONS"] = _absolute_preloads(env["BUN_OPTIONS"])
+    return env
+
+
 def extract(text: str, context: str = "", model: str | None = None, timeout: int = 120,
             session: dict | None = None) -> dict | None:
     """One memory-agent call: context (the briefing, or the delta since the last reply) + condensed transcript ->
@@ -203,9 +225,7 @@ def extract(text: str, context: str = "", model: str | None = None, timeout: int
     cmd = ["claude", "-p", prompt, "--model", model, "--effort", effort, "--setting-sources", "", "--strict-mcp-config",
            "--tools", "", *convo, "--max-budget-usd", "0.25", "--output-format", "json",
            "--system-prompt", SYSTEM, "--json-schema", SCHEMA]
-    env = dict(os.environ, MEMCODE_DISABLE="1")
-    if env.get("BUN_OPTIONS"):
-        env["BUN_OPTIONS"] = _absolute_preloads(env["BUN_OPTIONS"])
+    env = agent_env()
     try:
         with tempfile.TemporaryDirectory() as tmp:
             p = subprocess.run(cmd, cwd=(session or {}).get("cwd") or tmp, env=env, capture_output=True, text=True,

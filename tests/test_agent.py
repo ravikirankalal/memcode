@@ -817,3 +817,15 @@ class Conversation(unittest.TestCase):
         self.assertNotEqual(ids[0], ids[1])
         self.assertEqual(spawned, [(), ("--bootstrap",), ()])                # the repository is read once
         self.assertEqual(conversation.pending_openings(self.con), ["s1"])
+
+
+class AgentEnvironment(unittest.TestCase):
+    def test_the_memory_agent_does_not_inherit_the_coding_sessions_claude_variables(self):
+        base = {"PATH": "/bin", "HOME": "/h", "HTTPS_PROXY": "http://p", "ANTHROPIC_BASE_URL": "https://a",
+                "ANTHROPIC_API_KEY": "k", "AWS_REGION": "eu", "CLAUDE_CONFIG_DIR": "/c", "CLAUDE_CODE_USE_BEDROCK": "1",
+                "CLAUDE_CODE_SESSION_ID": "s", "CLAUDE_CODE_REMOTE": "true", "CLAUDE_CODE_MESSAGING_TOKEN": "t",
+                "CLAUDE_EFFORT": "high", "CLAUDECODE": "1", "CCR_SESSION_PROFILE": "x", "CLAUDE_CODE_USER_EMAIL": "e"}
+        env = model.agent_env(base)
+        self.assertEqual(set(env), {"PATH", "HOME", "HTTPS_PROXY", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "AWS_REGION",
+                                    "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_USE_BEDROCK", "MEMCODE_DISABLE"})
+        self.assertEqual(env["MEMCODE_DISABLE"], "1")

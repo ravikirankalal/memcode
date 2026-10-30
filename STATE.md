@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.18.1 (2026-10-29, PR #62) | none |
+| memcode | 0.18.1 (2026-10-29, PR #62) | 0.18.2: the memory agent runs in its own environment |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -29,6 +29,21 @@ _Last updated: 2026-10-29._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.18.2)
+
+- The memory agent's environment, checked: each call is `claude -p` with `--setting-sources ""` (no settings, plugins
+  or hooks), `--strict-mcp-config` (no MCP servers), `--tools ""` (no tools), memcode's own `--system-prompt` and
+  `--json-schema`, Haiku at low effort, $0.25 per call, 120 s timeout; no CLAUDE.md reaches it. But it inherited the
+  coding session's whole environment: 70+ CLAUDE_* / CCR_* variables (the session's id, remote-session messaging
+  socket and token, ingress settings, debug files, effort and compaction overrides). With them its context carried
+  account and commit-attribution notes and cloud-session notes: 1,367 tokens for a bare call against 595 without
+  (measured), and it could reach the session's plumbing (scratch `claude` runs reused this session's id).
+- Now model.agent_env() drops CLAUDE*/CCR_* variables except those sign-in and the provider need (CLAUDE_CONFIG_DIR,
+  the Bedrock / Vertex / Foundry switches and skips, an OAuth token, client certificates, an API-key helper TTL,
+  PROVIDER_MANAGED_BY_HOST); ANTHROPIC_*, proxies and system variables pass. Live check: a real call with the cleaned
+  environment signed in and extracted the right memory ($0.00035).
+- Tests: 274 Python, 14 mod.
 
 ## Latest release (memcode 0.18.1)
 
