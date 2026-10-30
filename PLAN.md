@@ -85,7 +85,7 @@ Still open for installation:
 1. **Guardian, first slice**: at `PreToolUse` for Bash, match the command against facts and pitfalls (for example
    `pytest` in a repo whose tests only run through `make check`) and add a one-line reminder before it runs. Recall
    after the action (0.16) comes one step late for a command that should not run at all.
-2. **The memory agent's check**: `memcode eval-agent` (0.19) scores it on 8 fixed cases with real model calls; grow
+2. **The memory agent's check**: `memcode eval-agent` (released in 0.19) scores it on 8 fixed cases with real model calls; grow
    the cases as new failure modes show up (each live bug becomes a case).
 3. **Auditor**: done in 0.18 for stale memories (the memory agent revives or retires them; eviction after 14 days).
    Next: ask it about memories that are old but not stale (unused for months).

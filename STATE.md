@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.18.1 (2026-10-29, PR #62) | 0.19.0: own environment for the memory agent; memcode eval-agent |
+| memcode | 0.19.0 (2026-10-30, PR #63) | none |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,7 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.19.0)
+## Latest release (memcode 0.19.0)
 
 - The memory agent's environment, checked: each call is `claude -p` with `--setting-sources ""` (no settings, plugins
   or hooks), `--strict-mcp-config` (no MCP servers), `--tools ""` (no tools), memcode's own `--system-prompt` and
@@ -65,7 +65,7 @@ _Last updated: 2026-10-29._
     (none in 12 further runs).
 - Tests: 279 Python, 14 mod.
 
-## Latest release (memcode 0.18.1)
+## Previous release (memcode 0.18.1)
 
 - Fix, found testing 0.18.0 in this session: the first scan after the upgrade judged every memory shown during the
   whole session against only the replies since the previous scan, so memories named in earlier replies were marked
