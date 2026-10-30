@@ -140,6 +140,11 @@ tools, no settings, no MCP servers, memcode's own system prompt and output schem
 Code's session variables (the coding session's id, remote-session plumbing, effort and compaction overrides) are not
 passed on; sign-in, provider and proxy settings are.
 
+**Measuring it.** `memcode eval-agent [--effort low|medium|high] [--model M] [--repeat N]` runs the memory agent on
+8 fixed cases (a profile from code; deploy, infra and branching; a correction; a decision next to the agent's own
+progress; a request for now; a stale memory to revive; a parked item being started; a turn with nothing to keep)
+through the real pipeline in scratch repositories, and scores what memcode ends up with. About $0.02 a run.
+
 **Cost and failures.** About $0.004 per piece of log (24,000 condensed characters) on Haiku. There is no per-session limit:
 every turn is read (about $0.03 per 1,000 log lines; each model call is capped at $0.25). To set one, use
 `MEMCODE_CAPTURE_BUDGET_USD` (dollars per session); past it, the rest of that session is skipped and the status bar

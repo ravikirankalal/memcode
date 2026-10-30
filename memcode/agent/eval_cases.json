@@ -1,0 +1,114 @@
+{
+  "about": "Fixed cases for `memcode eval-agent`: each is a condensed log, optionally files and starting memories, and what memcode should keep (expect) or must not (avoid). A pattern matches a kept memory when every word group is in its text (case-insensitive; '|' separates alternatives).",
+  "cases": [
+    {
+      "name": "profile from code",
+      "files": {"src/OrderState.java": "public enum OrderState { NEW, PAID, SHIPPED, DELIVERED, CANCELLED }"},
+      "log": [
+        "[user] the refund flow double-charges sometimes, can you look at PaymentGateway?",
+        "[read] src/PaymentGateway.java | import com.stripe.Stripe; import com.stripe.model.Refund; public class PaymentGateway { /** Wraps the Stripe SDK for charges and refunds. Used by OrderService only. */ public Charge charge(Order o) { ... } public Refund refund(Order o) { ... } }",
+        "[read] src/OrderService.java | public class OrderService { /** Entry point of the order lifecycle: place, pay, ship, cancel. */ private final PaymentGateway gateway; public void pay(Order o) { gateway.charge(o); o.setState(OrderState.PAID); } }",
+        "[read] src/OrderState.java | public enum OrderState { NEW, PAID, SHIPPED, DELIVERED, CANCELLED }",
+        "[ran] `./mvnw -q -pl orders test` -> ok | Tests run: 48, Failures: 0, Errors: 0",
+        "[agent] The double charge comes from retrying charge() after a timeout; I made refund idempotent with a key."
+      ],
+      "expect": [
+        {"name": "the Stripe SDK and its wrapper", "all": ["stripe", "paymentgateway"]},
+        {"name": "OrderService's role", "all": ["orderservice", "lifecycle|entry point|place"]},
+        {"name": "OrderState's states", "all": ["orderstate", "paid", "shipped"]},
+        {"name": "the module test command", "all": ["mvnw", "test"]}
+      ],
+      "avoid": [{"name": "the fix itself as a memory", "all": ["idempotent", "this change|today"]}]
+    },
+    {
+      "name": "deploy, infra, branching",
+      "log": [
+        "[user] The checkout latency spiked again, see https://grafana.acme.dev/d/checkout-p95, can you check orders.py?",
+        "[ran] `pytest -q` -> failed | ERROR: file or directory not found: tests",
+        "[ran] `pytest -q checks/` -> ok | 42 passed in 3.1s",
+        "[read] docs/RUNBOOK.md | # Runbook  On-call steps for checkout incidents; rollback with `helm rollback shop`.",
+        "[user] Put the fix on a feature branch off develop, we never branch off main. main only gets release merges.",
+        "[read] deploy/helm/values-prod.yaml | replicaCount: 3  image: 123456.dkr.ecr.eu-west-1.amazonaws.com/shop  postgres: rds-prod.eu-west-1",
+        "[ran] `cat .github/workflows/deploy.yml` -> ok | on: push: tags: ['v*']  jobs: deploy-staging: ...  deploy-prod: needs: approval  run: helm upgrade shop deploy/helm -f deploy/helm/values-prod.yaml",
+        "[agent] Releases are tagged v*, deploy.yml deploys staging and then prod after approval, on EKS in eu-west-1."
+      ],
+      "expect": [
+        {"name": "branching rule, from the user", "all": ["develop", "main"], "from_user": true},
+        {"name": "tests live in checks/", "all": ["checks"]},
+        {"name": "the deploy pipeline", "all": ["v*|tag", "deploy.yml|staging"]},
+        {"name": "infra", "all": ["eks|helm|ecr|rds"]},
+        {"name": "the dashboard link", "all": ["grafana"]},
+        {"name": "the runbook", "all": ["runbook"]}
+      ],
+      "avoid": []
+    },
+    {
+      "name": "a correction",
+      "log": [
+        "[user] add a test for the new parser",
+        "[wrote] tests/test_parser.py | def test_parse(): assert parse('a') == ['a']",
+        "[user] No - in this repo tests go in checks/, never tests/. Move it.",
+        "[ran] `git mv tests/test_parser.py checks/test_parser.py` -> ok |",
+        "[agent] Moved the test to checks/test_parser.py."
+      ],
+      "expect": [{"name": "tests go in checks/, from the user", "all": ["checks", "tests"], "from_user": true}],
+      "avoid": []
+    },
+    {
+      "name": "a decision, not the agent's progress",
+      "log": [
+        "[user] Park G16 until the end of the milestone, start on the review instead.",
+        "[ran] `python3 -m unittest discover -s tests` -> ok | Ran 32 tests in 0.8s OK",
+        "[ran] `git push -u origin feat/review` -> ok | branch feat/review set up to track origin",
+        "[agent] #42 is implemented and its tests pass; pushed to feat/review, not released yet."
+      ],
+      "expect": [{"name": "G16 parked, as a decision", "all": ["g16", "park"], "topic": "decision"}],
+      "avoid": [{"name": "the agent's progress as memory", "all": ["#42|pushed|implemented"]}]
+    },
+    {
+      "name": "a request for now is not a rule",
+      "log": [
+        "[user] for this change only, skip the linter, we are in a hurry",
+        "[ran] `git commit -m 'fix typo'` -> ok | 1 file changed",
+        "[agent] Committed without running the linter, as asked."
+      ],
+      "expect": [],
+      "avoid": [{"name": "skipping the linter as a standing rule", "all": ["lint"], "from_user": true}]
+    },
+    {
+      "name": "a stale memory to revive",
+      "files": {"orders.py": "def total(items, tax_rate):\n    \"\"\"Sum of item prices including tax.\"\"\"\n    return sum(i.price for i in items) * (1 + tax_rate)\n"},
+      "memories": [{"text": "orders.total(items) sums the item prices; callers pass a list of Item.", "anchor": "orders.py",
+                    "topic": "component", "stale": true, "original": "def total(items):\n    return sum(i.price for i in items)\n"}],
+      "log": [
+        "[user] add tax to the order total, callers now pass a tax rate",
+        "[edited] orders.py | def total(items, tax_rate):     \"\"\"Sum of item prices including tax.\"\"\"     return sum(i.price for i in items) * (1 + tax_rate)",
+        "[agent] Done: total now takes tax_rate and applies it."
+      ],
+      "expect": [{"name": "the stale memory updated to tax_rate and revived", "all": ["tax"], "memory": 1, "fresh": true}],
+      "avoid": []
+    },
+    {
+      "name": "flag a parked item being started",
+      "memories": [{"text": "G16 (the invoice export) is parked until the billing rewrite lands; do not start it without asking.",
+                    "topic": "decision"}],
+      "log": [
+        "[user] Let's pick up the invoice export today, start with the CSV writer.",
+        "[agent] I'll start on the invoice export, beginning with the CSV writer."
+      ],
+      "expect": [{"name": "the parked decision flagged for the next step", "recall": 1}],
+      "avoid": []
+    },
+    {
+      "name": "nothing worth keeping",
+      "log": [
+        "[user] thanks, that looks good",
+        "[agent] Glad it helped. Anything else?",
+        "[user] what's 12 times 13?",
+        "[agent] 156."
+      ],
+      "expect": [],
+      "avoid": [{"name": "anything at all", "all": [""]}]
+    }
+  ]
+}
