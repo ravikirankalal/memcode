@@ -156,6 +156,14 @@ class FlatOutput(unittest.TestCase):
                         evidence="develop is the default branch")
         self.assertEqual(len(curate.store_items(self.con, self.d, "s", [odd], cond, "m")), 1)   # unusual: kept at 3
 
+    def test_a_decision_marked_from_user_is_still_a_decision(self):
+        cond = "[user] Park G16 until the end of the milestone, start on the review instead."
+        park = self.item(from_user=True, topic="decision", subject="G16", text="G16 is parked until the end of the milestone.",
+                         evidence="Park G16 until the end of the milestone")
+        (mid,) = curate.store_items(self.con, self.d, "s", [park], cond, "m")
+        r = self.con.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
+        self.assertEqual((r["topic"], r["from_user"]), ("decision", 0))
+
     def test_schema_is_flat(self):
         props = json.loads(model.SCHEMA)["properties"]["items"]["items"]["properties"]
         self.assertIn("from_user", props)

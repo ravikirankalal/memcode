@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.18.1 (2026-10-29, PR #62) | 0.18.2: the memory agent runs in its own environment |
+| memcode | 0.18.1 (2026-10-29, PR #62) | 0.19.0: own environment for the memory agent; memcode eval-agent |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,7 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.18.2)
+## Unreleased (memcode 0.19.0)
 
 - The memory agent's environment, checked: each call is `claude -p` with `--setting-sources ""` (no settings, plugins
   or hooks), `--strict-mcp-config` (no MCP servers), `--tools ""` (no tools), memcode's own `--system-prompt` and
@@ -43,7 +43,16 @@ _Last updated: 2026-10-29._
   the Bedrock / Vertex / Foundry switches and skips, an OAuth token, client certificates, an API-key helper TTL,
   PROVIDER_MANAGED_BY_HOST); ANTHROPIC_*, proxies and system variables pass. Live check: a real call with the cleaned
   environment signed in and extracted the right memory ($0.00035).
-- Tests: 274 Python, 14 mod.
+- `memcode eval-agent [--effort] [--model] [--repeat] [--case] [--json]` (agent/evaluate.py, agent/eval_cases.json): 8
+  fixed cases through the real pipeline in scratch repositories (briefing, one model call, checks, curation), each
+  with what memcode should keep and must avoid; the report shows, for a missed check, what the agent proposed and
+  what memcode refused and why.
+- Found by it: a decision the agent marked from_user ("G16 is parked", from "Park G16, start the review") was checked
+  as a rule and refused as a request for now. A decision's topic now wins (curate.flat).
+- Measured (Haiku, 2 runs per case, after the fix): low effort 34/36 = 94%, $0.0099, 86 s; medium 32/36 = 89%,
+  $0.0124, 110 s (before the fix: low 92%, medium 83%). The default stays low, now on evidence. Misses that vary from
+  run to run: the dashboard link (rated below the bar), flagging a parked item being started (half the runs).
+- Tests: 278 Python, 14 mod.
 
 ## Latest release (memcode 0.18.1)
 

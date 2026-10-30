@@ -90,8 +90,12 @@ def run_case(case: dict, extract_fn=None) -> dict:
                 bad = any(_matches(m["text"], a.get("all", []))
                           and ("from_user" not in a or bool(m["from_user"]) == a["from_user"]) for m in new)
                 checks.append((f"avoids: {a['name']}", not bad))
+            refused = [f"{r['op']} \"{r['text'][:90]}\": {r['reason']}" for r in con.execute(
+                "SELECT op, text, reason FROM proposals ORDER BY id")]
             return {"name": case["name"], "checks": checks, "cost": float(res.get("cost_usd") or 0.0),
-                    "seconds": seconds, "kept": [m["text"] for m in new], "error": None}
+                    "seconds": seconds, "kept": [m["text"] for m in new], "refused": refused,
+                    "proposed": [f"{i.get('op')} {i.get('topic')}: {str(i.get('text'))[:90]}" for i in res["items"]],
+                    "error": None}
         finally:
             con.close()
 
@@ -130,6 +134,9 @@ def render(report: dict) -> str:
         ok = sum(o for _, o in r["checks"])
         lines.append(f"  {ok}/{len(r['checks'])}  {r['name']}  (${r['cost']:.4f}, {r['seconds']:.0f}s)")
         lines += [f"        missed: {label}" for label, o in r["checks"] if not o]
+        if ok < len(r["checks"]):            # why: what the agent proposed, and what memcode refused
+            lines += [f"          proposed: {p}" for p in r.get("proposed", [])]
+            lines += [f"          refused:  {p}" for p in r.get("refused", [])]
     lines.append(f"score {report['passed']}/{report['total']} = {report['score']:.0%}; cost ${report['cost']:.4f}; "
                  f"{report['seconds']:.0f}s; errors {report['errors']}")
     return "\n".join(lines)

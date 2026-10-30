@@ -178,7 +178,9 @@ def flat(item: dict) -> dict:
     if "from_user" not in item:
         return dict(item, kind="note", category=item.get("category") or "environment") if item.get("kind") == "env" else item
     topic = str(item.get("topic") or "")
-    kind = "rule" if item.get("from_user") is True else "decision" if topic == "decision" else "note"
+    # a decision is dated context, never an instruction, even when the agent marks it from_user (seen in eval-agent:
+    # "G16 is parked" marked from_user was checked as a rule and refused as a request for now)
+    kind = "decision" if topic == "decision" else "rule" if item.get("from_user") is True else "note"
     return dict(item, kind=kind, category=topic)
 
 def _link(con, mid: int, links) -> None:
