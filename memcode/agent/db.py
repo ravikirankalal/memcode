@@ -43,12 +43,16 @@ CREATE TABLE IF NOT EXISTS proposals (      -- proposals memcode did not keep, a
   op TEXT NOT NULL,                       -- add | update | retire | recall
   target INTEGER,
   text TEXT NOT NULL,
-  reason TEXT NOT NULL
+  reason TEXT NOT NULL,
+  evidence TEXT NOT NULL DEFAULT ''        -- what the agent quoted, to tell a bad quote from a bad check
 );
 """
 
 def ensure(con) -> None:
     con.executescript(SCHEMA_SQL)
+    cols = {r[1] for r in con.execute("PRAGMA table_info(proposals)")}
+    if "evidence" not in cols:                       # stores from 0.18-0.19.0
+        con.execute("ALTER TABLE proposals ADD COLUMN evidence TEXT NOT NULL DEFAULT ''")
 
 
 def loads(s) -> dict:

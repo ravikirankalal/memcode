@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.18.1 (2026-10-29, PR #62) | 0.19.0: own environment for the memory agent; memcode eval-agent |
+| memcode | 0.19.0 (2026-10-30, PR #63) | 0.19.1: precise refusals for updates and retires; same-text revive |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,20 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.19.0)
+## Unreleased (memcode 0.19.1)
+
+- Checked live (this repository, after 0.19.0): the memory agent's first stale review, an update of #120 (eval-agent
+  workflow, stale after evaluate.py changed) with better text, was refused under a catch-all reason ("no such memory,
+  the text is unchanged, or the evidence is not an exact quote"), and the quote it used was not stored, so the cause
+  could not be told. Now: a refused update or retire carries its specific reason (no such memory, the quote is not in
+  the transcript or, for a stale memory, the file; the coding agent only repeated a memory; not the user's words;
+  the text is unchanged), refused proposals store the agent's evidence and it is shown back to the agent, and an
+  update with unchanged text on a stale memory revives it as written (logged as `revive`).
+- Stale memories here: 13, seven of them about files that no longer exist (transcript_capture.py, removed in 0.12);
+  the agent has not retired them, so eviction after 14 days does (the oldest, #9, on 2026-11-01).
+- Tests: 280 Python, 14 mod.
+
+## Latest release (memcode 0.19.0)
 
 - The memory agent's environment, checked: each call is `claude -p` with `--setting-sources ""` (no settings, plugins
   or hooks), `--strict-mcp-config` (no MCP servers), `--tools ""` (no tools), memcode's own `--system-prompt` and
@@ -65,7 +78,7 @@ _Last updated: 2026-10-29._
     (none in 12 further runs).
 - Tests: 279 Python, 14 mod.
 
-## Latest release (memcode 0.18.1)
+## Previous release (memcode 0.18.1)
 
 - Fix, found testing 0.18.0 in this session: the first scan after the upgrade judged every memory shown during the
   whole session against only the replies since the previous scan, so memories named in earlier replies were marked

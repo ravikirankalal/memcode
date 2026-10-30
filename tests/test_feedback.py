@@ -134,11 +134,12 @@ class ProposalFeedback(unittest.TestCase):
                  self.item(op="recall", target=999, text="now", evidence="12 passed")]
         curate.store_items(self.con, self.d, "s", items, self.cond, "m")
         text = conversation.delta(self.con, "s", 0)
-        self.assertIn('- not kept, your add "A minor thing about the build output.": rated 2; this kind is kept from 4',
-                      text)
-        self.assertIn('"Tests print a summary line.": the evidence is not an exact quote of the transcript', text)
+        self.assertIn('- not kept, your add "A minor thing about the build output." (evidence "12 passed"): rated 2; this '
+                      'kind is kept from 4', text)
+        self.assertIn('"Tests print a summary line." (evidence "not in the transcript"): the evidence is not an exact '
+                      'quote of the transcript', text)
         self.assertIn("from_user needs the user's own words as evidence", text)
-        self.assertIn("- not kept, your retire #999", text)
+        self.assertIn('- not kept, your retire #999 "gone" (evidence "12 passed"): there is no memory #999', text)
         self.assertIn("- not kept, your recall #999", text)
 
     def test_the_briefing_has_today_and_how_memories_were_taken(self):
