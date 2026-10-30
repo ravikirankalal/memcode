@@ -12,6 +12,7 @@ from . import checks, db
 MAX_ITEMS = 6                # memories kept per piece: the most important candidates
 MIN_IMPORTANCE = 4           # a note rated below this is not kept
 MIN_RULE_IMPORTANCE = 3      # the user's own rules and decisions get more room, and so do project knowledge and the unusual
+MIN_REFERENCE_IMPORTANCE = 2 # links shared or opened (topic reference) and where docs and scripts live (location)
 # project knowledge the agent infers (the project profile: stack, component, ...): kept from a rating of 3, and never
 # pinned to its file's content (a central class's summary is updated, not hidden on every edit)
 from ..kinds import PROFILE_TOPICS as KNOWLEDGE  # noqa: E402  (one list for keeping and showing)
@@ -178,7 +179,9 @@ def flat(item: dict) -> dict:
     if "from_user" not in item:
         return dict(item, kind="note", category=item.get("category") or "environment") if item.get("kind") == "env" else item
     topic = str(item.get("topic") or "")
-    kind = "rule" if item.get("from_user") is True else "decision" if topic == "decision" else "note"
+    # a decision is dated context, never an instruction, even when the agent marks it from_user (seen in eval-agent:
+    # "G16 is parked" marked from_user was checked as a rule and refused as a request for now)
+    kind = "decision" if topic == "decision" else "rule" if item.get("from_user") is True else "note"
     return dict(item, kind=kind, category=topic)
 
 def _link(con, mid: int, links) -> None:
@@ -266,6 +269,8 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
         knowledge = item.get("kind") == "note" and item.get("category") in KNOWLEDGE
         unusual = item.get("unusual") is True
         floor = MIN_RULE_IMPORTANCE if item.get("kind") in ("rule", "decision") or knowledge or unusual else MIN_IMPORTANCE
+        if item.get("category") in ("reference", "location"):   # a link, or where a doc or script lives: cheap to keep,
+            floor = MIN_REFERENCE_IMPORTANCE                     # exact, and rated low (eval-agent: dashboard, runbook at 2)
         if rating(item) < floor:
             _not_kept(con, session, item, f"rated {rating(item)}; this kind is kept from {floor}")
             continue

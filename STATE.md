@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.18.0 (2026-10-29, PR #61) | 0.18.1: verdicts only for showings since the previous judging |
+| memcode | 0.18.1 (2026-10-29, PR #62) | 0.19.0: own environment for the memory agent; memcode eval-agent |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -30,7 +30,42 @@ _Last updated: 2026-10-29._
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
 
-## Unreleased (memcode 0.18.1)
+## Unreleased (memcode 0.19.0)
+
+- The memory agent's environment, checked: each call is `claude -p` with `--setting-sources ""` (no settings, plugins
+  or hooks), `--strict-mcp-config` (no MCP servers), `--tools ""` (no tools), memcode's own `--system-prompt` and
+  `--json-schema`, Haiku at low effort, $0.25 per call, 120 s timeout; no CLAUDE.md reaches it. But it inherited the
+  coding session's whole environment: 70+ CLAUDE_* / CCR_* variables (the session's id, remote-session messaging
+  socket and token, ingress settings, debug files, effort and compaction overrides). With them its context carried
+  account and commit-attribution notes and cloud-session notes: 1,367 tokens for a bare call against 595 without
+  (measured), and it could reach the session's plumbing (scratch `claude` runs reused this session's id).
+- Now model.agent_env() drops CLAUDE*/CCR_* variables except those sign-in and the provider need (CLAUDE_CONFIG_DIR,
+  the Bedrock / Vertex / Foundry switches and skips, an OAuth token, client certificates, an API-key helper TTL,
+  PROVIDER_MANAGED_BY_HOST); ANTHROPIC_*, proxies and system variables pass. Live check: a real call with the cleaned
+  environment signed in and extracted the right memory ($0.00035).
+- `memcode eval-agent [--effort] [--model] [--repeat] [--case] [--json]` (agent/evaluate.py, agent/eval_cases.json): 8
+  fixed cases through the real pipeline in scratch repositories (briefing, one model call, checks, curation), each
+  with what memcode should keep and must avoid; the report shows, for a missed check, what the agent proposed and
+  what memcode refused and why.
+- Found by it: a decision the agent marked from_user ("G16 is parked", from "Park G16, start the review") was checked
+  as a rule and refused as a request for now. A decision's topic now wins (curate.flat).
+- Measured (Haiku, 2 runs per case, after the fix): low effort 34/36 = 94%, $0.0099, 86 s; medium 32/36 = 89%,
+  $0.0124, 110 s (before the fix: low 92%, medium 83%). The default stays low, now on evidence. Misses that vary from
+  run to run: the dashboard link (rated below the bar), flagging a parked item being started (half the runs).
+- Then, from what the eval showed:
+  - links (topic reference) and where docs and scripts live (location) are kept from a rating of 2: the agent
+    proposed the dashboard link and the runbook's place every run but rated them 2 about half the time;
+  - evidence matching ignores typographic quotes and dashes (the model quotes export’s for export's), which refused a
+    correct recall;
+  - two cases were wrong, not the agent: starting a parked item yourself un-parks it (the agent rightly updated the
+    decision), so the flag case is now the coding agent starting parked work on its own; and the progress check
+    matched "#42" inside a correct decision ("work goes to the review (feat/review, #42) instead").
+  - Measured after these (low effort, 3 runs per case): 95-96% (55/57, 54/57), about $0.015 a run. What still varies:
+    a correct item rated 3 where its kind needs 4 (the module test command), and a rare "not an exact quote" refusal
+    (none in 12 further runs).
+- Tests: 279 Python, 14 mod.
+
+## Latest release (memcode 0.18.1)
 
 - Fix, found testing 0.18.0 in this session: the first scan after the upgrade judged every memory shown during the
   whole session against only the replies since the previous scan, so memories named in earlier replies were marked
@@ -42,7 +77,7 @@ _Last updated: 2026-10-29._
   waits for the next session: the stale list is in the briefing, sent when the conversation opens.
 - Tests: 273 Python, 14 mod.
 
-## Latest release (memcode 0.18.0: the memory agent learns from feedback and keeps memory fresh)
+## Previous release (memcode 0.18.0: the memory agent learns from feedback and keeps memory fresh)
 
 - Acceptance feedback (feedback.py, table memory_feedback): a memory shown next to the work (per prompt, after an
   action, first touch, flagged) is judged `used` when a reply names it in a `memcode:` line, else `unused`; judged

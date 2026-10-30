@@ -13,6 +13,8 @@
   config [KEY on|off] show or set switches: memory-agent, decision-capture, retrieval, hierarchy, show-injections,
                       mention-memories
   doctor              is memcode working here? python, sqlite, store, memory agent, recall, hooks, errors
+  eval-agent [--effort E] [--model M] [--repeat N] [--case NAME] [--json]
+                      score the memory agent on fixed cases (real model calls, about $0.02 per run)
   export [FILE]       JSON dump (stdout if no FILE)
   prune-stale         delete all stale memories
   history [-n N]      what the memory agent added, updated or retired, with the old text
@@ -328,6 +330,14 @@ def cmd_doctor(con, a, root) -> int:
     return 1 if any(s == "fail" for s, _, _ in res) else 0
 
 
+def cmd_eval_agent(a) -> int:
+    """`memcode eval-agent`: the memory agent on the fixed cases in memcode/agent/eval_cases.json."""
+    from .agent import evaluate
+    report = evaluate.run(effort=a.effort, model_name=a.model, repeat=a.repeat, only=a.case)
+    print(json.dumps(report, indent=2) if a.json else evaluate.render(report))
+    return 1 if report["errors"] else 0
+
+
 def cmd_history(con, a) -> int:
     """`memcode history [-n N]`: what the memory agent added, updated or retired, and what `memcode edit` changed."""
     from .agent import db
@@ -359,6 +369,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("add"); p.add_argument("text"); p.add_argument("--path"); p.add_argument("--topic")
     sub.add_parser("stats")
     sub.add_parser("doctor", help="is memcode working here?")
+    p = sub.add_parser("eval-agent", help="score the memory agent on fixed cases (real model calls)")
+    p.add_argument("--effort", choices=("low", "medium", "high")); p.add_argument("--model")
+    p.add_argument("--repeat", type=int, default=1); p.add_argument("--case"); p.add_argument("--json", action="store_true")
     p = sub.add_parser("sessions"); p.add_argument("-n", type=int, default=10)
     p = sub.add_parser("why"); p.add_argument("id", type=int)
     p = sub.add_parser("facts"); p.add_argument("--backfill", action="store_true"); p.add_argument("--force", action="store_true")
@@ -376,6 +389,8 @@ def main(argv: list[str] | None = None) -> int:
         ap.print_help()                         # bare `memcode` / `/memcode:cli`: show what is available
         return 0
     a = ap.parse_args(argv)
+    if a.cmd == "eval-agent":                   # scratch repositories of its own: no store here
+        return cmd_eval_agent(a)
     root = store.resolve_root(a.root)
     from . import scope
     scope.apply_config(root)

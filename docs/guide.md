@@ -135,7 +135,15 @@ after they were last stated (`MEMCODE_DECISION_DAYS`).
 **Configuration.** Haiku (`MEMCODE_CAPTURE_MODEL`) at low effort (`MEMCODE_AGENT_EFFORT`: low, medium or high), a
 running conversation that starts over after 30 calls or about 40,000 tokens, up to 24,000 characters of condensed log
 per call, a briefing of up to 150 memories (with today's date, how each was taken when shown, and up to 12 stale
-ones), up to 12 candidates per piece of which the 6 most important are kept.
+ones), up to 12 candidates per piece of which the 6 most important are kept. Each call is a `claude -p` with no
+tools, no settings, no MCP servers, memcode's own system prompt and output schema, and its own environment: Claude
+Code's session variables (the coding session's id, remote-session plumbing, effort and compaction overrides) are not
+passed on; sign-in, provider and proxy settings are.
+
+**Measuring it.** `memcode eval-agent [--effort low|medium|high] [--model M] [--repeat N]` runs the memory agent on
+8 fixed cases (a profile from code; deploy, infra and branching; a correction; a decision next to the agent's own
+progress; a request for now; a stale memory to revive; a parked item being started; a turn with nothing to keep)
+through the real pipeline in scratch repositories, and scores what memcode ends up with. About $0.02 a run.
 
 **Cost and failures.** About $0.004 per piece of log (24,000 condensed characters) on Haiku. There is no per-session limit:
 every turn is read (about $0.03 per 1,000 log lines; each model call is capped at $0.25). To set one, use

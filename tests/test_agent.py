@@ -156,6 +156,18 @@ class FlatOutput(unittest.TestCase):
                         evidence="develop is the default branch")
         self.assertEqual(len(curate.store_items(self.con, self.d, "s", [odd], cond, "m")), 1)   # unusual: kept at 3
 
+    def test_a_decision_marked_from_user_is_still_a_decision(self):
+        cond = "[user] Park G16 until the end of the milestone, start on the review instead."
+        park = self.item(from_user=True, topic="decision", subject="G16", text="G16 is parked until the end of the milestone.",
+                         evidence="Park G16 until the end of the milestone")
+        (mid,) = curate.store_items(self.con, self.d, "s", [park], cond, "m")
+        r = self.con.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
+        self.assertEqual((r["topic"], r["from_user"]), ("decision", 0))
+
+    def test_typographic_quotes_still_match(self):
+        cond = "[agent] While I'm in here I'll also start the invoice export's CSV writer - today."
+        self.assertIn(checks._norm("the invoice export\u2019s CSV writer \u2014 today"), checks._norm(cond))
+
     def test_schema_is_flat(self):
         props = json.loads(model.SCHEMA)["properties"]["items"]["items"]["properties"]
         self.assertIn("from_user", props)
@@ -817,3 +829,15 @@ class Conversation(unittest.TestCase):
         self.assertNotEqual(ids[0], ids[1])
         self.assertEqual(spawned, [(), ("--bootstrap",), ()])                # the repository is read once
         self.assertEqual(conversation.pending_openings(self.con), ["s1"])
+
+
+class AgentEnvironment(unittest.TestCase):
+    def test_the_memory_agent_does_not_inherit_the_coding_sessions_claude_variables(self):
+        base = {"PATH": "/bin", "HOME": "/h", "HTTPS_PROXY": "http://p", "ANTHROPIC_BASE_URL": "https://a",
+                "ANTHROPIC_API_KEY": "k", "AWS_REGION": "eu", "CLAUDE_CONFIG_DIR": "/c", "CLAUDE_CODE_USE_BEDROCK": "1",
+                "CLAUDE_CODE_SESSION_ID": "s", "CLAUDE_CODE_REMOTE": "true", "CLAUDE_CODE_MESSAGING_TOKEN": "t",
+                "CLAUDE_EFFORT": "high", "CLAUDECODE": "1", "CCR_SESSION_PROFILE": "x", "CLAUDE_CODE_USER_EMAIL": "e"}
+        env = model.agent_env(base)
+        self.assertEqual(set(env), {"PATH", "HOME", "HTTPS_PROXY", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "AWS_REGION",
+                                    "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_USE_BEDROCK", "MEMCODE_DISABLE"})
+        self.assertEqual(env["MEMCODE_DISABLE"], "1")
