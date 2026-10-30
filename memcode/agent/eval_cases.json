@@ -3,7 +3,9 @@
   "cases": [
     {
       "name": "profile from code",
-      "files": {"src/OrderState.java": "public enum OrderState { NEW, PAID, SHIPPED, DELIVERED, CANCELLED }"},
+      "files": {
+        "src/OrderState.java": "public enum OrderState { NEW, PAID, SHIPPED, DELIVERED, CANCELLED }"
+      },
       "log": [
         "[user] the refund flow double-charges sometimes, can you look at PaymentGateway?",
         "[read] src/PaymentGateway.java | import com.stripe.Stripe; import com.stripe.model.Refund; public class PaymentGateway { /** Wraps the Stripe SDK for charges and refunds. Used by OrderService only. */ public Charge charge(Order o) { ... } public Refund refund(Order o) { ... } }",
@@ -13,12 +15,45 @@
         "[agent] The double charge comes from retrying charge() after a timeout; I made refund idempotent with a key."
       ],
       "expect": [
-        {"name": "the Stripe SDK and its wrapper", "all": ["stripe", "paymentgateway"]},
-        {"name": "OrderService's role", "all": ["orderservice", "lifecycle|entry point|place"]},
-        {"name": "OrderState's states", "all": ["orderstate", "paid", "shipped"]},
-        {"name": "the module test command", "all": ["mvnw", "test"]}
+        {
+          "name": "the Stripe SDK and its wrapper",
+          "all": [
+            "stripe",
+            "paymentgateway"
+          ]
+        },
+        {
+          "name": "OrderService's role",
+          "all": [
+            "orderservice",
+            "lifecycle|entry point|place"
+          ]
+        },
+        {
+          "name": "OrderState's states",
+          "all": [
+            "orderstate",
+            "paid",
+            "shipped"
+          ]
+        },
+        {
+          "name": "the module test command",
+          "all": [
+            "mvnw",
+            "test"
+          ]
+        }
       ],
-      "avoid": [{"name": "the fix itself as a memory", "all": ["idempotent", "this change|today"]}]
+      "avoid": [
+        {
+          "name": "the fix itself as a memory",
+          "all": [
+            "idempotent",
+            "this change|today"
+          ]
+        }
+      ]
     },
     {
       "name": "deploy, infra, branching",
@@ -33,12 +68,45 @@
         "[agent] Releases are tagged v*, deploy.yml deploys staging and then prod after approval, on EKS in eu-west-1."
       ],
       "expect": [
-        {"name": "branching rule, from the user", "all": ["develop", "main"], "from_user": true},
-        {"name": "tests live in checks/", "all": ["checks"]},
-        {"name": "the deploy pipeline", "all": ["v*|tag", "deploy.yml|staging"]},
-        {"name": "infra", "all": ["eks|helm|ecr|rds"]},
-        {"name": "the dashboard link", "all": ["grafana"]},
-        {"name": "the runbook", "all": ["runbook"]}
+        {
+          "name": "branching rule, from the user",
+          "all": [
+            "develop",
+            "main"
+          ],
+          "from_user": true
+        },
+        {
+          "name": "tests live in checks/",
+          "all": [
+            "checks"
+          ]
+        },
+        {
+          "name": "the deploy pipeline",
+          "all": [
+            "v*|tag",
+            "deploy.yml|staging"
+          ]
+        },
+        {
+          "name": "infra",
+          "all": [
+            "eks|helm|ecr|rds"
+          ]
+        },
+        {
+          "name": "the dashboard link",
+          "all": [
+            "grafana"
+          ]
+        },
+        {
+          "name": "the runbook",
+          "all": [
+            "runbook"
+          ]
+        }
       ],
       "avoid": []
     },
@@ -51,7 +119,16 @@
         "[ran] `git mv tests/test_parser.py checks/test_parser.py` -> ok |",
         "[agent] Moved the test to checks/test_parser.py."
       ],
-      "expect": [{"name": "tests go in checks/, from the user", "all": ["checks", "tests"], "from_user": true}],
+      "expect": [
+        {
+          "name": "tests go in checks/, from the user",
+          "all": [
+            "checks",
+            "tests"
+          ],
+          "from_user": true
+        }
+      ],
       "avoid": []
     },
     {
@@ -62,8 +139,24 @@
         "[ran] `git push -u origin feat/review` -> ok | branch feat/review set up to track origin",
         "[agent] #42 is implemented and its tests pass; pushed to feat/review, not released yet."
       ],
-      "expect": [{"name": "G16 parked, as a decision", "all": ["g16", "park"], "topic": "decision"}],
-      "avoid": [{"name": "the agent's progress as memory", "all": ["#42|pushed|implemented"]}]
+      "expect": [
+        {
+          "name": "G16 parked, as a decision",
+          "all": [
+            "g16",
+            "park"
+          ],
+          "topic": "decision"
+        }
+      ],
+      "avoid": [
+        {
+          "name": "the agent's progress as memory",
+          "all": [
+            "implemented|pushed to|tests pass|not released"
+          ]
+        }
+      ]
     },
     {
       "name": "a request for now is not a rule",
@@ -73,30 +166,74 @@
         "[agent] Committed without running the linter, as asked."
       ],
       "expect": [],
-      "avoid": [{"name": "skipping the linter as a standing rule", "all": ["lint"], "from_user": true}]
+      "avoid": [
+        {
+          "name": "skipping the linter as a standing rule",
+          "all": [
+            "lint"
+          ],
+          "from_user": true
+        }
+      ]
     },
     {
       "name": "a stale memory to revive",
-      "files": {"orders.py": "def total(items, tax_rate):\n    \"\"\"Sum of item prices including tax.\"\"\"\n    return sum(i.price for i in items) * (1 + tax_rate)\n"},
-      "memories": [{"text": "orders.total(items) sums the item prices; callers pass a list of Item.", "anchor": "orders.py",
-                    "topic": "component", "stale": true, "original": "def total(items):\n    return sum(i.price for i in items)\n"}],
+      "files": {
+        "orders.py": "def total(items, tax_rate):\n    \"\"\"Sum of item prices including tax.\"\"\"\n    return sum(i.price for i in items) * (1 + tax_rate)\n"
+      },
+      "memories": [
+        {
+          "text": "orders.total(items) sums the item prices; callers pass a list of Item.",
+          "anchor": "orders.py",
+          "topic": "component",
+          "stale": true,
+          "original": "def total(items):\n    return sum(i.price for i in items)\n"
+        }
+      ],
       "log": [
         "[user] add tax to the order total, callers now pass a tax rate",
         "[edited] orders.py | def total(items, tax_rate):     \"\"\"Sum of item prices including tax.\"\"\"     return sum(i.price for i in items) * (1 + tax_rate)",
         "[agent] Done: total now takes tax_rate and applies it."
       ],
-      "expect": [{"name": "the stale memory updated to tax_rate and revived", "all": ["tax"], "memory": 1, "fresh": true}],
+      "expect": [
+        {
+          "name": "the stale memory updated to tax_rate and revived",
+          "all": [
+            "tax"
+          ],
+          "memory": 1,
+          "fresh": true
+        }
+      ],
       "avoid": []
     },
     {
-      "name": "flag a parked item being started",
-      "memories": [{"text": "G16 (the invoice export) is parked until the billing rewrite lands; do not start it without asking.",
-                    "topic": "decision"}],
-      "log": [
-        "[user] Let's pick up the invoice export today, start with the CSV writer.",
-        "[agent] I'll start on the invoice export, beginning with the CSV writer."
+      "name": "flag parked work the agent starts on its own",
+      "memories": [
+        {
+          "text": "G16 (the invoice export) is parked until the billing rewrite lands; do not start it without asking.",
+          "topic": "decision"
+        }
       ],
-      "expect": [{"name": "the parked decision flagged for the next step", "recall": 1}],
+      "log": [
+        "[user] the date parser test fails on leap years, please fix it",
+        "[ran] `python3 -m pytest -q tests/test_dates.py` -> failed | 1 failed: test_leap_year",
+        "[edited] app/dates.py | def is_leap(y): return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)",
+        "[agent] Fixed the leap-year check. While I'm in here I'll also start the invoice export's CSV writer, since it needs the same date helpers."
+      ],
+      "expect": [
+        {
+          "name": "the parked decision flagged for the next step",
+          "recall": 1
+        },
+        {
+          "name": "the decision left as it is (the user did not un-park it)",
+          "all": [
+            "parked"
+          ],
+          "memory": 1
+        }
+      ],
       "avoid": []
     },
     {
@@ -108,7 +245,14 @@
         "[agent] 156."
       ],
       "expect": [],
-      "avoid": [{"name": "anything at all", "all": [""]}]
+      "avoid": [
+        {
+          "name": "anything at all",
+          "all": [
+            ""
+          ]
+        }
+      ]
     }
   ]
 }

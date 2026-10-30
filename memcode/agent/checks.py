@@ -15,9 +15,14 @@ _SELF_TOOLS = re.compile(r"(?i)\bmemory_(?:add|search|pinned|facts)\b|\b(?:agent
 _SELF = re.compile(r"(?i)\b(?:memcode|memory_(?:add|search|pinned|facts)|(?:agent|assistant)'?s? (?:own )?memory)\b")
 
 
+_TYPOGRAPHY = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-",
+                             "\u2026": "..."})
+
+
 def _norm(s: str) -> str:
-    """For matching quotes: case, spacing and markdown emphasis/code marks ignored (the model quotes `**X**` as X)."""
-    return " ".join(re.sub(r"[*`]", "", str(s)).lower().split())
+    """For matching quotes: case, spacing, markdown emphasis/code marks (the model quotes `**X**` as X) and typographic
+    quotes and dashes (it writes export’s for export's) ignored."""
+    return " ".join(re.sub(r"[*`]", "", str(s).translate(_TYPOGRAPHY)).lower().split())
 
 def _terms(s: str) -> set:
     from ..retrieval import terms

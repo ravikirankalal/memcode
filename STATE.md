@@ -52,7 +52,18 @@ _Last updated: 2026-10-29._
 - Measured (Haiku, 2 runs per case, after the fix): low effort 34/36 = 94%, $0.0099, 86 s; medium 32/36 = 89%,
   $0.0124, 110 s (before the fix: low 92%, medium 83%). The default stays low, now on evidence. Misses that vary from
   run to run: the dashboard link (rated below the bar), flagging a parked item being started (half the runs).
-- Tests: 278 Python, 14 mod.
+- Then, from what the eval showed:
+  - links (topic reference) and where docs and scripts live (location) are kept from a rating of 2: the agent
+    proposed the dashboard link and the runbook's place every run but rated them 2 about half the time;
+  - evidence matching ignores typographic quotes and dashes (the model quotes export’s for export's), which refused a
+    correct recall;
+  - two cases were wrong, not the agent: starting a parked item yourself un-parks it (the agent rightly updated the
+    decision), so the flag case is now the coding agent starting parked work on its own; and the progress check
+    matched "#42" inside a correct decision ("work goes to the review (feat/review, #42) instead").
+  - Measured after these (low effort, 3 runs per case): 95-96% (55/57, 54/57), about $0.015 a run. What still varies:
+    a correct item rated 3 where its kind needs 4 (the module test command), and a rare "not an exact quote" refusal
+    (none in 12 further runs).
+- Tests: 279 Python, 14 mod.
 
 ## Latest release (memcode 0.18.1)
 

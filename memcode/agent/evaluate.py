@@ -94,7 +94,8 @@ def run_case(case: dict, extract_fn=None) -> dict:
                 "SELECT op, text, reason FROM proposals ORDER BY id")]
             return {"name": case["name"], "checks": checks, "cost": float(res.get("cost_usd") or 0.0),
                     "seconds": seconds, "kept": [m["text"] for m in new], "refused": refused,
-                    "proposed": [f"{i.get('op')} {i.get('topic')}: {str(i.get('text'))[:90]}" for i in res["items"]],
+                    "proposed": [f"{i.get('op')} {i.get('topic')}: {str(i.get('text'))[:90]} <- \"{str(i.get('evidence'))[:90]}\""
+                                 for i in res["items"]],
                     "error": None}
         finally:
             con.close()

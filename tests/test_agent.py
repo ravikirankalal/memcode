@@ -164,6 +164,10 @@ class FlatOutput(unittest.TestCase):
         r = self.con.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
         self.assertEqual((r["topic"], r["from_user"]), ("decision", 0))
 
+    def test_typographic_quotes_still_match(self):
+        cond = "[agent] While I'm in here I'll also start the invoice export's CSV writer - today."
+        self.assertIn(checks._norm("the invoice export\u2019s CSV writer \u2014 today"), checks._norm(cond))
+
     def test_schema_is_flat(self):
         props = json.loads(model.SCHEMA)["properties"]["items"]["items"]["properties"]
         self.assertIn("from_user", props)

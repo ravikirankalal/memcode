@@ -37,8 +37,9 @@ PERFECT = {
     "a request for now is not a rule": [],
     "a stale memory to revive": [item("orders.total(items, tax_rate) sums item prices including tax.",
                                       "def total(items, tax_rate):", op="update", target=1, topic="component")],
-    "flag a parked item being started": [item("the user is starting the parked export", "pick up the invoice export today",
-                                              op="recall", target=1)],
+    "flag parked work the agent starts on its own": [item("the agent is starting the parked export unasked",
+                                                          "also start the invoice export's CSV writer", op="recall",
+                                                          target=1)],
     "nothing worth keeping": [],
 }
 
@@ -60,8 +61,9 @@ class Runner(unittest.TestCase):
 
     def test_keeping_nothing_passes_only_the_avoid_checks(self):
         report = evaluate.run(extract_fn=self.fake(lambda c: []))
-        for r in report["results"]:
-            self.assertTrue(all(ok == label.startswith("avoids:") for label, ok in r["checks"]), r["name"])
+        for r in report["results"]:                       # ("left as it is" holds when nothing is done, too)
+            self.assertTrue(all(ok == (label.startswith("avoids:") or "left as it is" in label)
+                                for label, ok in r["checks"]), r["name"])
 
     def test_keeping_the_agents_progress_is_caught(self):
         bad = [item("#42 is implemented and pushed to feat/review.", "#42 is implemented and its tests pass", topic="decision")]
