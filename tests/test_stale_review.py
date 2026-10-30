@@ -45,6 +45,16 @@ class StaleReview(unittest.TestCase):
         tree.mark_stale(self.con, self.d)
         self.assertEqual(self.con.execute("SELECT stale FROM memories WHERE id=?", (self.mid,)).fetchone()[0], 0)
 
+    def test_an_update_with_the_same_text_revives_it_as_written(self):
+        same = {"op": "update", "target": self.mid, "text": "orders.total sums the item prices.",
+                "evidence": "return sum(i.price for i in items) * tax"}
+        self.assertEqual(curate.change(self.con, "s", same, "[agent] looked at orders", self.d), self.mid)
+        self.assertEqual(self.con.execute("SELECT stale FROM memories WHERE id=?", (self.mid,)).fetchone()[0], 0)
+        self.assertEqual(self.con.execute("SELECT op FROM memory_log").fetchall()[-1][0], "revive")
+        live = dict(same, evidence="looked at orders")                        # fresh now, same text: a no-op
+        self.assertIsNone(curate.change(self.con, "s", live, "[agent] looked at orders", self.d))
+        self.assertEqual(live["_why"], "the text is unchanged")
+
     def test_a_retire_may_quote_the_file_and_made_up_evidence_is_refused(self):
         bad = {"op": "retire", "target": self.mid, "text": "no longer true", "evidence": "nothing like this anywhere"}
         self.assertIsNone(curate.change(self.con, "s", bad, "[agent] hi", self.d))

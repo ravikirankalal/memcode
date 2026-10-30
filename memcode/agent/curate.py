@@ -111,27 +111,31 @@ def change(con, session: str, item: dict, condensed: str, root=None) -> int | No
     -> the memory id changed, or None."""
     from .. import activity
     op = item.get("op")
+    def no(why: str):
+        item["_why"] = why                       # told back to the agent (store_items -> _not_kept)
+        return None
     try:
         target = int(item.get("target") or 0)
     except (TypeError, ValueError):
-        return None
+        return no("the target is not a memory number")
     row = con.execute("SELECT * FROM memories WHERE id=?", (target,)).fetchone() if target > 0 else None
     if row is None:
-        return None
+        return no(f"there is no memory #{target}")
     if checks.verified(dict(item, kind="note"), condensed) is None:
         ev_n = checks._norm(item.get("evidence", ""))
         in_file = (row["stale"] and len(ev_n) >= 8 and len(" ".join(str(item.get("text", "")).split())) >= 8
                    and ev_n in checks._norm(file_text(root, row["anchor_path"])))
         if not in_file:
-            return None
+            return no(checks.why_not(dict(item, kind="note"), condensed, root)
+                      + (" (for a stale memory, quoting its file's current text also counts)" if row["stale"] else ""))
     if op == "update" and checks.echoes_context(con, session, item, condensed):
-        return None
+        return no("the coding agent was only repeating a memory it was shown")
     is_rule = bool(row["from_user"])
     if is_rule and (not checks.user_evidence(item, condensed) or checks.verified(dict(item, kind="rule"), condensed) != "rule"):
-        return None
+        return no("a from_user memory changes only on the user's own words (a [user] line as evidence)")
     is_decision = row["topic"] == "decision"
     if is_decision and checks.verified(dict(item, kind="decision"), condensed) != "decision":
-        return None
+        return no("a decision changes only on the user's words or a [ran] result that settles it")
     text = " ".join(str(item.get("text", "")).split())[:300]
     ev = item.get("evidence", "")
     if op == "retire":
@@ -141,7 +145,13 @@ def change(con, session: str, item: dict, condensed: str, root=None) -> int | No
         return target
     if op == "update":
         if text == row["text"]:
-            return None
+            if not row["stale"]:
+                return no("the text is unchanged")
+            _log(con, session, "revive", target, before=row, after="still holds as written", evidence=ev)
+            con.execute("UPDATE memories SET updated_at=? WHERE id=?", (time.time(), target))
+            _revive(con, root, row)                  # reviewed: it still holds as written
+            activity.note(con, "updated", f"kept #{target} after its file changed: {text}")
+            return target
         _log(con, session, "update", target, before=row, after=text, evidence=ev)
         now = time.time()
         con.execute("UPDATE memories SET text=?, updated_at=?, expires_at=?, unusual=? WHERE id=?",
@@ -224,9 +234,9 @@ def _not_kept(con, session: str, item: dict, reason: str) -> None:
         target = int(item.get("target") or 0) or None
     except (TypeError, ValueError):
         target = None
-    con.execute("INSERT INTO proposals(ts, session, op, target, text, reason) VALUES(?,?,?,?,?,?)",
+    con.execute("INSERT INTO proposals(ts, session, op, target, text, reason, evidence) VALUES(?,?,?,?,?,?,?)",
                 (time.time(), session, str(item.get("op") or "add"), target,
-                 " ".join(str(item.get("text", "")).split())[:200], reason))
+                 " ".join(str(item.get("text", "")).split())[:200], reason, str(item.get("evidence", ""))[:200]))
     con.execute("DELETE FROM proposals WHERE ts < ?", (time.time() - KEEP_PROPOSALS_DAYS * 86400,))
 
 
@@ -262,9 +272,7 @@ def store_items(con, root: str, session: str, items: list[dict], condensed: str,
                 if item.get("op") == "update":
                     _link(con, mid, item.get("links"))
             else:
-                _not_kept(con, session, item, "no such memory, the text is unchanged, or the evidence is not an exact "
-                          "quote (of the user's own words for a from_user memory or a decision; of the file for a "
-                          "stale one)")
+                _not_kept(con, session, item, item.get("_why") or "it did not pass the checks")
             continue
         knowledge = item.get("kind") == "note" and item.get("category") in KNOWLEDGE
         unusual = item.get("unusual") is True

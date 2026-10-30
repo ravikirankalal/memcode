@@ -103,10 +103,10 @@ def delta(con, session: str, since: float, root=None) -> str:
     from .. import feedback
     lines += feedback.delta_lines(con, session, since)             # what the coding agent used, and what it did not
     db.ensure(con)
-    for r in con.execute("SELECT op, target, text, reason FROM proposals WHERE session=? AND ts>? ORDER BY id",
+    for r in con.execute("SELECT op, target, text, reason, evidence FROM proposals WHERE session=? AND ts>? ORDER BY id",
                          (session, since)):
         what = f"{r['op']} #{r['target']}" if r["target"] else r["op"]
-        lines.append(f"- not kept, your {what} \"{r['text'][:120]}\": {r['reason']}")
+        lines.append(f"- not kept, your {what} \"{r['text'][:120]}\" (evidence \"{r['evidence'][:80]}\"): {r['reason']}")
     from .curate import file_text
     for r in con.execute("SELECT id, trigger, text, anchor_path, topic, updated_at, unusual FROM memories WHERE stale=1 "
                          "AND mkey IS NULL AND updated_at>? ORDER BY id", (since,)):
