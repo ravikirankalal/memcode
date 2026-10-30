@@ -192,6 +192,8 @@ def run_worker(root: str, extract_fn=model.extract) -> int:
                 prev = con.execute("SELECT result FROM transcript_scans WHERE session=?", (session,)).fetchone()
                 last = db.loads(prev[0]) if prev else {}
                 keep = {k: last[k] for k in ("skipped_lines", "budget_usd") if k in last and last.get("skipped_lines")}
+                if "judged_at" in last:          # the feedback clock (scan_one) must survive this rewrite
+                    keep["judged_at"] = last["judged_at"]
                 con.execute("UPDATE transcript_scans SET offset=?, status=CASE WHEN status='working' THEN 'idle' "
                             "ELSE status END, result=? WHERE session=?",
                             (off, json.dumps({"stored": ids, **keep}), session))

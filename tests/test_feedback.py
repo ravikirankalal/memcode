@@ -86,6 +86,27 @@ class Feedback(unittest.TestCase):
         worker.scan_one(self.con, self.d, "s1", path, 0, lambda text, ctx=None: {"items": [], "model": "f", "cost_usd": 0})
         self.assertEqual(feedback.counts(self.con).get(self.tests), (1, 0))
 
+    def test_judging_keeps_working_scan_after_scan(self):
+        from memcode.agent import worker
+        import json
+        path = os.path.join(self.d, "t3.jsonl")
+        fake = lambda text, ctx=None: {"items": [], "model": "f", "cost_usd": 0}   # noqa: E731
+
+        def turn(user_text, reply):
+            with open(path, "a") as fh:
+                fh.write(json.dumps({"type": "user", "message": {"role": "user", "content": user_text}}) + "\n")
+                fh.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [
+                    {"type": "text", "text": reply}]}}) + "\n")
+            worker.enqueue(self.con, "s3", path)
+            worker.run_worker(self.d, fake)
+
+        turn("first question " * 30, "a first answer " * 30)                     # the clock starts
+        self.show("s3", self.tests)
+        turn("how do I run the tests? " * 10, "> memcode: tests run with `make check` here, pytest misses the fixtures.")
+        self.show("s3", self.noise)
+        turn("and the docs? " * 20, "they are in docs/ " * 20)
+        self.assertEqual(feedback.counts(self.con), {self.tests: (1, 0), self.noise: (0, 1)})
+
     def test_a_session_read_before_judging_existed_starts_the_clock_first(self):
         from memcode.agent import worker
         import json

@@ -9,7 +9,7 @@ _Last updated: 2026-10-29._
 
 | | Released | On the branch, not released |
 |---|---|---|
-| memcode | 0.19.1 (2026-10-30, PR #64) | none |
+| memcode | 0.19.1 (2026-10-30, PR #64) | 0.19.2: the feedback clock survives each scan |
 | memcode-status (mod) | 0.5.0 (2026-10-29, PR #53) | none |
 
 ## What works
@@ -29,6 +29,17 @@ _Last updated: 2026-10-29._
 | Trigger | First read of a folder adds its rules; first write is held once | 0.8 | |
 | Trigger | MCP tools: memory_search, memory_add, memory_pinned, memory_facts | 0.1 | |
 | Trigger | Status bar mod: counts, latest event, problems, the memory agent's state, this session's tally | mod 0.2 (layout 0.3) | `/memcode-status` dashboard |
+
+## Unreleased (memcode 0.19.2)
+
+- Fix, found testing 0.19.1 live: the worker rewrote each scan's result as a fresh JSON object, dropping
+  `judged_at`; the next scan then took the session for one read before judging existed and judged nothing. So
+  after a session's first scan, used / unused verdicts stopped. judged_at now survives the rewrite (a test runs
+  three scans in a row). Also seen: after yesterday's 20:55 restart the 0.18.0 code, from before the clock existed,
+  rejudged this session's earlier showings; those 16 verdicts were removed by hand again.
+- Correction to what was said while testing: since 0.17.0 the hooks start through the installed plugin's
+  bin/memcode, so a session runs the version that was installed when it started, not this working tree.
+- Tests: 281 Python, 14 mod.
 
 ## Latest release (memcode 0.19.1)
 
